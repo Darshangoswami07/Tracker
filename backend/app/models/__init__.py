@@ -27,6 +27,8 @@ from app.models.registration_request import RegistrationRequest
 from app.models.email_otp import EmailOTP
 from app.models.approval_log import ApprovalLog
 from app.models.audit_log import AuditLog
+from app.models.device import Device
+from app.models.license import License
 from app.models.sql_enum import enum_column
 
 __all__ = [
@@ -59,5 +61,7 @@ __all__ = [
     "EmailOTP",
     "ApprovalLog",
     "AuditLog",
+    "Device",
+    "License",
     "enum_column",
 ]

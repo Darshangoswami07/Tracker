@@ -3,9 +3,7 @@ import { RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpaci
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/useAppTheme';
-import { useAuthStore } from '../../store/authStore';
-import { api } from '../../api/client';
-import { ENDPOINTS } from '../../api/endpoints';
+import { orderRepository } from '../../database/repositories/orderRepository';
 import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
 import { EmptyState } from '../../components/EmptyState';
@@ -54,15 +52,15 @@ const formatDate = (iso: string): string => {
 
 /**
  * Mobile equivalent of the web Admin "GR / Shipments" page
- * (`admin/src/app/dashboard/orders/page.tsx`). Lists via the same
- * `GET /admin/orders` endpoint (Super Admin sees every company, every other
- * GR-access role is scoped to their own) with search, status filter, and
- * pagination, then opens `AdminGRDetailsScreen` for the full record.
+ * (`admin/src/app/dashboard/orders/page.tsx`). In the local-first
+ * architecture the GR list is read from the on-device SQLite repository
+ * (`orderRepository.list`) instead of `GET /admin/orders`, so it works
+ * fully offline. Search, status filter, and pagination behave the same as
+ * before; tapping a card opens `AdminGRDetailsScreen` for the full record.
  */
 export const AdminGRShipmentsScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { goBack, navigate, navigation } = useAppNav();
-  const accessToken = useAuthStore((state) => state.accessToken);
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
@@ -78,37 +76,31 @@ export const AdminGRShipmentsScreen = () => {
 
   const fetchGRs = useCallback(
     async (pageNum: number, mode: 'initial' | 'refresh' | 'more' = 'initial') => {
-      if (!accessToken) return;
+      console.log('[GR] fetchGRs START mode=', mode, 'page=', pageNum, 'statusTab=', statusTab, 'search=', search);
       if (mode === 'more') setLoadingMore(true);
       try {
-        const res = await api.get(ENDPOINTS.admin.orders.list, {
-          params: {
-            page: pageNum,
-            page_size: PAGE_SIZE,
-            status: FILTER_TO_STATUS[statusTab],
-            search: search || undefined,
-          },
+        const result = await orderRepository.list({
+          page: pageNum,
+          pageSize: PAGE_SIZE,
+          status: FILTER_TO_STATUS[statusTab],
+          search: search || undefined,
         });
-        const data = res.data?.data ?? { items: [] };
-        const newItems: GRListItem[] = data.items || [];
+        const newItems: GRListItem[] = result.items;
         setItems((prev) => (mode === 'more' ? [...prev, ...newItems] : newItems));
         setHasMore(newItems.length === PAGE_SIZE);
         setPage(pageNum);
         setError(null);
       } catch (err: any) {
-        const message =
-          err?.response?.data?.error?.message ??
-          (err?.message === 'Network Error'
-            ? 'Unable to connect to the server. Check your connection.'
-            : 'Could not load GR entries. Please try again.');
-        setError(message);
+          console.warn('[GR] fetchGRs ERROR', err?.message ?? err);
+        setError(err?.message ?? 'Could not load GR entries. Please try again.');
       } finally {
+          console.log('[GR] fetchGRs COMPLETE -> setLoading(false)');
         setLoading(false);
         setRefreshing(false);
         setLoadingMore(false);
       }
     },
-    [accessToken, search, statusTab]
+    [search, statusTab]
   );
 
   const didMount = useRef(false);

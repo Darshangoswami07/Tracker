@@ -5,14 +5,13 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAuthStore } from '../../store/authStore';
-import { api } from '../../api/client';
-import { ENDPOINTS } from '../../api/endpoints';
+import { orderRepository } from '../../database/repositories/orderRepository';
+import { syncLookupTables } from '../../database/sync';
 import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
 import { EmptyState } from '../../components/EmptyState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { AttachmentViewerModal, type ViewableAttachment } from '../../components/AttachmentViewerModal';
-import { uploadOrderAttachment } from '../../services/orderAttachments';
 import { useAppNav } from '../../hooks/useAppNav';
 import type { AppTheme } from '../../theme/types';
 
@@ -79,11 +78,11 @@ const formatDate = (iso: string | null): string => {
 /**
  * Mobile equivalent of the web GR Details drawer
  * (`admin/src/app/dashboard/orders/page.tsx`'s `GRDetailDrawer`), extended
- * with staff/driver assignment — endpoints the backend already exposes
- * (`POST /admin/orders/{id}/assign-driver` / `assign-staff`) that the web
- * page's own UI never wired up. Reads/writes the same `/admin/orders/{id}`,
- * `/admin/orders/{id}/status`, and shared `/orders/{id}/attachments`
- * endpoints. Reached from `AdminGRShipmentsScreen`; Back pops to that list.
+ * with staff/driver assignment. In the local-first architecture the full
+ * record is read and mutated through the on-device SQLite repository
+ * (`orderRepository`) so it works fully offline; driver/staff pickers are
+ * seeded from the control plane when online and cached locally. Reached from
+ * `AdminGRShipmentsScreen`; Back pops to that list.
  */
 export const AdminGRDetailsScreen = ({ route }: any) => {
   const { orderId } = route.params as { orderId: string };
@@ -109,19 +108,16 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
 
   const fetchDetail = useCallback(async () => {
     try {
-      const res = await api.get(ENDPOINTS.admin.orders.detail(orderId));
-      setGr(res.data?.data ?? null);
+      const gr = await orderRepository.getById(orderId);
+      if (!gr) {
+        setNotFound(true);
+        return;
+      }
+      setGr(gr);
       setError(null);
       setNotFound(false);
     } catch (err: any) {
-      if (err?.response?.status === 404) {
-        setNotFound(true);
-      } else {
-        setError(
-          err?.response?.data?.error?.message ??
-            (err?.message === 'Network Error' ? 'Unable to connect to the server.' : 'Could not load this GR. Please try again.')
-        );
-      }
+      setError(err?.message ?? 'Could not load this GR. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -143,38 +139,30 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   }, [navigation]);
 
   // Loaded once, best-effort, to resolve assigned driver/staff names and to
-  // populate the assignment pickers. Not fatal if it fails — the screen
-  // still functions, just shows raw ids instead of names.
+  // populate the assignment pickers. Seeds from the control plane when online
+  // and falls back to the locally cached rows, so names still resolve offline.
   useEffect(() => {
     (async () => {
-      try {
-        const res = await api.get(ENDPOINTS.admin.drivers, { params: { page_size: 100 } });
-        const items = res.data?.data?.items ?? [];
-        setDrivers(items.map((d: any) => ({ id: d.id, name: d.fullName })));
-      } catch {
-        /* picker stays empty */
-      }
-    })();
-    (async () => {
-      try {
-        const res = await api.get(ENDPOINTS.admin.users, { params: { page_size: 100, role: 'employee' } });
-        const items = res.data?.data?.items ?? [];
-        setStaff(items.map((u: any) => ({ id: u.id, name: `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.email })));
-      } catch {
-        /* picker stays empty */
-      }
-    })();
-  }, []);
+      await syncLookupTables(accessToken);
+      const [driverRows, staffRows] = await Promise.all([
+        orderRepository.listDrivers(),
+        orderRepository.listStaff(),
+      ]);
+      setDrivers(driverRows.map((d) => ({ id: d.id, name: d.name })));
+      setStaff(staffRows.map((s) => ({ id: s.id, name: s.name })));
+    })().catch(() => {
+      /* picker stays empty */
+    });
+  }, [accessToken]);
 
   const updateStatus = async (status: string) => {
     setStatusPickerOpen(false);
     if (!gr || status === gr.status) return;
     setUpdating(true);
     try {
-      const res = await api.patch(ENDPOINTS.admin.orders.updateStatus(orderId), { status });
-      setGr(res.data?.data ?? null);
+      setGr(await orderRepository.updateStatus(orderId, status));
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error?.message ?? 'Could not update the status. Please try again.');
+      Alert.alert('Error', err?.message ?? 'Could not update the status. Please try again.');
     } finally {
       setUpdating(false);
     }
@@ -187,14 +175,18 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
-    if (result.canceled || !accessToken) return;
+    if (result.canceled) return;
 
     setUploading(true);
     try {
-      await uploadOrderAttachment(orderId, result.assets[0].uri, accessToken);
+      await orderRepository.addAttachment(orderId, {
+        originalFilename: `slip_${orderId}.jpg`,
+        mimeType: 'image/jpeg',
+        localUri: result.assets[0].uri,
+      });
       await fetchDetail();
     } catch (err: any) {
-      Alert.alert('Upload Failed', err?.response?.data?.error?.message ?? 'Could not upload the slip. Please try again.');
+      Alert.alert('Upload Failed', err?.message ?? 'Could not save the slip. Please try again.');
     } finally {
       setUploading(false);
     }
@@ -204,14 +196,14 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
     if (!assignPicker) return;
     setAssigning(true);
     try {
-      const res =
+      setGr(
         assignPicker === 'driver'
-          ? await api.post(ENDPOINTS.admin.orders.assignDriver(orderId), { driverId: option.id })
-          : await api.post(ENDPOINTS.admin.orders.assignStaff(orderId), { staffId: option.id });
-      setGr(res.data?.data ?? null);
+          ? await orderRepository.assignDriver(orderId, option.id)
+          : await orderRepository.assignStaff(orderId, option.id)
+      );
       setAssignPicker(null);
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error?.message ?? `Could not assign ${assignPicker}. Please try again.`);
+      Alert.alert('Error', err?.message ?? `Could not assign ${assignPicker}. Please try again.`);
     } finally {
       setAssigning(false);
     }

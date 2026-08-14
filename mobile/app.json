@@ -7,12 +7,10 @@
     "icon": "./assets/icon.png",
     "scheme": "deliveryhub",
     "userInterfaceStyle": "automatic",
-
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.deliveryhub.app"
     },
-
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#0B1220",
@@ -23,12 +21,10 @@
       "package": "com.deliveryhub.app",
       "predictiveBackGestureEnabled": false
     },
-
     "web": {
       "favicon": "./assets/favicon.png",
       "bundler": "metro"
     },
-
     "plugins": [
       [
         "expo-splash-screen",
@@ -43,7 +39,8 @@
         }
       ],
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      "expo-sqlite"
     ]
   }
 }

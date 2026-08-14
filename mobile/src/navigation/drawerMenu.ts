@@ -71,6 +71,9 @@ export const getDrawerMenu = (role: Role): DrawerMenuSection[] => {
         { key: 'customer-tracking', label: 'Customer Tracking', icon: 'search-outline', screen: 'CustomerTracking' },
         { key: 'gr-tracker-classic', label: 'GR Tracker (Classic)', icon: 'time-outline', screen: 'GRTrackerClassic' },
       );
+      if (__DEV__) {
+        main.push({ key: 'sqlite-diag', label: 'SQLite Diagnostics (DEV)', icon: 'construct-outline', screen: 'SQLiteDiagnostics' });
+      }
       secondary.push(NOTIFICATIONS, PROFILE, SETTINGS);
       break;
 
@@ -85,6 +88,9 @@ export const getDrawerMenu = (role: Role): DrawerMenuSection[] => {
         { key: 'customer-tracking', label: 'Customer Tracking', icon: 'search-outline', screen: 'CustomerTracking' },
         { key: 'gr-tracker-classic', label: 'GR Tracker (Classic)', icon: 'time-outline', screen: 'GRTrackerClassic' },
       );
+      if (__DEV__) {
+        main.push({ key: 'sqlite-diag', label: 'SQLite Diagnostics (DEV)', icon: 'construct-outline', screen: 'SQLiteDiagnostics' });
+      }
       secondary.push(NOTIFICATIONS, PROFILE, SETTINGS);
       break;
   }

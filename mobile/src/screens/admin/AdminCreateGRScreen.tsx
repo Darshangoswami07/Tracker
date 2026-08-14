@@ -4,8 +4,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useUserStore } from '../../store/userStore';
-import { api } from '../../api/client';
-import { ENDPOINTS } from '../../api/endpoints';
+import { useAuthStore } from '../../store/authStore';
+import { orderRepository } from '../../database/repositories/orderRepository';
+import { syncLookupTables } from '../../database/sync';
 import { Header } from '../../components/Header';
 import { useAppNav } from '../../hooks/useAppNav';
 import type { AppTheme } from '../../theme/types';
@@ -53,14 +54,17 @@ const initialForm = (defaultCompanyId: string): FormState => ({
 
 /**
  * Mobile equivalent of the web `CreateGRModal`
- * (`admin/src/app/dashboard/orders/page.tsx`). Submits the exact same
- * `POST /admin/orders` payload contract. On success it replaces itself with
- * the new GR's details screen, and the GR list refetches on next focus.
+ * (`admin/src/app/dashboard/orders/page.tsx`). In the local-first
+ * architecture the GR is created directly in the on-device SQLite
+ * repository (`orderRepository.create`) rather than via `POST /admin/orders`,
+ * so it works fully offline. On success it replaces itself with the new GR's
+ * details screen, and the GR list refetches on next focus.
  */
 export const AdminCreateGRScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { goBack, navigate } = useAppNav();
   const role = useUserStore((state) => state.user?.role) ?? '';
+  const accessToken = useAuthStore((state) => state.accessToken);
   const isSuperAdminTier = SUPER_ADMIN_TIER_ROLES.includes(role);
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
@@ -75,16 +79,14 @@ export const AdminCreateGRScreen = () => {
   useEffect(() => {
     if (!isSuperAdminTier) return;
     (async () => {
-      try {
-        const res = await api.get(ENDPOINTS.admin.companies, { params: { page_size: 100 } });
-        setCompanies(res.data?.data?.items ?? []);
-      } catch {
-        // Non-fatal — the picker just stays empty; submit is blocked without a company.
-      } finally {
-        setLoadingCompanies(false);
-      }
-    })();
-  }, [isSuperAdminTier]);
+      await syncLookupTables(accessToken);
+      setCompanies(await orderRepository.listCompanies());
+    })().catch(() => {
+      /* Non-fatal — the picker just stays empty; submit is blocked without a company. */
+    }).finally(() => {
+      setLoadingCompanies(false);
+    });
+  }, [isSuperAdminTier, accessToken]);
 
   const set = (key: keyof FormState) => (value: string) => setForm((prev) => ({ ...prev, [key]: value }));
 
@@ -109,9 +111,9 @@ export const AdminCreateGRScreen = () => {
     setSubmitting(true);
     setErrorText(null);
     try {
-      const res = await api.post(ENDPOINTS.admin.orders.create, {
+      const created = await orderRepository.create({
         grNumber: form.grNumber.trim(),
-        companyId: form.companyId,
+        companyId: form.companyId || undefined,
         consignorName: form.consignorName.trim(),
         consigneeName: form.consigneeName.trim(),
         pickupAddress: form.pickupAddress.trim(),
@@ -121,7 +123,6 @@ export const AdminCreateGRScreen = () => {
         packageCount: form.packageCount.trim() ? Number(form.packageCount) : undefined,
         weight: form.weight.trim() ? Number(form.weight) : undefined,
       });
-      const created = res.data?.data;
       Alert.alert('GR Created', `GR ${created?.orderNumber ?? form.grNumber} was created successfully.`);
       if (created?.id) {
         navigate('GRDetails', { orderId: created.id });
@@ -129,10 +130,7 @@ export const AdminCreateGRScreen = () => {
         goBack();
       }
     } catch (err: any) {
-      setErrorText(
-        err?.response?.data?.error?.message ??
-          (err?.message === 'Network Error' ? 'Unable to connect to the server.' : 'Could not create the GR. Please try again.')
-      );
+      setErrorText(err?.message ?? 'Could not create the GR. Please try again.');
     } finally {
       setSubmitting(false);
     }

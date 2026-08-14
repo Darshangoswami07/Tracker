@@ -1,0 +1,37 @@
+import type { SQLiteDatabase } from 'expo-sqlite';
+import { CREATE_SCHEMA_SQL, DROP_SCHEMA_SQL, SCHEMA_VERSION } from './schema';
+
+/**
+ * Applies schema migrations by tracking `PRAGMA user_version`. New databases
+ * (version 0) get the full schema; future schema changes add versioned steps
+ * here without wiping existing on-device data.
+ */
+export const runMigrations = async (db: SQLiteDatabase): Promise<void> => {
+  console.log('[DB] migrations START');
+  const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+  let version = row?.user_version ?? 0;
+  console.log('[DB] migrations: current user_version =', version);
+
+  if (version > SCHEMA_VERSION) {
+    throw new Error(`Local database is newer (v${version}) than this app supports (v${SCHEMA_VERSION}).`);
+  }
+
+  if (version === 0) {
+      console.log('[DB] migration 1 START (CREATE_SCHEMA_SQL)');
+    await db.execAsync(CREATE_SCHEMA_SQL);
+    version = SCHEMA_VERSION;
+      console.log('[DB] migration 1 COMPLETE');
+  }
+
+  // Future migrations go here, e.g.:
+  // if (version === 1) { await db.execAsync(`ALTER TABLE ...`); version = 2; }
+
+  await db.execAsync(`PRAGMA user_version = ${version}`);
+  console.log('[DB] migrations COMPLETE, user_version =', version);
+};
+
+/** Test/utility helper — clears the entire local schema. */
+export const resetDatabase = async (db: SQLiteDatabase): Promise<void> => {
+  await db.execAsync(DROP_SCHEMA_SQL);
+  await runMigrations(db);
+};

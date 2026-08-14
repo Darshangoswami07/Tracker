@@ -3,8 +3,7 @@ import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, Touc
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/useAppTheme';
-import { api } from '../../api/client';
-import { ENDPOINTS } from '../../api/endpoints';
+import { orderRepository } from '../../database/repositories/orderRepository';
 import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
 import { EmptyState } from '../../components/EmptyState';
@@ -38,10 +37,10 @@ const emptyForm: FormState = {
 
 /**
  * Lets a GR-access role correct a GR's details after creation — consignor/
- * consignee, addresses, particulars, package count, weight, notes. Reuses
- * the existing `PATCH /admin/orders/{id}` endpoint (`update_gr` in
- * `backend/app/api/v1/gr.py`), which was already implemented server-side but
- * had no caller on either the web or mobile GR Details screen.
+ * consignee, addresses, particulars, package count, weight, notes. In the
+ * local-first architecture the record is read and saved through the on-device
+ * SQLite repository (`orderRepository`) instead of `PATCH /admin/orders/{id}`,
+ * so editing works fully offline.
  */
 export const AdminEditGRScreen = ({ route }: any) => {
   const { orderId } = route.params as { orderId: string };
@@ -58,25 +57,25 @@ export const AdminEditGRScreen = ({ route }: any) => {
 
   const fetchDetail = useCallback(async () => {
     try {
-      const res = await api.get(ENDPOINTS.admin.orders.detail(orderId));
-      const gr = res.data?.data;
-      setOrderNumber(gr?.orderNumber ?? '');
+      const gr = await orderRepository.getById(orderId);
+      if (!gr) {
+        setError('This GR could not be found.');
+        return;
+      }
+      setOrderNumber(gr.orderNumber ?? '');
       setForm({
-        consignorName: gr?.consignorName ?? '',
-        consigneeName: gr?.consigneeName ?? '',
-        pickupAddress: gr?.pickupAddress ?? '',
-        deliveryAddress: gr?.deliveryAddress ?? '',
-        particulars: gr?.particulars ?? '',
-        packageCount: gr?.packageCount != null ? String(gr.packageCount) : '',
-        weight: gr?.weight != null ? String(gr.weight) : '',
-        notes: gr?.notes ?? '',
+        consignorName: gr.consignorName ?? '',
+        consigneeName: gr.consigneeName ?? '',
+        pickupAddress: gr.pickupAddress ?? '',
+        deliveryAddress: gr.deliveryAddress ?? '',
+        particulars: gr.particulars ?? '',
+        packageCount: gr.packageCount != null ? String(gr.packageCount) : '',
+        weight: gr.weight != null ? String(gr.weight) : '',
+        notes: gr.notes ?? '',
       });
       setError(null);
     } catch (err: any) {
-      setError(
-        err?.response?.data?.error?.message ??
-          (err?.message === 'Network Error' ? 'Unable to connect to the server.' : 'Could not load this GR. Please try again.')
-      );
+      setError(err?.message ?? 'Could not load this GR. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -99,7 +98,7 @@ export const AdminEditGRScreen = ({ route }: any) => {
     setSubmitting(true);
     setErrorText(null);
     try {
-      await api.patch(ENDPOINTS.admin.orders.update(orderId), {
+      await orderRepository.update(orderId, {
         consignorName: form.consignorName.trim(),
         consigneeName: form.consigneeName.trim(),
         pickupAddress: form.pickupAddress.trim(),
@@ -112,10 +111,7 @@ export const AdminEditGRScreen = ({ route }: any) => {
       Alert.alert('GR Updated', `GR ${orderNumber} was updated successfully.`);
       goBack();
     } catch (err: any) {
-      setErrorText(
-        err?.response?.data?.error?.message ??
-          (err?.message === 'Network Error' ? 'Unable to connect to the server.' : 'Could not update the GR. Please try again.')
-      );
+      setErrorText(err?.message ?? 'Could not update the GR. Please try again.');
     } finally {
       setSubmitting(false);
     }

@@ -55,6 +55,16 @@ export const ENDPOINTS = {
   users: {
     me: '/users/me',
   },
+  /** Device binding / license (control plane). Mobile registers the physical
+   * device after activation to receive its license key; business data never
+   * touches these. */
+  devices: {
+    register: '/devices/register',
+    heartbeat: '/devices/heartbeat',
+    status: '/devices/status',
+    list: '/devices/',
+    revoke: '/devices/revoke',
+  },
   /** Still used by the admin-reused "GR Tracker (Classic)" screen
    * (StaffGRPanelScreen) — role-agnostic server-side for any GR-access role. */
   employee: '/employee',
