@@ -42,6 +42,7 @@ export interface LocalGRDetail {
   driverId: string | null;
   assignedStaffId: string | null;
   createdAt: string;
+  slipData: Record<string, unknown> | null;
   attachments: LocalAttachment[];
 }
 
@@ -57,6 +58,8 @@ export interface GRCreateInput {
   packageCount?: number;
   weight?: number;
   trackingCode?: string;
+  /** OCR-extracted slip snapshot (JSON string) persisted alongside the GR. */
+  slipData?: string;
 }
 
 export interface GRUpdateInput {
@@ -121,8 +124,19 @@ const rowToDetail = (row: any): LocalGRDetail => ({
   driverId: row.driverId ?? null,
   assignedStaffId: row.assignedStaffId ?? null,
   createdAt: row.createdAt,
+  slipData: parseSlipData(row.slipData),
   attachments: [],
 });
+
+const parseSlipData = (value: string | null | undefined): Record<string, unknown> | null => {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+};
 
 const rowToAttachment = (row: any): LocalAttachment => ({
   id: row.id,
@@ -138,7 +152,6 @@ export const orderRepository = {
    * GR number, consignor and consignee. Equivalent of `GET /admin/orders`.
    */
   async list(params: GRListParams = {}): Promise<GRListResult> {
-    console.log('[GR] orderRepository.list START', params);
     await ensureDatabaseReady();
     const db = await getDatabase();
     const page = params.page ?? 1;
@@ -158,7 +171,6 @@ export const orderRepository = {
 
     const where = `WHERE ${clauses.join(' AND ')}`;
 
-    console.log('[GR] SQL START', where);
     const countRow = await db.getFirstAsync<{ total: number }>(
       `SELECT COUNT(*) AS total FROM orders ${where}`,
       bind
@@ -168,7 +180,6 @@ export const orderRepository = {
       `SELECT * FROM orders ${where} ORDER BY createdAt DESC LIMIT ? OFFSET ?`,
       [...bind, pageSize, (page - 1) * pageSize]
     );
-    console.log('[GR] SQL COMPLETE rows =', rows.length, 'total =', countRow?.total);
 
     return { items: rows.map(rowToListItem), total: countRow?.total ?? 0 };
   },
@@ -196,8 +207,8 @@ export const orderRepository = {
       `INSERT INTO orders (
         id, orderNumber, companyId, consignorName, consigneeName, particulars,
         packageCount, pickupAddress, deliveryAddress, pickupTime, weight,
-        priority, status, trackingCode, hasSlip, createdAt, updatedAt, isDeleted
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        priority, status, trackingCode, hasSlip, slipData, createdAt, updatedAt, isDeleted
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         input.grNumber,
@@ -214,6 +225,7 @@ export const orderRepository = {
         'pending',
         input.trackingCode ?? null,
         0,
+        input.slipData ?? null,
         createdAt,
         createdAt,
         0,
@@ -292,7 +304,10 @@ export const orderRepository = {
   },
 
   /** Local record for an uploaded slip. Returns null if the order is missing. */
-  async addAttachment(orderId: string, attachment: { originalFilename: string; mimeType: string; localUri: string }): Promise<LocalAttachment | null> {
+  async addAttachment(
+    orderId: string,
+    attachment: { originalFilename: string; mimeType: string; localUri: string; fileSizeBytes?: number }
+  ): Promise<LocalAttachment | null> {
     await ensureDatabaseReady();
     const db = await getDatabase();
     const existing = await db.getFirstAsync<{ id: string }>('SELECT id FROM orders WHERE id = ?', orderId);
@@ -301,7 +316,7 @@ export const orderRepository = {
     await db.runAsync(
       `INSERT INTO order_attachments (id, orderId, fileKind, originalFilename, mimeType, fileSizeBytes, localUri, createdAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, orderId, 'generic', attachment.originalFilename, attachment.mimeType, 0, attachment.localUri, nowIso()]
+      [id, orderId, 'generic', attachment.originalFilename, attachment.mimeType, attachment.fileSizeBytes ?? 0, attachment.localUri, nowIso()]
     );
     await db.runAsync('UPDATE orders SET hasSlip = 1, updatedAt = ? WHERE id = ?', [nowIso(), orderId]);
     return this.getById(orderId)?.then((g) => g?.attachments.find((a) => a.id === id) ?? null);

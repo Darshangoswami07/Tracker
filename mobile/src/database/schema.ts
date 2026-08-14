@@ -9,7 +9,7 @@
  * Column names mirror `backend/app/models/order.py` so that a future online
  * sync can map rows 1:1 without transformation.
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * DDL executed against a fresh database (user_version == 0). Kept as a plain
@@ -50,6 +50,9 @@ CREATE TABLE IF NOT EXISTS orders (
   isActive           INTEGER NOT NULL DEFAULT 1,
   trackingCode       TEXT,
   hasSlip            INTEGER NOT NULL DEFAULT 0,
+  -- JSON snapshot of the OCR-extracted slip fields (added in v2 via migration
+  -- for installs that predate it; fresh databases get it inline below).
+  slipData           TEXT,
   createdAt          TEXT NOT NULL,
   updatedAt          TEXT NOT NULL,
   isDeleted          INTEGER NOT NULL DEFAULT 0

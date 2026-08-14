@@ -44,8 +44,6 @@ export type AdminStackParamList = {
   Profile: undefined;
   ChangePassword: undefined;
   HelpSupport: undefined;
-  /** TEMPORARY dev-only SQLite diagnostics. Remove before shipping. */
-  SQLiteDiagnostics: undefined;
 };
 
 export type AppStackParamList = AdminStackParamList;

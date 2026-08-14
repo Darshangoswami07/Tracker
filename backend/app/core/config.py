@@ -99,6 +99,14 @@ class Settings(BaseSettings):
     # reset token so flows can be exercised without a mail server.
     EXPOSE_RESET_TOKEN_IN_RESPONSE: bool = True
 
+    # --- OCR (GR slip extraction) -------------------------------------------
+    # Optional Google AI Studio / Gemini API key used by the admin OCR
+    # endpoint (`POST /admin/orders/ocr-extract`). When unset, the endpoint
+    # returns 503 ocr_service_unavailable so the app degrades gracefully.
+    GOOGLE_API_KEY: str = ""
+    # Vision model used for slip extraction (must support JSON mode).
+    GOOGLE_GEMINI_MODEL: str = "gemini-2.0-flash"
+
     # --- Email / SMTP ------------------------------------------------------
     # Transactional email provider: "brevo" (Brevo REST API, production
     # transport — 300 emails/day free, no credit card) or "smtp" (SMTP, only

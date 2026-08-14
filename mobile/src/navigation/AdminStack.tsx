@@ -37,7 +37,6 @@ export const AdminStack = () => {
       <Stack.Screen name="Profile" component={ProfileScreen} />
       <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
       <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
-      <Stack.Screen name="SQLiteDiagnostics" component={SQLiteDiagnosticsScreen} />
     </Stack.Navigator>
   );
 };
@@ -69,4 +68,3 @@ import { StaffManagementScreen } from '../screens/admin/StaffManagementScreen';
 import { ProfileScreen } from '../screens/common/ProfileScreen';
 import { ChangePasswordScreen } from '../screens/common/ChangePasswordScreen';
 import { HelpSupportScreen } from '../screens/common/HelpSupportScreen';
-import { SQLiteDiagnosticsScreen } from '../screens/admin/SQLiteDiagnosticsScreen';

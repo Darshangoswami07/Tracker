@@ -12,6 +12,7 @@ import { ShimmerCard } from '../../components/ShimmerCard';
 import { EmptyState } from '../../components/EmptyState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { AttachmentViewerModal, type ViewableAttachment } from '../../components/AttachmentViewerModal';
+import { persistSlipImage } from '../../services/slipStorage';
 import { useAppNav } from '../../hooks/useAppNav';
 import type { AppTheme } from '../../theme/types';
 
@@ -179,10 +180,16 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
 
     setUploading(true);
     try {
+      // Persist the picked image into the app's Documents directory first so
+      // the slip survives restarts and stays viewable fully offline from
+      // AttachmentViewerModal (gallery URIs are temporary cache entries the
+      // OS can evict at any time).
+      const persisted = await persistSlipImage(result.assets[0].uri, result.assets[0].mimeType ?? 'image/jpeg');
       await orderRepository.addAttachment(orderId, {
-        originalFilename: `slip_${orderId}.jpg`,
-        mimeType: 'image/jpeg',
-        localUri: result.assets[0].uri,
+        originalFilename: persisted.fileName,
+        mimeType: persisted.mimeType,
+        localUri: persisted.localUri,
+        fileSizeBytes: persisted.fileSizeBytes,
       });
       await fetchDetail();
     } catch (err: any) {

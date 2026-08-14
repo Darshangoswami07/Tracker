@@ -7,27 +7,26 @@ import { CREATE_SCHEMA_SQL, DROP_SCHEMA_SQL, SCHEMA_VERSION } from './schema';
  * here without wiping existing on-device data.
  */
 export const runMigrations = async (db: SQLiteDatabase): Promise<void> => {
-  console.log('[DB] migrations START');
   const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
   let version = row?.user_version ?? 0;
-  console.log('[DB] migrations: current user_version =', version);
 
   if (version > SCHEMA_VERSION) {
     throw new Error(`Local database is newer (v${version}) than this app supports (v${SCHEMA_VERSION}).`);
   }
 
   if (version === 0) {
-      console.log('[DB] migration 1 START (CREATE_SCHEMA_SQL)');
     await db.execAsync(CREATE_SCHEMA_SQL);
     version = SCHEMA_VERSION;
-      console.log('[DB] migration 1 COMPLETE');
   }
 
-  // Future migrations go here, e.g.:
-  // if (version === 1) { await db.execAsync(`ALTER TABLE ...`); version = 2; }
+  // v1 -> v2: add the OCR slip-data column to existing installs without
+  // touching any existing rows (ALTER TABLE ADD COLUMN never destroys data).
+  if (version === 1) {
+    await db.execAsync('ALTER TABLE orders ADD COLUMN slipData TEXT');
+    version = 2;
+  }
 
   await db.execAsync(`PRAGMA user_version = ${version}`);
-  console.log('[DB] migrations COMPLETE, user_version =', version);
 };
 
 /** Test/utility helper — clears the entire local schema. */

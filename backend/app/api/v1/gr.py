@@ -31,6 +31,7 @@ from app.schemas.order import (
     GRUpdateRequest,
     OrderAttachmentOut,
 )
+from app.services.ocr_service import extract_slip_fields
 from app.services.storage_service import resolve_absolute_path, save_upload
 from app.utils.responses import success
 
@@ -168,6 +169,20 @@ async def create_gr(payload: GRCreateRequest, admin: GRAccessUser) -> dict:
         status=OrderStatus.PENDING,
     )
     return success((await _gr_out(order)).model_dump(mode="json"), message="GR created successfully.")
+
+
+@router.post("/ocr-extract")
+async def extract_gr_from_slip(admin: GRAccessUser, file: UploadFile = File(...)) -> dict:
+    """Extracts GR fields from an uploaded transport slip image using a remote
+    vision model. Stateless: the extracted JSON is returned to the caller and
+    is never persisted here — the mobile app saves it into its on-device
+    SQLite repository. Requires a `GOOGLE_API_KEY` to be configured."""
+    mime_type = file.content_type or "image/jpeg"
+    data = await file.read()
+    if not data:
+        raise ValidationBusinessError("The uploaded file is empty.")
+    extracted = await extract_slip_fields(data, mime_type)
+    return success(extracted, message="Slip details extracted successfully.")
 
 
 @router.get("/{order_id}")

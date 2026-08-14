@@ -225,3 +225,15 @@ class RegistrationRequestExistsError(AppError):
         details: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message, details)
+
+
+class OCRServiceUnavailableError(AppError):
+    status_code = 503
+    code = "ocr_service_unavailable"
+    default_message = "The OCR service is not configured. Ask an administrator to set GOOGLE_API_KEY."
+
+
+class OCRServiceError(AppError):
+    status_code = 502
+    code = "ocr_service_error"
+    default_message = "The OCR service could not process this slip."
