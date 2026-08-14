@@ -1,0 +1,1 @@
+export { AnimatedHeader as AuthHeader } from './AnimatedHeader';

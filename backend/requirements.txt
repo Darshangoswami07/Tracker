@@ -1,0 +1,23 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+pydantic==2.12.4
+pydantic-settings==2.10.1
+email-validator==2.2.0
+sqlalchemy==2.0.43
+psycopg[binary]==3.2.9
+bcrypt==4.3.0
+PyJWT==2.10.1
+python-multipart==0.0.20
+alembic==1.16.4
+redis==6.4.0
+celery==5.5.3
+qrcode==8.2
+python-barcode==0.15.1
+openpyxl==3.1.5
+pillow==11.3.0
+aiofiles==24.1.0
+httpx==0.28.1
+
+# --- Development / testing ---
+pytest==8.4.1
+pytest-asyncio==1.1.0
