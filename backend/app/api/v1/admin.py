@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 
-from app.api.deps import AdminUser, CompanyAdminUser, require_roles
+from app.api.deps import AdminUser, CompanyAdminUser, SuperAdminUser, require_roles
 from app.core.tenancy import assert_same_company, effective_company_id
 from app.models.enums import UserRole
 from app.schemas.approval import (
@@ -42,7 +42,7 @@ AdminRequired = Depends(require_roles(UserRole.ADMIN, UserRole.DISPATCHER))
 
 @router.get("/registration-requests/stats")
 async def get_registration_request_stats(
-    admin: AdminUser,
+    admin: SuperAdminUser,
 ) -> dict:
     """Get stats for registration requests."""
     from app.repositories.registration_request_repository import RegistrationRequestRepository
@@ -53,7 +53,7 @@ async def get_registration_request_stats(
 
 @router.get("/registration-requests/pending")
 async def list_pending_requests(
-    admin: AdminUser,
+    admin: SuperAdminUser,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     search: str | None = None,
@@ -85,13 +85,13 @@ async def list_pending_requests(
 async def approve_request(
     request_id: str,
     payload: ApproveRequest,
-    admin: AdminUser,
+    admin: SuperAdminUser,
     background_tasks: BackgroundTasks,
 ) -> dict:
     """Approve a registration request and create an approval OTP for the user.
 
-    A plain ADMIN may only approve Staff (``employee``) or Driver
-    (``driver``) requests; SUPER_ADMIN is unrestricted.
+    Only SUPER_ADMIN may reach this mobile-app endpoint (Pending Approvals
+    was removed from the plain-Admin mobile experience).
 
     The approval is committed first and the OTP email is dispatched as a
     background task, so a quota-blocked SMTP account can never fail or hold
@@ -115,13 +115,13 @@ async def approve_request(
 async def reject_request(
     request_id: str,
     payload: RejectRequest,
-    admin: AdminUser,
+    admin: SuperAdminUser,
     background_tasks: BackgroundTasks,
 ) -> dict:
     """Reject a registration request.
 
-    A plain ADMIN may only reject Staff (``employee``) or Driver
-    (``driver``) requests; SUPER_ADMIN is unrestricted.
+    Only SUPER_ADMIN may reach this mobile-app endpoint (Pending Approvals
+    was removed from the plain-Admin mobile experience).
 
     The rejection email is dispatched as a background task so SMTP can never
     block or fail the rejection response.
@@ -138,7 +138,7 @@ async def reject_request(
 @router.post("/registration-requests/{request_id}/resend-otp")
 async def resend_approval_otp(
     request_id: str,
-    admin: AdminUser,
+    admin: SuperAdminUser,
 ) -> dict:
     """Resend approval OTP to user.
 
@@ -173,7 +173,7 @@ async def resend_approval_otp(
 @router.get("/registration-requests/{request_id}/logs")
 async def get_approval_logs(
     request_id: str,
-    admin: AdminUser,
+    admin: SuperAdminUser,
 ) -> dict:
     """Get approval logs for a registration request."""
     logs = await approval_service.get_approval_logs(request_id)

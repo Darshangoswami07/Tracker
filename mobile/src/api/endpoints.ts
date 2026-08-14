@@ -38,6 +38,7 @@ export const ENDPOINTS = {
       create: '/admin/orders',
       list: '/admin/orders',
       detail: (id: string) => `/admin/orders/${id}`,
+      update: (id: string) => `/admin/orders/${id}`,
       updateStatus: (id: string) => `/admin/orders/${id}/status`,
       assignDriver: (id: string) => `/admin/orders/${id}/assign-driver`,
       assignStaff: (id: string) => `/admin/orders/${id}/assign-staff`,

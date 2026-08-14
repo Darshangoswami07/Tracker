@@ -1,9 +1,11 @@
 """Tests for Staff/Driver registration + Admin-vs-Super-Admin approval scoping.
 
 Covers: requestedRole on signup, the role filter on the pending-requests
-listing, the ADMIN-vs-SUPER_ADMIN approval/rejection boundary, and the
+listing, that the mobile app's `/admin/registration-requests/*` endpoints
+(Pending Approvals) are Super Admin-only (a plain Admin is blocked entirely
+from this feature, both in the mobile UI and here at the API), and the
 security fixes to the unauthenticated/over-permissive registration_requests.py
-endpoints.
+endpoints (the separate router used by the Next.js admin web app, untouched).
 """
 from __future__ import annotations
 
@@ -80,11 +82,27 @@ async def create_active_user_and_login(client, role: UserRole, email: str, phone
 
 
 # --------------------------------------------------------------------------- #
-# 4-5: Role filter on pending-requests listing
+# Pending Approvals (`/admin/registration-requests/*`) is Super Admin-only —
+# a plain Admin is blocked from every action, regardless of the requested
+# role on the pending request.
 # --------------------------------------------------------------------------- #
-async def test_pending_role_filter_employee(client):
+async def test_admin_cannot_list_pending_requests(client):
     _, admin_token = await create_active_user_and_login(
         client, UserRole.ADMIN, "admin-filter1@example.com", "+15551000010"
+    )
+    await create_pending_request("pending-emp@example.com", "+15551000011", UserRole.EMPLOYEE)
+
+    resp = await client.get(
+        f"{ADMIN_BASE}/registration-requests/pending",
+        params={"role": "employee"},
+        headers=auth_headers(admin_token),
+    )
+    assert resp.status_code == 403, resp.text
+
+
+async def test_super_admin_pending_role_filter_employee(client):
+    _, sa_token = await create_active_user_and_login(
+        client, UserRole.SUPER_ADMIN, "sa-filter1@example.com", "+15551000010"
     )
     await create_pending_request("pending-emp@example.com", "+15551000011", UserRole.EMPLOYEE)
     await create_pending_request("pending-drv@example.com", "+15551000012", UserRole.DRIVER)
@@ -92,7 +110,7 @@ async def test_pending_role_filter_employee(client):
     resp = await client.get(
         f"{ADMIN_BASE}/registration-requests/pending",
         params={"role": "employee"},
-        headers=auth_headers(admin_token),
+        headers=auth_headers(sa_token),
     )
     assert resp.status_code == 200, resp.text
     items = resp.json()["data"]["items"]
@@ -101,9 +119,9 @@ async def test_pending_role_filter_employee(client):
     assert "pending-drv@example.com" not in emails
 
 
-async def test_pending_role_filter_driver(client):
-    _, admin_token = await create_active_user_and_login(
-        client, UserRole.ADMIN, "admin-filter2@example.com", "+15551000020"
+async def test_super_admin_pending_role_filter_driver(client):
+    _, sa_token = await create_active_user_and_login(
+        client, UserRole.SUPER_ADMIN, "sa-filter2@example.com", "+15551000020"
     )
     await create_pending_request("pending-emp2@example.com", "+15551000021", UserRole.EMPLOYEE)
     await create_pending_request("pending-drv2@example.com", "+15551000022", UserRole.DRIVER)
@@ -111,7 +129,7 @@ async def test_pending_role_filter_driver(client):
     resp = await client.get(
         f"{ADMIN_BASE}/registration-requests/pending",
         params={"role": "driver"},
-        headers=auth_headers(admin_token),
+        headers=auth_headers(sa_token),
     )
     assert resp.status_code == 200, resp.text
     items = resp.json()["data"]["items"]
@@ -120,10 +138,7 @@ async def test_pending_role_filter_driver(client):
     assert "pending-emp2@example.com" not in emails
 
 
-# --------------------------------------------------------------------------- #
-# 6-9: Admin approves/rejects Staff and Driver
-# --------------------------------------------------------------------------- #
-async def test_admin_approves_employee_request(client):
+async def test_admin_cannot_approve_employee_request(client):
     _, admin_token = await create_active_user_and_login(
         client, UserRole.ADMIN, "admin-approve-emp@example.com", "+15551000030"
     )
@@ -134,41 +149,10 @@ async def test_admin_approves_employee_request(client):
         json={},
         headers=auth_headers(admin_token),
     )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["data"]["approved"] is True
+    assert resp.status_code == 403, resp.text
 
 
-async def test_admin_approves_driver_request(client):
-    _, admin_token = await create_active_user_and_login(
-        client, UserRole.ADMIN, "admin-approve-drv@example.com", "+15551000040"
-    )
-    request = await create_pending_request("approve-drv@example.com", "+15551000041", UserRole.DRIVER)
-
-    resp = await client.post(
-        f"{ADMIN_BASE}/registration-requests/{request.id}/approve",
-        json={},
-        headers=auth_headers(admin_token),
-    )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["data"]["approved"] is True
-
-
-async def test_admin_rejects_employee_request(client):
-    _, admin_token = await create_active_user_and_login(
-        client, UserRole.ADMIN, "admin-reject-emp@example.com", "+15551000050"
-    )
-    request = await create_pending_request("reject-emp@example.com", "+15551000051", UserRole.EMPLOYEE)
-
-    resp = await client.post(
-        f"{ADMIN_BASE}/registration-requests/{request.id}/reject",
-        json={"reason": "Incomplete documents"},
-        headers=auth_headers(admin_token),
-    )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["data"]["rejected"] is True
-
-
-async def test_admin_rejects_driver_request(client):
+async def test_admin_cannot_reject_driver_request(client):
     _, admin_token = await create_active_user_and_login(
         client, UserRole.ADMIN, "admin-reject-drv@example.com", "+15551000060"
     )
@@ -179,59 +163,37 @@ async def test_admin_rejects_driver_request(client):
         json={"reason": "Invalid license"},
         headers=auth_headers(admin_token),
     )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["data"]["rejected"] is True
+    assert resp.status_code == 403, resp.text
 
 
-# --------------------------------------------------------------------------- #
-# 10-12: Admin is blocked from out-of-scope roles
-# --------------------------------------------------------------------------- #
-async def test_admin_can_approve_business_request(client):
-    _, admin_token = await create_active_user_and_login(
-        client, UserRole.ADMIN, "admin-block-approve-biz@example.com", "+15551000070"
+async def test_super_admin_approves_employee_request(client):
+    _, sa_token = await create_active_user_and_login(
+        client, UserRole.SUPER_ADMIN, "sa-approve-emp@example.com", "+15551000030"
     )
-    request = await create_pending_request("biz-approve@example.com", "+15551000071", UserRole.BUSINESS)
+    request = await create_pending_request("sa-approve-emp2@example.com", "+15551000031", UserRole.EMPLOYEE)
 
     resp = await client.post(
         f"{ADMIN_BASE}/registration-requests/{request.id}/approve",
         json={},
-        headers=auth_headers(admin_token),
+        headers=auth_headers(sa_token),
     )
-    # Matches the existing admin/ web app's approvals page, which already
-    # lets Admin review Business Owner/Dispatcher registrations alongside
-    # Staff/Driver — ADMIN_APPROVABLE_ROLES was widened to include this.
     assert resp.status_code == 200, resp.text
     assert resp.json()["data"]["approved"] is True
 
 
-async def test_admin_can_reject_business_request(client):
-    _, admin_token = await create_active_user_and_login(
-        client, UserRole.ADMIN, "admin-block-reject-biz@example.com", "+15551000080"
+async def test_super_admin_rejects_driver_request(client):
+    _, sa_token = await create_active_user_and_login(
+        client, UserRole.SUPER_ADMIN, "sa-reject-drv@example.com", "+15551000060"
     )
-    request = await create_pending_request("biz-reject@example.com", "+15551000081", UserRole.BUSINESS)
+    request = await create_pending_request("sa-reject-drv2@example.com", "+15551000061", UserRole.DRIVER)
 
     resp = await client.post(
         f"{ADMIN_BASE}/registration-requests/{request.id}/reject",
-        json={"reason": "n/a"},
-        headers=auth_headers(admin_token),
+        json={"reason": "Invalid license"},
+        headers=auth_headers(sa_token),
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["data"]["rejected"] is True
-
-
-async def test_admin_cannot_approve_admin_request(client):
-    _, admin_token = await create_active_user_and_login(
-        client, UserRole.ADMIN, "admin-block-approve-admin@example.com", "+15551000090"
-    )
-    request = await create_pending_request("admin-approve@example.com", "+15551000091", UserRole.ADMIN)
-
-    resp = await client.post(
-        f"{ADMIN_BASE}/registration-requests/{request.id}/approve",
-        json={},
-        headers=auth_headers(admin_token),
-    )
-    assert resp.status_code == 403, resp.text
-    assert resp.json()["error"]["code"] == "forbidden"
 
 
 # --------------------------------------------------------------------------- #

@@ -23,6 +23,7 @@ export const AdminStack = () => {
       <Stack.Screen name="GRShipments" component={AdminGRShipmentsScreen} />
       <Stack.Screen name="CreateGR" component={AdminCreateGRScreen} />
       <Stack.Screen name="GRDetails" component={AdminGRDetailsScreen} />
+      <Stack.Screen name="EditGR" component={AdminEditGRScreen} />
       <Stack.Screen name="CustomerTracking" component={CustomerTrackingScreen} />
       <Stack.Screen name="GRTrackerClassic" component={StaffGRPanelScreen} />
       <Stack.Screen name="OrderDetails" component={OrderDetailsScreen} />
@@ -48,6 +49,7 @@ import { OrderManagementScreen } from '../screens/admin/OrderManagementScreen';
 import { AdminGRShipmentsScreen } from '../screens/admin/AdminGRShipmentsScreen';
 import { AdminCreateGRScreen } from '../screens/admin/AdminCreateGRScreen';
 import { AdminGRDetailsScreen } from '../screens/admin/AdminGRDetailsScreen';
+import { AdminEditGRScreen } from '../screens/admin/AdminEditGRScreen';
 // Customer Tracking and GR Tracker (Classic) reuse the exact same
 // components already used by the Employee stack for these roles — the GR
 // lookup endpoint and the `/employee/orders` staff-panel endpoint are

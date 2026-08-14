@@ -31,10 +31,20 @@ export const uploadOrderAttachment = async (
   } as any);
   formData.append('fileKind', fileKind);
 
+  // The shared axios instance (`api/client.ts`) sets a default
+  // 'Content-Type: application/json' header. Axios's transformRequest
+  // special-cases FormData bodies ONLY when the effective content-type is
+  // *not* application/json — otherwise it JSON.stringifies the FormData,
+  // silently turning this into a broken JSON body. And hardcoding
+  // 'multipart/form-data' here instead would send that header with no
+  // boundary parameter, which FastAPI's multipart parser can't read either.
+  // Explicitly clearing the header (not just omitting it) is what lets
+  // React Native's XHR layer generate the real multipart Content-Type
+  // (with boundary) itself when it sees the FormData body.
   const response = await api.post(ENDPOINTS.orders.uploadAttachment(orderId), formData, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'multipart/form-data',
+      'Content-Type': undefined,
     },
   });
   return response.data.data;

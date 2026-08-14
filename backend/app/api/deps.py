@@ -115,6 +115,15 @@ def _require_admin(user: CurrentUser) -> User:
 AdminUser = Annotated[User, Depends(_require_admin)]
 
 
+def _require_super_admin(user: CurrentUser) -> User:
+    if not is_super_admin(user.role):
+        raise ForbiddenError()
+    return user
+
+
+SuperAdminUser = Annotated[User, Depends(_require_super_admin)]
+
+
 # --- Multi-tenant (company/tenant) role gates --------------------------------
 def _require_company_admin(user: CurrentUser) -> User:
     """Company Admin (BUSINESS_OWNER/BUSINESS) or platform-level Super Admin."""

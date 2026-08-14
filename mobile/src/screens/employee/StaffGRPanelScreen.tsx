@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -27,16 +27,11 @@ interface GREntry {
   hasSlip: boolean;
 }
 
-const NEXT_STATUS_OPTIONS: Record<string, string[]> = {
-  pending: ['assigned', 'cancelled'],
-  assigned: ['pickup', 'cancelled'],
-  pickup: ['in_transit'],
-  in_transit: ['delivered', 'failed', 'returned'],
-  delivered: [],
-  failed: ['in_transit'],
-  returned: [],
-  cancelled: [],
-};
+/** Every GR status, matching the web Staff Panel's `<select>`
+ * (`admin/src/components/tracker/StaffPanel.tsx`'s `STATUS_OPTIONS`) — that
+ * dropdown lets any GR-access role set a GR to any status at any time, not
+ * just the "next" one in a fixed pipeline. */
+const ALL_STATUSES = ['pending', 'assigned', 'pickup', 'in_transit', 'delivered', 'failed', 'returned', 'cancelled'];
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
@@ -72,6 +67,7 @@ export const StaffGRPanelScreen = () => {
   const [search, setSearch] = useState('');
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [statusPickerFor, setStatusPickerFor] = useState<GREntry | null>(null);
 
   const fetchEntries = useCallback(
     async (isRefresh = false) => {
@@ -111,26 +107,8 @@ export const StaffGRPanelScreen = () => {
     fetchEntries(true);
   };
 
-  const handleStatusTap = (entry: GREntry) => {
-    const options = NEXT_STATUS_OPTIONS[entry.status] || [];
-    if (options.length === 0) {
-      Alert.alert('No further updates', `${STATUS_LABELS[entry.status] || entry.status} is a final status.`);
-      return;
-    }
-    Alert.alert(
-      `Update GR ${entry.orderNumber}`,
-      'Choose the new status',
-      [
-        ...options.map((status) => ({
-          text: STATUS_LABELS[status] || status,
-          onPress: () => updateStatus(entry.id, status),
-        })),
-        { text: 'Cancel', style: 'cancel' as const },
-      ]
-    );
-  };
-
   const updateStatus = async (orderId: string, status: string) => {
+    setStatusPickerFor(null);
     if (!accessToken) return;
     setUpdatingId(orderId);
     try {
@@ -226,7 +204,7 @@ export const StaffGRPanelScreen = () => {
                   <Text style={styles.grNo}>{entry.orderNumber}</Text>
                   <TouchableOpacity
                     style={[styles.statusPill, { backgroundColor: `${STATUS_COLORS[entry.status] || '#6B7280'}18` }]}
-                    onPress={() => handleStatusTap(entry)}
+                    onPress={() => setStatusPickerFor(entry)}
                     disabled={updatingId === entry.id}
                   >
                     {updatingId === entry.id ? (
@@ -273,6 +251,38 @@ export const StaffGRPanelScreen = () => {
           )}
         </ScrollView>
       )}
+
+      <Modal visible={!!statusPickerFor} animationType="slide" transparent onRequestClose={() => setStatusPickerFor(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalSheet, { borderRadius: radii.xl }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {statusPickerFor ? `Update GR ${statusPickerFor.orderNumber}` : 'Update Status'}
+              </Text>
+              <TouchableOpacity onPress={() => setStatusPickerFor(null)} hitSlop={8}>
+                <Ionicons name="close" size={22} color={NAVY} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 420 }}>
+              {ALL_STATUSES.map((status) => (
+                <TouchableOpacity
+                  key={status}
+                  style={styles.optionRow}
+                  onPress={() => statusPickerFor && updateStatus(statusPickerFor.id, status)}
+                  disabled={!!updatingId}
+                >
+                  <Text style={styles.optionName}>{STATUS_LABELS[status] || status}</Text>
+                  {status === statusPickerFor?.status ? (
+                    <Ionicons name="checkmark" size={18} color={AMBER} />
+                  ) : (
+                    <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -304,6 +314,12 @@ const styles = StyleSheet.create({
   photoActionText: { fontSize: 12, fontWeight: '700', color: NAVY },
   slipBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   slipBadgeText: { fontSize: 11, color: '#10B981', fontWeight: '600' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  modalSheet: { backgroundColor: CREAM, padding: 20, maxHeight: '70%' },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  modalTitle: { fontSize: 16, fontWeight: '800', color: NAVY },
+  optionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#EDE4D3' },
+  optionName: { fontSize: 14, fontWeight: '600', color: NAVY },
 });
 
 export default StaffGRPanelScreen;

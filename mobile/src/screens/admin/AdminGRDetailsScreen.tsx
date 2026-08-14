@@ -49,20 +49,14 @@ interface PickerOption {
   name: string;
 }
 
-/** Same GR status transition graph the web GR Details drawer's "Update
- * Status" dropdown allows and the mobile GR Tracker (Classic) panel uses
- * (`screens/employee/StaffGRPanelScreen.tsx`), kept identical so mobile
- * Admin can't drive a GR into a transition the web app disallows. */
-const NEXT_STATUS_OPTIONS: Record<string, string[]> = {
-  pending: ['assigned', 'cancelled'],
-  assigned: ['pickup', 'cancelled'],
-  pickup: ['in_transit'],
-  in_transit: ['delivered', 'failed', 'returned'],
-  delivered: [],
-  failed: ['in_transit'],
-  returned: [],
-  cancelled: [],
-};
+/** Every GR status, matching the web GR Details drawer's "Update Status"
+ * `<select>` (`admin/src/app/dashboard/orders/page.tsx`'s `STATUS_OPTIONS`)
+ * exactly — that dropdown lets Admin set a GR to ANY status at any time, not
+ * just the "next" one in a pipeline. A prior version of this screen enforced
+ * a linear transition graph (e.g. blocking any change once a GR reached
+ * "delivered"), which the web reference never did and which is why Admin
+ * appeared unable to change status. */
+const ALL_STATUSES = ['pending', 'assigned', 'pickup', 'in_transit', 'delivered', 'failed', 'returned', 'cancelled'];
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
@@ -94,7 +88,7 @@ const formatDate = (iso: string | null): string => {
 export const AdminGRDetailsScreen = ({ route }: any) => {
   const { orderId } = route.params as { orderId: string };
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
-  const { goBack } = useAppNav();
+  const { goBack, navigate, navigation } = useAppNav();
   const accessToken = useAuthStore((state) => state.accessToken);
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
@@ -111,6 +105,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const [staff, setStaff] = useState<PickerOption[]>([]);
   const [assignPicker, setAssignPicker] = useState<'driver' | 'staff' | null>(null);
   const [assigning, setAssigning] = useState(false);
+  const [statusPickerOpen, setStatusPickerOpen] = useState(false);
 
   const fetchDetail = useCallback(async () => {
     try {
@@ -136,6 +131,17 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
     fetchDetail();
   }, [fetchDetail]);
 
+  // Refetch when returning from Edit GR so field changes made there show up
+  // immediately, without a manual pull-to-refresh (no pull-to-refresh gesture
+  // exists on this screen at all).
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      fetchDetail();
+    });
+    return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigation]);
+
   // Loaded once, best-effort, to resolve assigned driver/staff names and to
   // populate the assignment pickers. Not fatal if it fails — the screen
   // still functions, just shows raw ids instead of names.
@@ -160,24 +166,9 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
     })();
   }, []);
 
-  const handleUpdateStatus = () => {
-    if (!gr) return;
-    const options = NEXT_STATUS_OPTIONS[gr.status] || [];
-    if (options.length === 0) {
-      Alert.alert('No further updates', `${STATUS_LABELS[gr.status] || gr.status} is a final status.`);
-      return;
-    }
-    Alert.alert(
-      `Update GR ${gr.orderNumber}`,
-      'Choose the new status',
-      [
-        ...options.map((status) => ({ text: STATUS_LABELS[status] || status, onPress: () => updateStatus(status) })),
-        { text: 'Cancel', style: 'cancel' as const },
-      ]
-    );
-  };
-
   const updateStatus = async (status: string) => {
+    setStatusPickerOpen(false);
+    if (!gr || status === gr.status) return;
     setUpdating(true);
     try {
       const res = await api.patch(ENDPOINTS.admin.orders.updateStatus(orderId), { status });
@@ -278,7 +269,11 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-      <Header title="GR Details" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
+      <Header
+        title="GR Details"
+        leftAction={{ icon: 'chevron-back', onPress: goBack }}
+        rightAction={{ icon: 'create-outline', onPress: () => navigate('EditGR', { orderId }), accessibilityLabel: 'Edit GR' }}
+      />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.titleRow}>
           <View>
@@ -335,7 +330,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
 
         <TouchableOpacity
           style={[styles.statusButton, { backgroundColor: colors.primary, borderRadius: radii.md, opacity: updating ? 0.6 : 1 }]}
-          onPress={handleUpdateStatus}
+          onPress={() => setStatusPickerOpen(true)}
           disabled={updating}
           activeOpacity={0.85}
         >
@@ -424,6 +419,36 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
                   </TouchableOpacity>
                 ))
               )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={statusPickerOpen} animationType="slide" transparent onRequestClose={() => setStatusPickerOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalSheet, { backgroundColor: colors.background, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Update Status</Text>
+              <TouchableOpacity onPress={() => setStatusPickerOpen(false)} hitSlop={8}>
+                <Ionicons name="close" size={22} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 420 }}>
+              {ALL_STATUSES.map((status) => (
+                <TouchableOpacity
+                  key={status}
+                  style={[styles.optionRow, { borderBottomColor: colors.border }]}
+                  onPress={() => updateStatus(status)}
+                  disabled={updating}
+                >
+                  <Text style={[styles.optionName, { color: colors.textPrimary }]}>{STATUS_LABELS[status] || status}</Text>
+                  {status === gr?.status ? (
+                    <Ionicons name="checkmark" size={18} color={colors.primary} />
+                  ) : updating ? null : (
+                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                  )}
+                </TouchableOpacity>
+              ))}
             </ScrollView>
           </View>
         </View>

@@ -3,6 +3,7 @@ import { RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpaci
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAuthStore } from '../../store/authStore';
+import { useUserStore } from '../../store/userStore';
 import { api } from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
 import { Header } from '../../components/Header';
@@ -43,6 +44,7 @@ export const StaffManagementScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { goBack } = useAppNav();
   const accessToken = useAuthStore((state) => state.accessToken);
+  const isSuperAdmin = useUserStore((state) => state.user?.role === 'super_admin');
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
   const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -107,6 +109,22 @@ export const StaffManagementScreen = () => {
       setProcessingId(null);
     }
   };
+
+  // Staff Management is Super Admin-only in the mobile app.
+  if (!isSuperAdmin) {
+    return (
+      <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
+        <View style={styles.header}>
+          <Header title="Staff Management" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
+        </View>
+        <EmptyState
+          icon="lock-closed-outline"
+          title="Not available"
+          subtitle="Staff Management is only available to Super Admin."
+        />
+      </SafeAreaView>
+    );
+  }
 
   if (loading) {
     return (

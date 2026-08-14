@@ -7,6 +7,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator, model_validato
 
 from app.models.enums import UserRole
 from app.schemas.user import UserOut
+from app.utils.company import normalize_company_name
 
 PASSWORD_MIN = 8
 PASSWORD_MAX = 72  # bcrypt ignores bytes beyond 72.

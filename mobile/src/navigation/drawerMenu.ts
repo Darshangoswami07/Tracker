@@ -61,13 +61,25 @@ export const getDrawerMenu = (role: Role): DrawerMenuSection[] => {
   const actions: DrawerMenuItem[] = [HELP, LOGOUT];
 
   switch (role) {
-    case ROLES.ADMIN:
     case ROLES.SUPER_ADMIN:
-    default:
       main.push(
         { key: 'dashboard', label: 'Dashboard', icon: 'grid-outline', screen: 'AdminDashboard' },
         { key: 'pending-approvals', label: 'Pending Approvals', icon: 'time-outline', screen: 'PendingApprovals' },
         { key: 'staff-management', label: 'Staff Management', icon: 'people-circle-outline', screen: 'StaffManagement' },
+        { key: 'order-management', label: 'Orders', icon: 'cube-outline', screen: 'OrderManagement' },
+        { key: 'gr-shipments', label: 'GR / Shipments', icon: 'reader-outline', screen: 'GRShipments' },
+        { key: 'customer-tracking', label: 'Customer Tracking', icon: 'search-outline', screen: 'CustomerTracking' },
+        { key: 'gr-tracker-classic', label: 'GR Tracker (Classic)', icon: 'time-outline', screen: 'GRTrackerClassic' },
+      );
+      secondary.push(NOTIFICATIONS, PROFILE, SETTINGS);
+      break;
+
+    case ROLES.ADMIN:
+    default:
+      // Pending Approvals and Staff Management are Super Admin-only — a plain
+      // Admin's backing endpoints for the former are also locked server-side.
+      main.push(
+        { key: 'dashboard', label: 'Dashboard', icon: 'grid-outline', screen: 'AdminDashboard' },
         { key: 'order-management', label: 'Orders', icon: 'cube-outline', screen: 'OrderManagement' },
         { key: 'gr-shipments', label: 'GR / Shipments', icon: 'reader-outline', screen: 'GRShipments' },
         { key: 'customer-tracking', label: 'Customer Tracking', icon: 'search-outline', screen: 'CustomerTracking' },

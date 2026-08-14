@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAuthStore } from '../../store/authStore';
+import { useUserStore } from '../../store/userStore';
 import { api } from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
 import { StatCard } from '../../components/StatCard';
@@ -37,6 +38,7 @@ interface RecentActivity {
 export const AdminDashboardScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const accessToken = useAuthStore((state) => state.accessToken);
+  const isSuperAdmin = useUserStore((state) => state.user?.role === 'super_admin');
   const { openDrawer, goToNotifications, navigation } = useAppNav();
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
@@ -189,13 +191,15 @@ setStats(statsRes.data.data);
               icon="clipboard-outline"
               color="#10B981"
             />
-            <StatCard
-              title="Pending Approvals"
-              value={stats?.pendingApprovals ? stats.pendingApprovals.toLocaleString() : '0'}
-              icon="time-outline"
-              color="#F59E0B"
-              trend={{ value: stats?.pendingApprovals || 0, label: 'need review' }}
-            />
+            {isSuperAdmin ? (
+              <StatCard
+                title="Pending Approvals"
+                value={stats?.pendingApprovals ? stats.pendingApprovals.toLocaleString() : '0'}
+                icon="time-outline"
+                color="#F59E0B"
+                trend={{ value: stats?.pendingApprovals || 0, label: 'need review' }}
+              />
+            ) : null}
           </View>
 
           <View style={styles.systemHealthCard}>
@@ -217,7 +221,9 @@ setStats(statsRes.data.data);
           <View style={styles.quickActions}>
             <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Quick Actions</Text>
             <View style={styles.actionsGrid}>
-              <AdminActionCard icon="person-add-outline" label="Pending Approvals" color="#10B981" badge={stats?.pendingApprovals || 0} onPress={() => navigation.navigate('PendingApprovals' as never)} />
+              {isSuperAdmin ? (
+                <AdminActionCard icon="person-add-outline" label="Pending Approvals" color="#10B981" badge={stats?.pendingApprovals || 0} onPress={() => navigation.navigate('PendingApprovals' as never)} />
+              ) : null}
               <AdminActionCard icon="people-outline" label="User Management" color="#635BFF" onPress={() => navigation.navigate('UserManagement' as never)} />
               <AdminActionCard icon="person-outline" label="Driver Management" color="#8B5CF6" onPress={() => navigation.navigate('DriverManagement' as never)} />
               <AdminActionCard icon="car-outline" label="Vehicle Management" color="#F97316" onPress={() => navigation.navigate('VehicleManagement' as never)} />

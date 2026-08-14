@@ -30,6 +30,7 @@ export type AdminStackParamList = {
   GRShipments: undefined;
   CreateGR: undefined;
   GRDetails: { orderId: string };
+  EditGR: { orderId: string };
   CustomerTracking: { grNumber?: string } | undefined;
   GRTrackerClassic: undefined;
   OrderDetails: { orderId: string };

@@ -200,6 +200,23 @@ export const PendingApprovalsScreen = () => {
     ? 'No pending registration requests'
     : `No pending ${roleTab} requests`;
 
+  // Pending Approvals is Super Admin-only; the backing endpoints are also
+  // locked server-side for a plain Admin.
+  if (!isSuperAdmin) {
+    return (
+      <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
+        <View style={styles.header}>
+          <Header title="Pending Approvals" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
+        </View>
+        <EmptyState
+          icon="lock-closed-outline"
+          title="Not available"
+          subtitle="Pending Approvals is only available to Super Admin."
+        />
+      </SafeAreaView>
+    );
+  }
+
   if (loading) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
