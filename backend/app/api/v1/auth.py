@@ -9,7 +9,6 @@ from app.api.deps import get_user_agent
 from app.models.enums import UserRole
 from app.schemas.auth import (
     AuthResponse,
-    CustomerRegisterRequest,
     ForgotPasswordRequest,
     LoginRequest,
     LogoutRequest,
@@ -18,11 +17,9 @@ from app.schemas.auth import (
     RegisterRequest,
     ResumeRegistrationResponse,
     ResetPasswordRequest,
-    UserOut,
 )
 from app.services.auth_service import auth_service
 from app.services.registration_service import registration_service
-from app.services.token_service import token_service
 from app.utils.responses import success
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -44,7 +41,6 @@ async def register(
         phone=payload.phone,
         password=payload.password,
         requested_role=UserRole(payload.requestedRole),
-        company_id=payload.companyId,
     )
 
     # Email notifications are side effects — background them so SMTP (Gmail
@@ -73,27 +69,6 @@ async def register(
             message=result.message,
         ).model_dump(mode="json"),
         message=result.message,
-    )
-
-
-@router.post("/register/customer")
-async def register_customer(payload: CustomerRegisterRequest, user_agent: UserAgent) -> dict:
-    """Self-service signup for customer accounts (no admin approval, no company).
-
-    Returns an authenticated session immediately so the customer lands on
-    their dashboard right after creating the account.
-    """
-    user = await registration_service.create_customer_account(
-        first_name=payload.firstName,
-        last_name=payload.lastName,
-        email=payload.email,
-        phone=payload.phone,
-        password=payload.password,
-    )
-    tokens = await token_service.issue_tokens(user, user_agent=user_agent)
-    return success(
-        AuthResponse(user=UserOut.model_validate(user), tokens=tokens).model_dump(mode="json"),
-        message="Account created successfully.",
     )
 
 

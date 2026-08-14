@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from typing import Literal, Optional
-from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
@@ -18,12 +17,10 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     phone: str = Field(min_length=10, max_length=15)
     password: str = Field(min_length=PASSWORD_MIN, max_length=PASSWORD_MAX)
-    requestedRole: Literal["employee", "driver", "admin"] = "employee"
-    # Company selection is role-dependent (see validate_company_fields):
-    # admin supplies ``companyName`` (free text); staff/driver supply
-    # ``companyId`` picked from the public companies list.
+    requestedRole: Literal["admin"] = "admin"
+    # Admin registrations supply a free-text company name; the backend
+    # creates/finds the company and links it.
     companyName: Optional[str] = Field(default=None, max_length=160)
-    companyId: Optional[UUID] = None
 
     @field_validator("fullName")
     @classmethod
@@ -54,48 +51,9 @@ class RegisterRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_company_fields(self) -> "RegisterRequest":
-        if self.requestedRole == "admin":
-            if not self.companyName:
-                raise ValueError("Company name is required for admin registration")
-            self.companyId = None
-        else:
-            if not self.companyId:
-                raise ValueError("Please select a company")
-            self.companyName = None
+        if not self.companyName:
+            raise ValueError("Company name is required for admin registration")
         return self
-
-
-class CustomerRegisterRequest(BaseModel):
-    """Self-service signup for end-user customer accounts.
-
-    Customers are platform users, NOT members of any company: they create a
-    personal account (active immediately, no admin approval, no company) so
-    they can track parcels and manage their own orders.
-    """
-    firstName: str = Field(min_length=1, max_length=60)
-    lastName: str = Field(min_length=1, max_length=60)
-    email: EmailStr
-    phone: str = Field(min_length=10, max_length=15)
-    password: str = Field(min_length=PASSWORD_MIN, max_length=PASSWORD_MAX)
-
-    @field_validator("firstName", "lastName")
-    @classmethod
-    def name_not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("Field cannot be blank")
-        return value.strip()
-
-    @field_validator("phone", mode="before")
-    @classmethod
-    def normalize_phone(cls, value: str) -> str:
-        value = value.strip()
-        digits = [ch for ch in value if ch.isdigit() or ch == "+"]
-        normalized = "".join(digits)
-        if not normalized.lstrip("+").isdigit():
-            raise ValueError("Phone must contain only digits and an optional leading +")
-        if not 10 <= len(normalized.lstrip("+")) <= 15:
-            raise ValueError("Phone number must be between 10 and 15 digits")
-        return normalized
 
 
 class LoginRequest(BaseModel):

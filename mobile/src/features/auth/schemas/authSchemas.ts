@@ -25,10 +25,10 @@ export const loginSchema = z.object({
   rememberMe: z.boolean(),
 });
 
-/** Which account a user picked on the role-selection screen (Customer/Staff/Driver/Admin). */
+/** Which account a user picked on the role-selection screen (Admin only). */
 export type { RegisterAccountType };
 
-export const requestedRole = z.enum(['employee', 'driver', 'admin']);
+export const requestedRole = z.enum(['admin']);
 
 const registerBaseSchema = z
   .object({
@@ -41,7 +41,6 @@ const registerBaseSchema = z
       .min(1, { message: 'Last name is required.' })
       .max(60, { message: 'Last name is too long.' }),
     companyName: z.string().optional(),
-    companyId: z.string().optional(),
     email,
     phone,
     password,
@@ -59,39 +58,25 @@ const registerBaseSchema = z
 
 /** Register form schema for a specific account type (the role is fixed by the
  * route, so the form never re-asks the user to pick one). */
-export const registerSchemaFor = (accountType: RegisterAccountType) =>
+export const registerSchemaFor = (_accountType: RegisterAccountType) =>
   registerBaseSchema.superRefine((values, ctx) => {
     // Admin types their own company (the backend creates/finds it).
-    if (accountType === 'admin') {
-      if (!values.companyName || values.companyName.trim().length === 0) {
-        ctx.addIssue({
-          path: ['companyName'],
-          code: 'custom',
-          message: 'Company name is required.',
-        });
-      } else if (values.companyName.trim().length > 160) {
-        ctx.addIssue({
-          path: ['companyName'],
-          code: 'custom',
-          message: 'Company name is too long.',
-        });
-      }
+    if (!values.companyName || values.companyName.trim().length === 0) {
+      ctx.addIssue({
+        path: ['companyName'],
+        code: 'custom',
+        message: 'Company name is required.',
+      });
+    } else if (values.companyName.trim().length > 160) {
+      ctx.addIssue({
+        path: ['companyName'],
+        code: 'custom',
+        message: 'Company name is too long.',
+      });
     }
-    // Staff/Driver must pick a company from the list.
-    else if (accountType === 'staff' || accountType === 'driver') {
-      if (!values.companyId || values.companyId.trim().length === 0) {
-        ctx.addIssue({
-          path: ['companyId'],
-          code: 'custom',
-          message: 'Please select a company.',
-        });
-      }
-    }
-    // Customers never carry a company, so no extra validation applies.
   });
 
-/** Backwards-compatible alias: an employee/staff signup form. */
-export const registerSchema = registerSchemaFor('staff');
+export const registerSchema = registerSchemaFor('admin');
 
 export const forgotPasswordSchema = z.object({
   email,

@@ -58,11 +58,12 @@ const SETTINGS: DrawerMenuItem = {
 export const getDrawerMenu = (role: Role): DrawerMenuSection[] => {
   const main: DrawerMenuItem[] = [];
   const secondary: DrawerMenuItem[] = [];
-  let actions: DrawerMenuItem[] = [HELP, LOGOUT];
+  const actions: DrawerMenuItem[] = [HELP, LOGOUT];
 
   switch (role) {
     case ROLES.ADMIN:
     case ROLES.SUPER_ADMIN:
+    default:
       main.push(
         { key: 'dashboard', label: 'Dashboard', icon: 'grid-outline', screen: 'AdminDashboard' },
         { key: 'pending-approvals', label: 'Pending Approvals', icon: 'time-outline', screen: 'PendingApprovals' },
@@ -73,59 +74,6 @@ export const getDrawerMenu = (role: Role): DrawerMenuSection[] => {
         { key: 'gr-tracker-classic', label: 'GR Tracker (Classic)', icon: 'time-outline', screen: 'GRTrackerClassic' },
       );
       secondary.push(NOTIFICATIONS, PROFILE, SETTINGS);
-      break;
-
-    case ROLES.DISPATCHER:
-    case ROLES.EMPLOYEE:
-      main.push(
-        { key: 'dashboard', label: 'Dashboard', icon: 'grid-outline', screen: 'EmployeeDashboard' },
-        { key: 'gr-panel', label: 'GR / Shipments', icon: 'reader-outline', screen: 'StaffGRPanel' },
-        { key: 'customer-tracking', label: 'Customer Tracking', icon: 'search-outline', screen: 'CustomerTracking' },
-        { key: 'orders', label: 'Orders', icon: 'cube-outline', screen: 'Orders' },
-      );
-      secondary.push(NOTIFICATIONS, PROFILE, SETTINGS, HELP);
-      actions = [LOGOUT];
-      break;
-
-    case ROLES.DRIVER:
-      main.push(
-        { key: 'dashboard', label: 'Dashboard', icon: 'grid-outline', screen: 'DriverDashboard' },
-        { key: 'today', label: "Today's Deliveries", icon: 'today-outline', screen: 'TodayDeliveries' },
-        { key: 'assigned', label: 'Assigned Deliveries', icon: 'clipboard-outline', screen: 'AssignedOrders' },
-        { key: 'completed', label: 'Completed', icon: 'checkmark-done-outline', screen: 'CompletedOrders' },
-        { key: 'earnings', label: 'Earnings', icon: 'cash-outline', screen: 'Earnings' },
-        { key: 'vehicle-status', label: 'My Vehicle', icon: 'car-outline', screen: 'VehicleStatus' },
-      );
-      secondary.push(NOTIFICATIONS, PROFILE, SETTINGS);
-      break;
-
-    case ROLES.BUSINESS:
-    case ROLES.BUSINESS_OWNER:
-      main.push(
-        { key: 'dashboard', label: 'Dashboard', icon: 'grid-outline', screen: 'BusinessDashboard' },
-        { key: 'orders', label: 'Orders', icon: 'cube-outline', screen: 'Orders' },
-        { key: 'customers', label: 'Customers', icon: 'people-outline', screen: 'Customers' },
-        { key: 'drivers', label: 'Drivers', icon: 'person-outline', screen: 'Drivers' },
-        { key: 'vehicles', label: 'Vehicles', icon: 'car-outline', screen: 'Vehicles' },
-        { key: 'analytics', label: 'Analytics', icon: 'analytics-outline', screen: 'Analytics' },
-        { key: 'reports', label: 'Reports', icon: 'bar-chart-outline', screen: 'Reports' },
-      );
-      secondary.push(NOTIFICATIONS, PROFILE, SETTINGS);
-      break;
-
-    case ROLES.CUSTOMER:
-    default:
-      // Users (Customers) get a focused customer experience: Dashboard,
-      // Track Shipment (GR lookup) and My Shipments in the main section,
-      // plus the shared General items. Logout sits in its own standout
-      // section (rendered as a destructive row by the drawer content).
-      main.push(
-        { key: 'dashboard', label: 'Dashboard', icon: 'grid-outline', screen: 'CustomerDashboard' },
-        { key: 'customer-tracking', label: 'Track Shipment', icon: 'search-outline', screen: 'CustomerTracking' },
-        { key: 'my-shipments', label: 'My Shipments', icon: 'cube-outline', screen: 'MyOrders' },
-      );
-      secondary.push(NOTIFICATIONS, PROFILE, SETTINGS, HELP);
-      actions = [LOGOUT];
       break;
   }
 

@@ -13,7 +13,6 @@ from app.core.security import hash_password
 from app.database.db import session_scope
 from app.models.enums import RegistrationStatus, UserRole
 from app.models.registration_request import RegistrationRequest
-from app.repositories.company_repository import CompanyRepository
 from app.repositories.user_repository import UserRepository
 
 AUTH_BASE = "/api/v1/auth"
@@ -23,12 +22,6 @@ REG_BASE = "/api/v1/registration-requests"
 
 def auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
-
-
-async def make_company_id() -> str:
-    """Creates a registration-eligible company and returns its id."""
-    company = await CompanyRepository().create_company(name="Acme Logistics Pvt Ltd")
-    return str(company.id)
 
 
 async def create_pending_request(
@@ -84,75 +77,6 @@ async def create_active_user_and_login(client, role: UserRole, email: str, phone
     assert resp.status_code == 200, resp.text
     token = resp.json()["data"]["tokens"]["accessToken"]
     return user, token
-
-
-# --------------------------------------------------------------------------- #
-# 1-3: Driver registration support
-# --------------------------------------------------------------------------- #
-async def test_register_with_employee_role_explicit(client):
-    company_id = await make_company_id()
-    resp = await client.post(
-        f"{AUTH_BASE}/register",
-        json={
-            "fullName": "Employee Applicant",
-            "email": "staff-applicant@example.com",
-            "phone": "+15551000001",
-            "password": "StrongPass123!",
-            "requestedRole": "employee",
-            "companyId": company_id,
-        },
-    )
-    assert resp.status_code == 200, resp.text
-
-    from app.repositories.registration_request_repository import RegistrationRequestRepository
-
-    request = await RegistrationRequestRepository().find_by_email("staff-applicant@example.com")
-    assert request is not None
-    assert request.requestedRole == UserRole.EMPLOYEE
-
-
-async def test_register_with_driver_role(client):
-    company_id = await make_company_id()
-    resp = await client.post(
-        f"{AUTH_BASE}/register",
-        json={
-            "fullName": "Driver Applicant",
-            "email": "driver-applicant@example.com",
-            "phone": "+15551000002",
-            "password": "StrongPass123!",
-            "requestedRole": "driver",
-            "companyId": company_id,
-        },
-    )
-    assert resp.status_code == 200, resp.text
-
-    from app.repositories.registration_request_repository import RegistrationRequestRepository
-
-    request = await RegistrationRequestRepository().find_by_email("driver-applicant@example.com")
-    assert request is not None
-    assert request.requestedRole == UserRole.DRIVER
-
-
-async def test_register_default_role_is_employee(client):
-    """Existing clients that never send requestedRole must still default to employee."""
-    company_id = await make_company_id()
-    resp = await client.post(
-        f"{AUTH_BASE}/register",
-        json={
-            "fullName": "Legacy Client Applicant",
-            "email": "legacy-applicant@example.com",
-            "phone": "+15551000003",
-            "password": "StrongPass123!",
-            "companyId": company_id,
-        },
-    )
-    assert resp.status_code == 200, resp.text
-
-    from app.repositories.registration_request_repository import RegistrationRequestRepository
-
-    request = await RegistrationRequestRepository().find_by_email("legacy-applicant@example.com")
-    assert request is not None
-    assert request.requestedRole == UserRole.EMPLOYEE
 
 
 # --------------------------------------------------------------------------- #
@@ -393,138 +317,6 @@ async def test_get_single_registration_request_remains_unauthenticated(client):
     resp = await client.get(f"{REG_BASE}/{request.id}")
     assert resp.status_code == 200, resp.text
     assert resp.json()["data"]["email"] == "poll-me@example.com"
-
-
-# --------------------------------------------------------------------------- #
-# True end-to-end: register -> admin approve -> OTP verify -> login, for both
-# Staff and Driver. The OTP itself is never returned by any API (by design,
-# it's only ever delivered by email), so it's captured here via a direct call
-# to otp_service.create_user_otp() -- the same function the approval flow
-# calls internally -- exactly like a real "resend OTP" would, just invoked
-# in-process instead of through the network/email layer.
-# --------------------------------------------------------------------------- #
-async def _run_full_lifecycle(client, role: UserRole, email: str, phone: str, password: str = "StrongPass123!"):
-    _, admin_token = await create_active_user_and_login(
-        client, UserRole.ADMIN, f"admin-lifecycle-{role.value}@example.com", f"+1555100{hash(email) % 900 + 100}"
-    )
-    company_id = await make_company_id()
-
-    register_resp = await client.post(
-        f"{AUTH_BASE}/register",
-        json={
-            "fullName": "Lifecycle Applicant",
-            "email": email,
-            "phone": phone,
-            "password": password,
-            "requestedRole": role.value,
-            "companyId": company_id,
-        },
-    )
-    assert register_resp.status_code == 200, register_resp.text
-    request_id = register_resp.json()["data"]["registration_id"]
-
-    approve_resp = await client.post(
-        f"{ADMIN_BASE}/registration-requests/{request_id}/approve",
-        json={},
-        headers=auth_headers(admin_token),
-    )
-    assert approve_resp.status_code == 200, approve_resp.text
-    assert approve_resp.json()["data"]["approved"] is True
-
-    from app.services.otp_service import otp_service
-
-    otp, _ = await otp_service.create_user_otp(request_id)
-
-    verify_resp = await client.post(
-        f"/api/v1/otp/verify-approval?request_id={request_id}",
-        json={"otp": otp},
-    )
-    assert verify_resp.status_code == 200, verify_resp.text
-    verify_data = verify_resp.json()["data"]
-    assert verify_data["user"]["role"] == role.value
-    assert "accessToken" in verify_data["tokens"]
-
-    login_resp = await client.post(f"{AUTH_BASE}/login", json={"email": email, "password": password})
-    assert login_resp.status_code == 200, login_resp.text
-    login_data = login_resp.json()["data"]
-    assert login_data["user"]["role"] == role.value
-    assert login_data["user"]["email"] == email
-
-
-async def test_staff_full_lifecycle_register_to_login(client):
-    await _run_full_lifecycle(client, UserRole.EMPLOYEE, "staff-lifecycle@example.com", "+15551000150")
-
-
-async def test_driver_full_lifecycle_register_to_login(client):
-    await _run_full_lifecycle(client, UserRole.DRIVER, "driver-lifecycle@example.com", "+15551000160")
-
-
-# --------------------------------------------------------------------------- #
-# Reject -> reason preserved -> applicant sees it -> resubmit -> pending again,
-# for both Staff and Driver.
-# --------------------------------------------------------------------------- #
-async def _run_reject_and_resubmit(client, role: UserRole, email: str, phone: str, reason: str):
-    _, admin_token = await create_active_user_and_login(
-        client, UserRole.ADMIN, f"admin-reject-lifecycle-{role.value}@example.com", f"+1555100{hash(email) % 900 + 200}"
-    )
-    company_id = await make_company_id()
-
-    register_resp = await client.post(
-        f"{AUTH_BASE}/register",
-        json={
-            "fullName": "Rejection Applicant",
-            "email": email,
-            "phone": phone,
-            "password": "StrongPass123!",
-            "requestedRole": role.value,
-            "companyId": company_id,
-        },
-    )
-    assert register_resp.status_code == 200, register_resp.text
-    request_id = register_resp.json()["data"]["registration_id"]
-
-    reject_resp = await client.post(
-        f"{ADMIN_BASE}/registration-requests/{request_id}/reject",
-        json={"reason": reason},
-        headers=auth_headers(admin_token),
-    )
-    assert reject_resp.status_code == 200, reject_resp.text
-    assert reject_resp.json()["data"]["rejected"] is True
-
-    # Applicant polls the (unauthenticated) single-record endpoint and must
-    # see the rejection + the exact reason the admin gave.
-    status_resp = await client.get(f"{REG_BASE}/{request_id}")
-    assert status_resp.status_code == 200, status_resp.text
-    status_data = status_resp.json()["data"]
-    assert status_data["status"] == "rejected"
-    assert status_data["rejectionReason"] == reason
-
-    # Resubmission (same email) must return the request to pending.
-    resubmit_resp = await client.post(
-        f"{AUTH_BASE}/register",
-        json={
-            "fullName": "Rejection Applicant",
-            "email": email,
-            "phone": phone,
-            "password": "StrongPass123!",
-            "requestedRole": role.value,
-            "companyId": company_id,
-        },
-    )
-    assert resubmit_resp.status_code == 200, resubmit_resp.text
-    assert resubmit_resp.json()["data"]["status"] == "pending"
-
-
-async def test_staff_rejection_and_resubmit(client):
-    await _run_reject_and_resubmit(
-        client, UserRole.EMPLOYEE, "staff-reject-lifecycle@example.com", "+15551000170", "Missing documents"
-    )
-
-
-async def test_driver_rejection_and_resubmit(client):
-    await _run_reject_and_resubmit(
-        client, UserRole.DRIVER, "driver-reject-lifecycle@example.com", "+15551000180", "Invalid license"
-    )
 
 
 async def test_public_register_can_request_admin_role(client):

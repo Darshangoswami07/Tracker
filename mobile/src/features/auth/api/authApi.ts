@@ -4,14 +4,12 @@ import { unwrap } from '../../../api/envelope';
 import type { MessageResult } from '../../../types/result';
 import type {
   AuthResult,
-  CompanyOption,
   ForgotPasswordPayload,
   LoginPayload,
   MeResult,
   OTPVerificationPayload,
   OTPVerificationResult,
   RefreshPayload,
-  RegisterCustomerPayload,
   RegistrationRequestPayload,
   RegistrationRequestResult,
 } from '../types';
@@ -26,19 +24,6 @@ export const login = async (payload: LoginPayload): Promise<AuthResult> => {
 export const register = async (payload: RegistrationRequestPayload): Promise<RegistrationRequestResult> => {
   const response = await apiClient.post<unknown>(ENDPOINTS.registrationRequests.create, payload);
   return unwrap<RegistrationRequestResult>(response);
-};
-
-/** Self-service signup for customer accounts; returns an authenticated session. */
-export const registerCustomer = async (payload: RegisterCustomerPayload): Promise<AuthResult> => {
-  const response = await apiClient.post<unknown>(ENDPOINTS.auth.registerCustomer, payload);
-  return unwrap<AuthResult>(response);
-};
-
-/** Lists the companies a staff/driver applicant can join (public, pre-auth). */
-export const getRegistrationCompanies = async (): Promise<CompanyOption[]> => {
-  const response = await apiClient.get<unknown>(ENDPOINTS.registration.companies);
-  const data = unwrap<{ items: CompanyOption[] }>(response);
-  return data.items;
 };
 
 /** Logs the current session out (revokes the refresh token server-side). */

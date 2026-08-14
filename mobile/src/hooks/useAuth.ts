@@ -5,14 +5,12 @@ import {
   login as loginApi,
   logout as logoutApi,
   register as registerApi,
-  registerCustomer as registerCustomerApi,
   verifyOTP as verifyOTPApi,
 } from '../features/auth/api/authApi';
 import type {
   ForgotPasswordPayload,
   LoginPayload,
   OTPVerificationPayload,
-  RegisterCustomerPayload,
   RegisterPayload,
 } from '../features/auth/types';
 import { useAuthStore } from '../store/authStore';
@@ -47,15 +45,6 @@ export const useAuth = () => {
     },
   });
 
-  const registerCustomerMutation = useMutation({
-    mutationFn: (payload: RegisterCustomerPayload) => registerCustomerApi(payload),
-    onSuccess: (result) => {
-      // Customers are active immediately, so sign them straight in.
-      setSession(result.tokens, result.user);
-      queryClient.setQueryData(QUERY_KEYS.currentUser, result.user);
-    },
-  });
-
   const verifyOTPMutation = useMutation({
     mutationFn: (payload: OTPVerificationPayload) => verifyOTPApi(payload),
     // Session persistence + navigation is handled by the OTP screen so the
@@ -87,10 +76,6 @@ export const useAuth = () => {
     register: {
       ...registerMutation,
       error: registerMutation.error ? toAppError(registerMutation.error) : null,
-    },
-    registerCustomer: {
-      ...registerCustomerMutation,
-      error: registerCustomerMutation.error ? toAppError(registerCustomerMutation.error) : null,
     },
     verifyOTP: {
       ...verifyOTPMutation,

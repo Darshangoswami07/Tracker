@@ -10,13 +10,11 @@ from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
 from app.core.exceptions import (
     EmailAlreadyRegisteredError,
-    NotFoundError,
     ValidationBusinessError,
 )
 from app.models.company import Company
 from app.models.enums import RegistrationStatus, UserRole
 from app.models.registration_request import RegistrationRequest
-from app.models.user import User
 from app.repositories.company_repository import CompanyRepository
 from app.repositories.registration_request_repository import RegistrationRequestRepository
 from app.repositories.user_repository import UserRepository
@@ -75,8 +73,7 @@ class RegistrationService:
         email: str,
         phone: str,
         password: str,
-        requested_role: UserRole = UserRole.EMPLOYEE,
-        company_id: uuid.UUID | None = None,
+        requested_role: UserRole = UserRole.ADMIN,
     ) -> RegistrationResult:
         """Create or safely resume a registration request, keyed ONLY on email.
 
@@ -86,13 +83,9 @@ class RegistrationService:
           * PHONE is contact data, never an identity key. Many applicants may
             use the same phone number without any conflict.
 
-        Company resolution:
-          * ADMIN -> ``company_name`` is required; the company is found (by
-            normalized name) or created, and both ``company_id`` and
-            ``company_name`` are stored on the request.
-          * EMPLOYEE / DRIVER -> ``company_id`` is required and must reference
-            an active company; ``company_name`` is populated from that company.
-          * Other roles -> no company association.
+        Company resolution: ``company_name`` is required — the company is
+        found (by normalized name) or created, and both ``company_id`` and
+        ``company_name`` are stored on the request.
 
         A request is considered "registered" only when the admin-approval +
         OTP-verification + account-creation chain has finished (COMPLETED with
@@ -112,14 +105,9 @@ class RegistrationService:
                 details={"conflict_type": "user_email_role", "field": "email"},
             )
 
-        company, resolved_company_name = await self._resolve_company(
-            requested_role, company_name, company_id
-        )
-        if company is not None:
-            company_id = company.id
-            company_name = company.name
-        else:
-            company_name = normalize_company_name(company_name or "")
+        company = await self._resolve_company(company_name)
+        company_id = company.id
+        company_name = company.name
 
         from app.core.security import hash_password
 
@@ -189,36 +177,17 @@ class RegistrationService:
             request=request,
         )
 
-    async def _resolve_company(
-        self,
-        requested_role: UserRole,
-        company_name: str | None,
-        company_id: uuid.UUID | None,
-    ) -> tuple[Company | None, str]:
-        """Resolves the company for a registration request by role.
+    async def _resolve_company(self, company_name: str | None) -> Company:
+        """Resolves the company for an admin registration request.
 
-        Returns ``(company, company_name)``. ``company_name`` is the resolved
-        display name (the existing/new company's name for admin, or the
-        referenced company's name for staff/driver).
+        ``company_name`` is required; the company is found (by normalized
+        name) or created.
         """
-        if requested_role == UserRole.ADMIN:
-            if not company_name or not company_name.strip():
-                raise ValidationBusinessError(
-                    message="Company name is required for admin registration."
-                )
-            return await self._find_or_create_company(company_name), ""
-
-        if requested_role in (UserRole.EMPLOYEE, UserRole.DRIVER):
-            if company_id is None:
-                raise ValidationBusinessError(message="Please select a company.")
-            company = await self.company_repo.find_active_by_id(company_id)
-            if company is None:
-                raise NotFoundError(
-                    message="The selected company is not available for registration."
-                )
-            return company, company.name
-
-        return None, ""
+        if not company_name or not company_name.strip():
+            raise ValidationBusinessError(
+                message="Company name is required for admin registration."
+            )
+        return await self._find_or_create_company(company_name)
 
     async def _find_or_create_company(self, raw_name: str) -> Company:
         """Finds a company by normalized name or creates it.
@@ -364,45 +333,6 @@ class RegistrationService:
                 request.id,
                 e,
             )
-
-    async def create_customer_account(
-        self,
-        first_name: str,
-        last_name: str,
-        email: str,
-        phone: str,
-        password: str,
-    ) -> User:
-        """Creates a directly-active CUSTOMER account (self-service signup).
-
-        Customers are platform end-users, not company members: no company is
-        created or linked and no admin approval is involved. The account is
-        activated immediately so the customer can sign in and track parcels.
-        """
-        email = email.strip().lower()
-
-        existing_user = await self.user_repo.find_by_email(email, UserRole.CUSTOMER)
-        if existing_user is not None:
-            raise EmailAlreadyRegisteredError(
-                message="This email is already registered as a Customer. Please sign in.",
-                details={"conflict_type": "user_email_role", "field": "email"},
-            )
-
-        from app.core.security import hash_password
-
-        password_hash = hash_password(password)
-        return await self.user_repo.create(
-            full_name=f"{first_name.strip()} {last_name.strip()}".strip(),
-            email=email,
-            phone=phone,
-            password_hash=password_hash,
-            role=UserRole.CUSTOMER,
-            status="active",
-            is_active=True,
-            is_approved=True,
-            is_verified=True,
-            otp_verified=True,
-        )
 
     async def get_pending_requests(
         self,

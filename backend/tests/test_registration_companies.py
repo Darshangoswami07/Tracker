@@ -1,8 +1,6 @@
 """End-to-end tests for role-dependent company selection during registration."""
 from __future__ import annotations
 
-import uuid
-
 import pytest
 
 from app.core.security import hash_password
@@ -66,19 +64,6 @@ def admin_payload(email: str, company_name: str, **overrides) -> dict:
         "phone": "+15550001111",
         "password": "StrongPass123!",
         "requestedRole": "admin",
-        **overrides,
-    }
-
-
-def staff_payload(email: str, company_id: uuid.UUID | str, **overrides) -> dict:
-    return {
-        "firstName": "Priya",
-        "lastName": "Sharma",
-        "companyId": str(company_id),
-        "email": email,
-        "phone": "+15550002222",
-        "password": "StrongPass123!",
-        "requestedRole": "employee",
         **overrides,
     }
 
@@ -155,40 +140,6 @@ async def test_admin_registration_requires_company_name(client):
     resp = await client.post(REGISTRATION_PATH, json=admin_payload("admin3@example.com", ""))
     assert resp.status_code == 422
     assert resp.json()["error"]["code"] == "validation_error"
-
-
-# --------------------------------------------------------------------------- #
-# Staff/Driver registration: company id from the dropdown
-# --------------------------------------------------------------------------- #
-async def test_staff_registration_with_company_id(client):
-    company = await create_company("Metro Freight Lines")
-
-    resp = await client.post(REGISTRATION_PATH, json=staff_payload("staff1@example.com", company.id))
-    assert resp.status_code == 201, resp.text
-    data = resp.json()["data"]
-    assert str(data["companyId"]) == str(company.id)
-    assert data["companyName"] == "Metro Freight Lines"
-
-
-async def test_staff_registration_unknown_company_rejected(client):
-    resp = await client.post(
-        REGISTRATION_PATH, json=staff_payload("staff2@example.com", uuid.uuid4())
-    )
-    assert resp.status_code == 404
-    assert resp.json()["error"]["code"] == "not_found"
-
-
-async def test_staff_registration_inactive_company_rejected(client):
-    company = await create_company("Defunct Logistics", active=False)
-    resp = await client.post(REGISTRATION_PATH, json=staff_payload("staff3@example.com", company.id))
-    assert resp.status_code == 404
-
-
-async def test_staff_registration_requires_company_id(client):
-    payload = staff_payload("staff4@example.com", uuid.uuid4())
-    payload.pop("companyId")
-    resp = await client.post(REGISTRATION_PATH, json=payload)
-    assert resp.status_code == 422
 
 
 # --------------------------------------------------------------------------- #

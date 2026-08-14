@@ -29,4 +29,3 @@ class Customer(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     orders: Mapped[list["Order"]] = relationship(back_populates="customer", lazy="selectin")
-    addresses: Mapped[list["CustomerAddress"]] = relationship(back_populates="customer", lazy="selectin")

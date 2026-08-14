@@ -21,9 +21,9 @@ export const RegistrationRejectedScreen = ({ navigation, route }: Props) => {
 
   const editApplication = () => {
     clearRegistration();
-    // Re-open the register form for the same account type (staff/driver/admin),
+    // Re-open the register form for the same account type,
     // never the default role-selection flow.
-    navigation.replace('Register', { accountType: route.params.accountType ?? 'staff' });
+    navigation.replace('Register', { accountType: route.params.accountType ?? 'admin' });
   };
 
   const contactSupport = () => {

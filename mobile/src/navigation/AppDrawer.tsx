@@ -3,18 +3,15 @@ import { useUserStore } from '../store/userStore';
 import type { MainDrawerParamList } from './types';
 import AppDrawerContent from './AppDrawerContent';
 import { AdminStack } from './AdminStack';
-import { BusinessStack } from './BusinessStack';
-import { CustomerStack } from './CustomerStack';
-import { DriverStack } from './DriverStack';
-import { EmployeeStack } from './EmployeeStack';
+import { UnsupportedRoleScreen } from '../screens/common/UnsupportedRoleScreen';
 
 const Drawer = createDrawerNavigator<MainDrawerParamList>();
 
 /**
- * Role-aware drawer. The "Home" screen is the active role's native stack, so
- * every role keeps its own navigation flow behind a shared drawer shell with
- * a role-specific menu (see drawerMenu.ts). If the role has no dedicated
- * shell it falls back to the employee stack.
+ * Role-aware drawer. The "Home" screen is the active role's native stack.
+ * Only admin/super_admin have a dashboard in this app; any other role (e.g.
+ * an account created by an admin for internal records only) sees a fallback
+ * screen since there is no mobile experience for it.
  */
 export function AppDrawer() {
   const role = useUserStore((state) => state.user?.role);
@@ -43,17 +40,7 @@ const getStackForRole = (role?: string) => {
     case 'admin':
     case 'super_admin':
       return AdminStack;
-    case 'dispatcher':
-      return EmployeeStack;
-    case 'employee':
-      return EmployeeStack;
-    case 'driver':
-      return DriverStack;
-    case 'business':
-    case 'business_owner':
-      return BusinessStack;
-    case 'customer':
     default:
-      return CustomerStack;
+      return UnsupportedRoleScreen;
   }
 };

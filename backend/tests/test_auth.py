@@ -10,22 +10,14 @@ def auth_headers(access_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}"}
 
 
-async def make_company() -> str:
-    """Creates a registration-eligible company and returns its id."""
-    from app.repositories.company_repository import CompanyRepository
-
-    company = await CompanyRepository().create_company(name="Acme Logistics Pvt Ltd")
-    return str(company.id)
-
-
-def valid_user_payload(company_id: str) -> dict:
+def valid_user_payload() -> dict:
     return {
         "fullName": "Jane Cooper",
         "email": "jane@example.com",
         "phone": "+15550001234",
         "password": "StrongPass123!",
-        "requestedRole": "employee",
-        "companyId": company_id,
+        "requestedRole": "admin",
+        "companyName": "Acme Logistics Pvt Ltd",
     }
 
 
@@ -33,8 +25,7 @@ def valid_user_payload(company_id: str) -> dict:
 # Register
 # --------------------------------------------------------------------------- #
 async def test_register_success(client):
-    company_id = await make_company()
-    resp = await client.post(f"{BASE}/register", json=valid_user_payload(company_id))
+    resp = await client.post(f"{BASE}/register", json=valid_user_payload())
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
@@ -48,8 +39,7 @@ async def test_register_success(client):
 
 async def test_register_resume_pending(client):
     """Register again with same email when request is PENDING - should refresh the request and notify the admin."""
-    company_id = await make_company()
-    payload = valid_user_payload(company_id)
+    payload = valid_user_payload()
     await client.post(f"{BASE}/register", json=payload)
     resp = await client.post(f"{BASE}/register", json=payload)
     assert resp.status_code == 200
@@ -66,34 +56,31 @@ async def test_register_duplicate_email_completed_user(client):
     # First register and complete the flow (would need admin approval + OTP)
     # For this test, we simulate a completed user by directly creating one
     from app.repositories.user_repository import UserRepository
-    from app.models.user import User
     from app.core.security import hash_password
     from app.models.enums import UserRole, RegistrationStatus
-    import uuid
-    
+
     repo = UserRepository()
     user = await repo.create(
         full_name="Existing User",
         email="existing@example.com",
         phone="+15559999999",
         password_hash=hash_password("password123"),
-        role=UserRole.EMPLOYEE,
+        role=UserRole.ADMIN,
     )
     user.status = RegistrationStatus.COMPLETED
     user.isActive = True
     user.isApproved = True
     user.isVerified = True
     user.otpVerified = True
-    
+
     # Now try to register with same email
-    company_id = await make_company()
     resp = await client.post(f"{BASE}/register", json={
         "fullName": "New User",
         "email": "existing@example.com",
         "phone": "+15558888888",
         "password": "NewPass123!",
-        "requestedRole": "employee",
-        "companyId": company_id,
+        "requestedRole": "admin",
+        "companyName": "New Co",
     })
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "email_already_registered"
@@ -112,7 +99,7 @@ async def test_register_same_phone_different_email_allowed(client):
         email="existing2@example.com",
         phone="+15557777777",
         password_hash=hash_password("password123"),
-        role=UserRole.EMPLOYEE,
+        role=UserRole.ADMIN,
     )
     user.status = RegistrationStatus.COMPLETED
     user.isActive = True
@@ -120,24 +107,22 @@ async def test_register_same_phone_different_email_allowed(client):
     user.isVerified = True
     user.otpVerified = True
 
-    company_id = await make_company()
     resp = await client.post(f"{BASE}/register", json={
         "fullName": "New User",
         "email": "new@example.com",
         "phone": "+15557777777",
         "password": "NewPass123!",
-        "requestedRole": "employee",
-        "companyId": company_id,
+        "requestedRole": "admin",
+        "companyName": "New Co",
     })
     assert resp.status_code == 200
     assert resp.json()["data"]["email"] == "new@example.com"
 
 
 async def test_register_invalid_payload(client):
-    company_id = await make_company()
     resp = await client.post(
         f"{BASE}/register",
-        json={**valid_user_payload(company_id), "password": "short", "email": "not-an-email"},
+        json={**valid_user_payload(), "password": "short", "email": "not-an-email"},
     )
     assert resp.status_code == 422
     assert resp.json()["success"] is False
@@ -164,25 +149,24 @@ async def test_register_resume_approved_pending_otp(client):
         email="jane2@example.com",
         phone="+15550001235",
         passwordHash=hash_password("StrongPass123!"),
-        requestedRole=UserRole.EMPLOYEE,
+        requestedRole=UserRole.ADMIN,
         status=RegistrationStatus.APPROVED_PENDING_OTP,
         isApproved=True,
         isActive=True,
     )
-    
+
     async with session_scope() as session:
         session.add(request)
         await session.flush()
-    
+
     # Now try to register with same email
-    company_id = await make_company()
     resp = await client.post(f"{BASE}/register", json={
         "fullName": "Jane Cooper",
         "email": "jane2@example.com",
         "phone": "+15550001235",
         "password": "StrongPass123!",
-        "requestedRole": "employee",
-        "companyId": company_id,
+        "requestedRole": "admin",
+        "companyName": "Test Corp",
     })
     assert resp.status_code == 200
     data = resp.json()
@@ -211,26 +195,25 @@ async def test_register_resume_rejected(client):
         email="jane3@example.com",
         phone="+15550001236",
         passwordHash=hash_password("StrongPass123!"),
-        requestedRole=UserRole.EMPLOYEE,
+        requestedRole=UserRole.ADMIN,
         status=RegistrationStatus.REJECTED,
         isApproved=False,
         isActive=False,
         rejectionReason="Invalid documents",
     )
-    
+
     async with session_scope() as session:
         session.add(request)
         await session.flush()
-    
+
     # Now try to register with same email - should create new request
-    company_id = await make_company()
     resp = await client.post(f"{BASE}/register", json={
         "fullName": "Jane Cooper",
         "email": "jane3@example.com",
         "phone": "+15550001236",
         "password": "NewPass123!",
-        "requestedRole": "employee",
-        "companyId": company_id,
+        "requestedRole": "admin",
+        "companyName": "Test Corp",
     })
     assert resp.status_code == 200
     data = resp.json()
@@ -257,92 +240,29 @@ async def test_register_resume_completed(client):
         email="jane4@example.com",
         phone="+15550001237",
         passwordHash=hash_password("StrongPass123!"),
-        requestedRole=UserRole.EMPLOYEE,
+        requestedRole=UserRole.ADMIN,
         status=RegistrationStatus.COMPLETED,
         isApproved=True,
         isActive=True,
         isVerified=True,
         otpVerified=True,
     )
-    
+
     async with session_scope() as session:
         session.add(request)
         await session.flush()
-    
+
     # Now try to register with same email - the account already exists
-    company_id = await make_company()
     resp = await client.post(f"{BASE}/register", json={
         "fullName": "Jane Cooper",
         "email": "jane4@example.com",
         "phone": "+15550001237",
         "password": "StrongPass123!",
-        "requestedRole": "employee",
-        "companyId": company_id,
+        "requestedRole": "admin",
+        "companyName": "Test Corp",
     })
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "email_already_registered"
-
-
-# --------------------------------------------------------------------------- #
-# Customer self-service registration
-# --------------------------------------------------------------------------- #
-def valid_customer_payload() -> dict:
-    return {
-        "firstName": "Ava",
-        "lastName": "Reyes",
-        "email": "ava@example.com",
-        "phone": "+15550112233",
-        "password": "StrongPass123!",
-    }
-
-
-async def test_register_customer_success(client):
-    """Customer signup creates an active account and returns a session."""
-    resp = await client.post(f"{BASE}/register/customer", json=valid_customer_payload())
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["success"] is True
-    assert data["data"]["user"]["email"] == "ava@example.com"
-    assert data["data"]["user"]["role"] == "customer"
-    assert "accessToken" in data["data"]["tokens"]
-    assert "refreshToken" in data["data"]["tokens"]
-
-    # The new customer can immediately log in with those credentials.
-    login = await client.post(
-        f"{BASE}/login",
-        json={"email": "ava@example.com", "password": "StrongPass123!"},
-    )
-    assert login.status_code == 200
-    assert login.json()["data"]["user"]["role"] == "customer"
-
-
-async def test_register_customer_duplicate_email(client):
-    """Customer signup with an existing email returns 409."""
-    from app.repositories.user_repository import UserRepository
-    from app.core.security import hash_password
-    from app.models.enums import UserRole
-
-    await UserRepository().create(
-        full_name="Existing User",
-        email="ava@example.com",
-        phone="+15550112299",
-        password_hash=hash_password("password123"),
-        role=UserRole.CUSTOMER,
-    )
-
-    resp = await client.post(f"{BASE}/register/customer", json=valid_customer_payload())
-    assert resp.status_code == 409
-    assert resp.json()["error"]["code"] == "email_already_registered"
-
-
-async def test_register_customer_invalid_payload(client):
-    resp = await client.post(
-        f"{BASE}/register/customer",
-        json={**valid_customer_payload(), "password": "short", "email": "not-an-email"},
-    )
-    assert resp.status_code == 422
-    assert resp.json()["success"] is False
-    assert resp.json()["error"]["code"] == "validation_error"
 
 
 # --------------------------------------------------------------------------- #

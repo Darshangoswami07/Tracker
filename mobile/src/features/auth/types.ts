@@ -6,35 +6,25 @@ export interface LoginPayload {
   password: string;
 }
 
-export type RequestedRole = 'employee' | 'driver' | 'admin';
+export type RequestedRole = 'admin';
 
-/** Which account a user picked on the role-selection screen (Customer/Staff/Driver/Admin). */
-export type RegisterAccountType = 'customer' | 'staff' | 'driver' | 'admin';
+/** Which account a user picked on the role-selection screen (Admin only). */
+export type RegisterAccountType = 'admin';
 
 /** Maps a backend requestedRole back to the UI account type used on auth screens. */
 export const ROLE_TO_ACCOUNT_TYPE: Record<RequestedRole, RegisterAccountType> = {
-  employee: 'staff',
-  driver: 'driver',
   admin: 'admin',
 };
 
-/** Safe lookup for the UI account type; falls back to staff (never customer). */
+/** Safe lookup for the UI account type; falls back to admin. */
 export const roleToAccountType = (role: RequestedRole | string): RegisterAccountType =>
-  ROLE_TO_ACCOUNT_TYPE[role as RequestedRole] ?? 'staff';
-
-/** A company the user can join, returned by the public companies endpoint. */
-export interface CompanyOption {
-  id: string;
-  name: string;
-}
+  ROLE_TO_ACCOUNT_TYPE[role as RequestedRole] ?? 'admin';
 
 export interface RegistrationRequestPayload {
   firstName: string;
   lastName: string;
-  /** Free-text company name, required for ``admin`` registrations only. */
+  /** Free-text company name, required for ``admin`` registrations. */
   companyName?: string;
-  /** Selected company id, required for ``employee``/``driver`` registrations. */
-  companyId?: string;
   email: string;
   phone: string;
   password: string;
@@ -63,23 +53,12 @@ export interface RegistrationRequestResult {
 export interface RegisterPayload {
   firstName: string;
   lastName: string;
-  /** Free-text company name, required for ``admin`` registrations only. */
+  /** Free-text company name, required for ``admin`` registrations. */
   companyName?: string;
-  /** Selected company id, required for ``employee``/``driver`` registrations. */
-  companyId?: string;
   email: string;
   phone: string;
   password: string;
   requestedRole?: RequestedRole;
-}
-
-/** Self-service signup payload for end-user customer accounts (no company, no approval). */
-export interface RegisterCustomerPayload {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  password: string;
 }
 
 export interface ForgotPasswordPayload {

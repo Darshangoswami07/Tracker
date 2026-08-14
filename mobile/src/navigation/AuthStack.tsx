@@ -2,7 +2,6 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuthStore } from '../store/authStore';
 import { useRegistrationStore } from '../store/registrationStore';
 import { useAppTheme } from '../theme/useAppTheme';
-import { AccountTypeScreen } from '../screens/auth/AccountTypeScreen';
 import { ApprovalPendingScreen } from '../screens/auth/ApprovalPendingScreen';
 import { ForgotPasswordScreen } from '../screens/auth/ForgotPasswordScreen';
 import { LoginScreen } from '../screens/auth/LoginScreen';
@@ -38,7 +37,6 @@ export const AuthStack = () => {
       }}
     >
       <Stack.Screen name="Welcome" component={WelcomeScreen} />
-      <Stack.Screen name="AccountType" component={AccountTypeScreen} />
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />
       <Stack.Screen name="Terms" component={TermsScreen} />

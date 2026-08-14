@@ -13,7 +13,7 @@ import { AttachmentViewerModal, type ViewableAttachment } from '../../components
 import { formatDateTime } from '../../utils/format';
 import type { OrderAttachment } from '../../services/orderAttachments';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { CustomerStackParamList } from '../../navigation/types';
+import type { AdminStackParamList } from '../../navigation/types';
 
 /** The four customer-facing delivery stages, derived from the backend status. */
 const STAGES = [
@@ -71,7 +71,7 @@ const stageIndexFor = (status?: string): number => {
   }
 };
 
-type Props = NativeStackScreenProps<CustomerStackParamList, 'CustomerTracking'>;
+type Props = NativeStackScreenProps<AdminStackParamList, 'CustomerTracking'>;
 
 export const CustomerTrackingScreen = ({ route }: Props) => {
   const { colors, spacing, radii, shadows } = useAppTheme();

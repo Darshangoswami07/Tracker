@@ -18,20 +18,17 @@ from app.utils.company import normalize_company_name
 class RegistrationRequestCreate(BaseModel):
     """Schema for creating a new registration request.
 
-    Company selection is role-dependent:
-    - ``admin``: ``companyName`` is required (free text). ``companyId`` is
-      ignored — the backend creates/finds the company and links it.
-    - ``employee`` / ``driver``: ``companyId`` is required (picked from the
-      public companies list). ``companyName`` is ignored.
+    Only ``admin`` registrations go through this approval-queue flow now;
+    ``companyName`` (free text) is required — the backend creates/finds the
+    company and links it.
     """
     firstName: str = Field(min_length=1, max_length=60)
     lastName: str = Field(min_length=1, max_length=60)
     email: EmailStr
     phone: str = Field(min_length=10, max_length=15)
     password: str = Field(min_length=8, max_length=72)
-    requestedRole: Literal["employee", "driver", "admin"] = "employee"
+    requestedRole: Literal["admin"] = "admin"
     companyName: Optional[str] = Field(default=None, max_length=160)
-    companyId: Optional[UUID] = None
 
     @field_validator("firstName", "lastName")
     @classmethod
@@ -62,14 +59,8 @@ class RegistrationRequestCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_company_fields(self) -> "RegistrationRequestCreate":
-        if self.requestedRole == "admin":
-            if not self.companyName:
-                raise ValueError("Company name is required for admin registration")
-            self.companyId = None
-        else:
-            if not self.companyId:
-                raise ValueError("Please select a company")
-            self.companyName = None
+        if not self.companyName:
+            raise ValueError("Company name is required for admin registration")
         return self
 
 

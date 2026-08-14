@@ -9,20 +9,8 @@ export const getHomeScreenForRole = (role?: string): string => {
   switch (role) {
     case 'admin':
     case 'super_admin':
-      return 'AdminDashboard';
-    case 'dispatcher':
-    case 'employee':
-      return 'EmployeeDashboard';
-    case 'driver':
-      return 'DriverDashboard';
-    case 'business':
-    case 'business_owner':
-      return 'BusinessDashboard';
-    case 'customer':
     default:
-      // Users (Customers) land on their dashboard — see CustomerStack's
-      // initialRouteName and drawerMenu.ts.
-      return 'CustomerDashboard';
+      return 'AdminDashboard';
   }
 };
 

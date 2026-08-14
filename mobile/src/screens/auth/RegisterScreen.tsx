@@ -1,10 +1,8 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useQuery } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { StyleSheet, Text, View } from 'react-native';
 import { AuthScaffold } from '../../components/AuthScaffold';
 import { FormCheckbox } from '../../components/form/FormCheckbox';
-import { FormCompanySelect } from '../../components/form/FormCompanySelect';
 import { FormPasswordField } from '../../components/form/FormPasswordField';
 import { FormTextBox } from '../../components/form/FormTextBox';
 import { FormNotice } from '../../components/FormNotice';
@@ -22,8 +20,6 @@ import {
   type RegisterAccountType,
   type RegisterValues,
 } from '../../features/auth/schemas/authSchemas';
-import { getRegistrationCompanies } from '../../features/auth/api/authApi';
-import { toAppError } from '../../services/errorMapper';
 import type { RegisterPayload, RequestedRole } from '../../features/auth/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../../navigation/types';
@@ -31,36 +27,17 @@ import type { AuthStackParamList } from '../../navigation/types';
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
 
 /** UI role selection mapped to the backend's requestedRole values. */
-const ACCOUNT_TYPE_TO_ROLE: Record<'staff' | 'driver' | 'admin', RequestedRole> = {
-  staff: 'employee',
-  driver: 'driver',
+const ACCOUNT_TYPE_TO_ROLE: Record<'admin', RequestedRole> = {
   admin: 'admin',
 };
-
-/** Staff/Driver pick an existing company; Admin types a new company name; Customer has none. */
-const ROLE_SELECTS_COMPANY: readonly RegisterAccountType[] = ['staff', 'driver'];
 
 export const RegisterScreen = ({ navigation, route }: Props) => {
   const { colors, spacing } = useAppTheme();
   const register = useAuth().register;
-  const registerCustomer = useAuth().registerCustomer;
   const saveRegistration = useRegistrationStore((state) => state.save);
 
   // The role is fixed by the role-selection screen; the form must never re-ask.
-  const accountType: RegisterAccountType = route.params?.accountType ?? 'customer';
-  const isCustomer = accountType === 'customer';
-  const isAdmin = accountType === 'admin';
-  const needsCompany = ROLE_SELECTS_COMPANY.includes(accountType);
-
-  const companiesQuery = useQuery({
-    queryKey: ['registration', 'companies'],
-    queryFn: getRegistrationCompanies,
-    enabled: needsCompany,
-    staleTime: 5 * 60 * 1000,
-    retry: 1,
-  });
-  const companies = companiesQuery.data ?? [];
-  const companiesLoading = companiesQuery.isLoading || companiesQuery.isFetching;
+  const accountType: RegisterAccountType = route.params?.accountType ?? 'admin';
 
   const { control, handleSubmit } = useForm<RegisterValues>({
     resolver: zodResolver(registerSchemaFor(accountType)),
@@ -68,7 +45,6 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
       firstName: '',
       lastName: '',
       companyName: '',
-      companyId: '',
       email: '',
       phone: '',
       password: '',
@@ -77,22 +53,10 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
     },
   });
 
-  const activeError = isCustomer ? registerCustomer.error : register.error;
-  const submitting = register.isPending || registerCustomer.isPending;
+  const activeError = register.error;
+  const submitting = register.isPending;
 
   const onSubmit = (values: RegisterValues) => {
-    if (isCustomer) {
-      // Customers are active immediately: the mutation signs them straight in.
-      registerCustomer.mutate({
-        firstName: values.firstName.trim(),
-        lastName: values.lastName.trim(),
-        email: values.email.trim().toLowerCase(),
-        phone: values.phone.trim(),
-        password: values.password,
-      });
-      return;
-    }
-
     const role = ACCOUNT_TYPE_TO_ROLE[accountType];
     const payload: RegisterPayload = {
       firstName: values.firstName.trim(),
@@ -101,12 +65,8 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
       phone: values.phone.trim(),
       password: values.password,
       requestedRole: role,
+      companyName: values.companyName?.trim() || undefined,
     };
-    if (role === 'admin') {
-      payload.companyName = values.companyName?.trim() || undefined;
-    } else {
-      payload.companyId = values.companyId || undefined;
-    }
     register.mutate(payload, {
       onSuccess: (result) => {
         saveRegistration(result);
@@ -132,9 +92,6 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
 
       <View style={styles.form}>
         <FormNotice error={activeError} />
-        {companiesQuery.isError ? (
-          <FormNotice error={companiesQuery.error ? toAppError(companiesQuery.error) : null} />
-        ) : null}
 
         <FormTextBox
           control={control}
@@ -156,26 +113,16 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
           textContentType="familyName"
           returnKeyType="next"
         />
-        {isAdmin ? (
-          <FormTextBox
-            control={control}
-            name="companyName"
-            label={STRINGS.companyName}
-            icon="business-outline"
-            placeholder={STRINGS.companyNamePlaceholder}
-            autoCapitalize="words"
-            textContentType="organizationName"
-            returnKeyType="next"
-          />
-        ) : needsCompany ? (
-          <FormCompanySelect
-            control={control}
-            name="companyId"
-            label={STRINGS.companyName}
-            options={companies}
-            loading={companiesLoading}
-          />
-        ) : null}
+        <FormTextBox
+          control={control}
+          name="companyName"
+          label={STRINGS.companyName}
+          icon="business-outline"
+          placeholder={STRINGS.companyNamePlaceholder}
+          autoCapitalize="words"
+          textContentType="organizationName"
+          returnKeyType="next"
+        />
         <FormTextBox
           control={control}
           name="email"

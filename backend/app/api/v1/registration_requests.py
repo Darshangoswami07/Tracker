@@ -49,7 +49,6 @@ async def create_registration_request(
         phone=payload.phone,
         password=payload.password,
         requested_role=UserRole(payload.requestedRole),
-        company_id=payload.companyId,
     )
 
     # Email is a notification side effect: run it after the response is sent.

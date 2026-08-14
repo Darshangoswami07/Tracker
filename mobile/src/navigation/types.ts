@@ -3,9 +3,8 @@ import type { RegisterAccountType, RegistrationRequestResult } from '../features
 
 export type AuthStackParamList = {
   Welcome: undefined;
-  AccountType: { mode: 'register' | 'login' };
-  Login: { accountType?: 'customer' | 'staff' | 'driver' | 'admin' } | undefined;
-  Register: { accountType?: 'customer' | 'staff' | 'driver' | 'admin' } | undefined;
+  Login: { accountType?: 'admin' } | undefined;
+  Register: { accountType?: 'admin' } | undefined;
   Terms: undefined;
   Privacy: undefined;
   ForgotPassword: undefined;
@@ -22,47 +21,6 @@ export type AuthStackParamList = {
   ResetPassword: { requestId: string };
 };
 
-export type BusinessStackParamList = {
-  BusinessDashboard: undefined;
-  Orders: undefined;
-  OrderDetails: { orderId: string };
-  CreateOrder: undefined;
-  AssignDriver: { orderId: string };
-  AssignVehicle: { orderId: string };
-  Analytics: undefined;
-  Drivers: undefined;
-  DriverDetails: { driverId: string };
-  Vehicles: undefined;
-  VehicleDetails: { vehicleId: string };
-  Customers: undefined;
-  CustomerDetails: { customerId: string };
-  Reports: undefined;
-  Notifications: undefined;
-  Profile: undefined;
-  Settings: undefined;
-  ChangePassword: undefined;
-  HelpSupport: undefined;
-};
-
-export type DriverStackParamList = {
-  DriverDashboard: undefined;
-  TodayDeliveries: undefined;
-  AssignedOrders: undefined;
-  OrderDetails: { orderId: string };
-  Navigation: { orderId: string };
-  Pickup: { orderId: string };
-  Drop: { orderId: string };
-  DeliveryProof: { orderId: string };
-  CompletedOrders: undefined;
-  Earnings: undefined;
-  VehicleStatus: undefined;
-  Notifications: undefined;
-  Profile: undefined;
-  Settings: undefined;
-  ChangePassword: undefined;
-  HelpSupport: undefined;
-};
-
 export type AdminStackParamList = {
   AdminDashboard: undefined;
   UserManagement: undefined;
@@ -72,7 +30,7 @@ export type AdminStackParamList = {
   GRShipments: undefined;
   CreateGR: undefined;
   GRDetails: { orderId: string };
-  CustomerTracking: undefined;
+  CustomerTracking: { grNumber?: string } | undefined;
   GRTrackerClassic: undefined;
   OrderDetails: { orderId: string };
   Analytics: undefined;
@@ -87,48 +45,7 @@ export type AdminStackParamList = {
   HelpSupport: undefined;
 };
 
-export type EmployeeStackParamList = {
-  EmployeeDashboard: undefined;
-  StaffGRPanel: undefined;
-  CustomerTracking: undefined;
-  Orders: undefined;
-  OrderDetails: { orderId: string };
-  Drivers: undefined;
-  DriverDetails: { driverId: string };
-  Vehicles: undefined;
-  VehicleDetails: { vehicleId: string };
-  Customers: undefined;
-  CustomerDetails: { customerId: string };
-  Reports: undefined;
-  Notifications: undefined;
-  Profile: undefined;
-  Settings: undefined;
-  ChangePassword: undefined;
-  HelpSupport: undefined;
-};
-
-export type CustomerStackParamList = {
-  CustomerDashboard: undefined;
-  CustomerTracking: { grNumber?: string } | undefined;
-  CreateOrder: undefined;
-  MyOrders: undefined;
-  OrderDetails: { orderId: string };
-  LiveTracking: { orderId: string };
-  Addresses: undefined;
-  PaymentMethods: undefined;
-  Notifications: undefined;
-  Profile: undefined;
-  Settings: undefined;
-  ChangePassword: undefined;
-  HelpSupport: undefined;
-};
-
-export type AppStackParamList =
-  | BusinessStackParamList
-  | DriverStackParamList
-  | AdminStackParamList
-  | EmployeeStackParamList
-  | CustomerStackParamList;
+export type AppStackParamList = AdminStackParamList;
 
 /** The role-aware drawer wraps the active role stack as its single screen. */
 export type MainDrawerParamList = {

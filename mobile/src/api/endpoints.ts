@@ -4,16 +4,12 @@ export const ENDPOINTS = {
     login: '/auth/login',
     logout: '/auth/logout',
     refresh: '/auth/refresh',
-    registerCustomer: '/auth/register/customer',
   },
   registrationRequests: {
     create: '/registration-requests',
     list: '/registration-requests',
     pending: '/registration-requests/pending',
     detail: (id: string) => `/registration-requests/${id}`,
-  },
-  registration: {
-    companies: '/registration/companies',
   },
   admin: {
     pendingRequests: '/admin/registration-requests/pending',
@@ -58,9 +54,8 @@ export const ENDPOINTS = {
   users: {
     me: '/users/me',
   },
-  business: '/business',
-  customer: '/customer',
-  driver: '/driver',
+  /** Still used by the admin-reused "GR Tracker (Classic)" screen
+   * (StaffGRPanelScreen) — role-agnostic server-side for any GR-access role. */
   employee: '/employee',
   notifications: '/notifications',
   orders: {

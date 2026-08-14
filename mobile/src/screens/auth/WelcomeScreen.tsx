@@ -152,13 +152,13 @@ export const WelcomeScreen = ({ navigation }: Props) => {
             <Animated.View entering={FadeInUp.duration(500).delay(900)} style={styles.ctaWrap}>
               <CtaButton
                 label="Get Started"
-                onPress={() => navigation.navigate('AccountType', { mode: 'register' })}
+                onPress={() => navigation.navigate('Register', { accountType: 'admin' })}
               />
             </Animated.View>
 
             <Animated.View entering={FadeIn.duration(500).delay(980)} style={styles.signInRow}>
               <Text style={[styles.signInText, { color: colors.textSecondary }]}>Already have an account? </Text>
-              <TextLink label="Sign In" onPress={() => navigation.navigate('AccountType', { mode: 'login' })} />
+              <TextLink label="Sign In" onPress={() => navigation.navigate('Login', { accountType: 'admin' })} />
             </Animated.View>
 
             <Animated.View entering={FadeIn.duration(500).delay(1060)} style={styles.legal}>

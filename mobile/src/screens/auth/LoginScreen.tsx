@@ -26,10 +26,7 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
 /** Cosmetic-only heading per account type; the login form/logic is identical
  *  for every role — the backend, not this selection, decides who the user is. */
-const LOGIN_HEADINGS: Record<'customer' | 'staff' | 'driver' | 'admin', string> = {
-  customer: 'Customer / User Login',
-  staff: 'Driver / Staff Login',
-  driver: 'Driver / Staff Login',
+const LOGIN_HEADINGS: Record<'admin', string> = {
   admin: 'Admin Login',
 };
 
@@ -68,7 +65,7 @@ export const LoginScreen = ({ navigation, route }: Props) => {
   return (
     <AuthScaffold hero={<HeroBanner />}>
 
-      <AnimatedHeader onBack={() => navigation.navigate('AccountType', { mode: 'login' })} />
+      <AnimatedHeader onBack={() => navigation.navigate('Welcome')} />
 
       <View style={[styles.center, { marginTop: 24 }]}>
         <Logo />

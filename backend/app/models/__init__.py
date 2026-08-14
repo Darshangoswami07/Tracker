@@ -6,7 +6,6 @@ from app.models.mixins import UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMix
 # Now import all the other model files that depend on these mixins
 from app.models.company import Company
 from app.models.customer import Customer
-from app.models.customer_address import CustomerAddress
 from app.models.driver import Driver
 from app.models.driver_document import DriverDocument
 from app.models.employee import Employee
@@ -24,7 +23,6 @@ from app.models.role_permission import RolePermission
 from app.models.user import User
 from app.models.password_reset import PasswordReset
 from app.models.refresh_token import RefreshToken
-from app.models.business import Business
 from app.models.registration_request import RegistrationRequest
 from app.models.email_otp import EmailOTP
 from app.models.approval_log import ApprovalLog
@@ -39,7 +37,6 @@ __all__ = [
     # Models
     "Company",
     "Customer",
-    "CustomerAddress",
     "Driver",
     "DriverDocument",
     "Employee",
@@ -58,7 +55,6 @@ __all__ = [
     "User",
     "PasswordReset",
     "RefreshToken",
-    "Business",
     "RegistrationRequest",
     "EmailOTP",
     "ApprovalLog",
