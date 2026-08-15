@@ -93,7 +93,7 @@ python run.py                   # http://localhost:8000/docs
 # Mobile
 cd mobile
 npm install
-npx expo start
+npx expo start --web --clear
 
 # Admin web dashboard
 cd admin

@@ -16,4 +16,10 @@ export const StorageKeys = {
   settingsPreferences: 'app.settings',
   /** In-flight registration request so a restart resumes the pending screen. */
   registration: 'registration.active_request',
+  /** Stable device id bound to this install (SecureStore). */
+  deviceId: 'device.device_id',
+  /** License key issued at device registration (SecureStore). */
+  deviceLicenseKey: 'device.license_key',
+  /** Latest known device registration record, e.g. device name/platform (SecureStore). */
+  deviceRecord: 'device.record',
 } as const;

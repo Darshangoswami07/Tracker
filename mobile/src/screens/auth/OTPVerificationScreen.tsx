@@ -13,6 +13,7 @@ import { PrimaryButton } from '../../components/PrimaryButton';
 import { ScreenHeading } from '../../components/ScreenHeading';
 import { useAuth } from '../../hooks/useAuth';
 import { toAppError } from '../../services/errorMapper';
+import { deviceService } from '../../services/deviceService';
 import { registrationService } from '../../services/registrationService';
 import { useAuthStore } from '../../store/authStore';
 import { useRegistrationStore } from '../../store/registrationStore';
@@ -75,6 +76,12 @@ export const OTPVerificationScreen = ({ navigation, route }: Props) => {
       { otp: code, requestId, isPasswordReset },
       {
         onSuccess: (result) => {
+          if (!isPasswordReset) {
+            // Bind this physical device to the account right after activation so
+            // it can operate offline. Best-effort: a failure here must not block
+            // the (already-successful) activation from proceeding.
+            deviceService.registerCurrentDevice();
+          }
           if (!isPasswordReset && result.user.role !== 'admin') {
             // Persist the session silently so "Account Activated" can render first.
             stageSession(result.tokens, result.user);

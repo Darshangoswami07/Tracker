@@ -1,91 +1,12 @@
-INFO:     Will watch for changes in these directories: ['D:\\DeliveryHub\\backend']
-INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [9716] using WatchFiles
-INFO:     Started server process [30752]
+INFO:     Will watch for changes in these directories: ['D:\\Tracker\\backend']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [19116] using WatchFiles
+INFO:     Started server process [24376]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:app.services.registration_service:Registration already approved for abhishekbisht0203@gmail.com (ID: f9bb912b-2f5a-4f0b-84ea-f8d7c4d71997); re-issuing applicant OTP
+INFO:app.services.otp_service:[OTP] approval OTP generated request_id=7c826685-8650-419c-ac75-8f24c51d0f7a intent=OTPIntent.APPROVAL expires_at=2026-08-14T18:44:26.537164+00:00
+INFO:app.services.otp_service:[OTP] approval OTP database record created request_id=7c826685-8650-419c-ac75-8f24c51d0f7a otp_id=e93b9d92-ec71-46ae-a2ee-32a0686d3d27
 INFO:httpx:HTTP Request: POST https://api.brevo.com/v3/smtp/email "HTTP/1.1 201 Created"
-INFO:app.services.email_providers:[Email][brevo] Sent 'New DeliveryHub Registration Request' to jobpilotdesk@gmail.com (attempt 1)
+INFO:app.services.email_providers:[Email][brevo] Sent 'DeliveryHub Admin New Verification Code' to abhiyanshbisht@gmail.com (attempt 1, message_id=<202608141839.14878556962@smtp-relay.mailin.fr>)
 INFO:httpx:HTTP Request: POST https://api.brevo.com/v3/smtp/email "HTTP/1.1 201 Created"
-INFO:app.services.email_providers:[Email][brevo] Sent 'DeliveryHub Admin Account Verification' to abhishekbisht0203@gmail.com (attempt 1)
-INFO:httpx:HTTP Request: POST https://api.brevo.com/v3/smtp/email "HTTP/1.1 201 Created"
-INFO:app.services.email_providers:[Email][brevo] Sent 'Welcome to DeliveryHub!' to abhishekbisht0203@gmail.com (attempt 1)
-INFO:httpx:HTTP Request: POST https://api.brevo.com/v3/smtp/email "HTTP/1.1 201 Created"
-INFO:app.services.email_providers:[Email][brevo] Sent 'New DeliveryHub Registration Request' to jobpilotdesk@gmail.com (attempt 1)
-INFO:httpx:HTTP Request: POST https://api.brevo.com/v3/smtp/email "HTTP/1.1 201 Created"
-INFO:app.services.email_providers:[Email][brevo] Sent 'DeliveryHub Staff Account Verification' to sandeep@gmail.com (attempt 1)
-INFO:httpx:HTTP Request: POST https://api.brevo.com/v3/smtp/email "HTTP/1.1 201 Created"
-INFO:app.services.email_providers:[Email][brevo] Sent 'New DeliveryHub Registration Request' to jobpilotdesk@gmail.com (attempt 1)
-INFO:httpx:HTTP Request: POST https://api.brevo.com/v3/smtp/email "HTTP/1.1 201 Created"
-INFO:app.services.email_providers:[Email][brevo] Sent 'DeliveryHub Staff Account Verification' to harishsinghbisht0203@gmail.com (attempt 1)
-INFO:httpx:HTTP Request: POST https://api.brevo.com/v3/smtp/email "HTTP/1.1 201 Created"
-INFO:app.services.email_providers:[Email][brevo] Sent 'Welcome to DeliveryHub!' to harishsinghbisht0203@gmail.com (attempt 1)
-ERROR:    Exception in ASGI application
-Traceback (most recent call last):
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
-    result = await app(  # type: ignore[func-returns-value]
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-        self.scope, self.receive, self.send
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
-    return await self.app(scope, receive, send)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\fastapi\applications.py", line 1054, in __call__
-    await super().__call__(scope, receive, send)
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\starlette\applications.py", line 113, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
-    raise exc
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
-    await self.app(scope, receive, _send)
-  File "D:\DeliveryHub\backend\app\middlewares\rate_limit.py", line 81, in __call__
-    await self.app(scope, receive, send)
-  File "D:\DeliveryHub\backend\app\middlewares\security_headers.py", line 67, in __call__
-    await self.app(scope, receive, send_with_headers)
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
-    await self.simple_response(scope, receive, send, request_headers=headers)
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
-    await self.app(scope, receive, send)
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\starlette\routing.py", line 736, in app
-    await route.handle(scope, receive, send)
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\starlette\routing.py", line 290, in handle
-    await self.app(scope, receive, send)
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\starlette\routing.py", line 78, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\starlette\routing.py", line 75, in app
-    response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\fastapi\routing.py", line 302, in app
-    raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    ...<3 lines>...
-    )
-    ^
-  File "D:\DeliveryHub\backend\.venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
-    return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\DeliveryHub\backend\app\api\v1\dashboards.py", line 416, in employee_dashboard_stats
-    stats["inProgressOrders"] = sum(
-                                ~~~^
-        await order_repo.count_by_status_for_company(company_id, s)
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-        for s in (OrderStatus.ASSIGNED.value, OrderStatus.PICKUP.value, OrderStatus.IN_TRANSIT.value)
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-TypeError: 'async_generator' object is not iterable
+INFO:app.services.email_providers:[Email][brevo] Sent 'Welcome to DeliveryHub!' to abhiyanshbisht@gmail.com (attempt 1, message_id=<202608141840.71446276169@smtp-relay.mailin.fr>)

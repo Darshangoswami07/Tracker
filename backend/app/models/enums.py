@@ -164,3 +164,21 @@ class OTPIntent(str, Enum):
     APPROVAL = "approval"
     PASSWORD_RESET = "password_reset"
     EMAIL_VERIFICATION = "email_verification"
+
+
+class DevicePlatform(str, Enum):
+    IOS = "ios"
+    ANDROID = "android"
+    WEB = "web"
+
+
+class DeviceStatus(str, Enum):
+    ACTIVE = "active"
+    REVOKED = "revoked"
+    EXPIRED = "expired"
+
+
+class LicenseStatus(str, Enum):
+    ACTIVE = "active"
+    REVOKED = "revoked"
+    EXPIRED = "expired"

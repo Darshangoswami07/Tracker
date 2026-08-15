@@ -207,7 +207,18 @@ class BrevoEmailProvider(EmailProvider):
                 async with httpx.AsyncClient(timeout=settings.SMTP_TIMEOUT_SECONDS) as client:
                     response = await client.post(BREVO_API_URL, json=payload, headers=headers)
                 if response.status_code == 201:
-                    logger.info("[Email][brevo] Sent '%s' to %s (attempt %d)", subject, recipient, attempt)
+                    message_id = ""
+                    try:
+                        message_id = str(response.json().get("messageId", ""))
+                    except Exception:  # noqa: BLE001 - body may not be JSON
+                        message_id = ""
+                    logger.info(
+                        "[Email][brevo] Sent '%s' to %s (attempt %d, message_id=%s)",
+                        subject,
+                        recipient,
+                        attempt,
+                        message_id or "-",
+                    )
                     return
                 message_id = ""
                 try:

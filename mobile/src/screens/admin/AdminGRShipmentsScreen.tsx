@@ -3,9 +3,7 @@ import { RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpaci
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/useAppTheme';
-import { useAuthStore } from '../../store/authStore';
-import { api } from '../../api/client';
-import { ENDPOINTS } from '../../api/endpoints';
+import { orderRepository } from '../../database/repositories/orderRepository';
 import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
 import { EmptyState } from '../../components/EmptyState';
@@ -52,22 +50,32 @@ const formatDate = (iso: string): string => {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
+type LoadStatus = 'loading' | 'success' | 'error';
+
 /**
  * Mobile equivalent of the web Admin "GR / Shipments" page
- * (`admin/src/app/dashboard/orders/page.tsx`). Lists via the same
- * `GET /admin/orders` endpoint (Super Admin sees every company, every other
- * GR-access role is scoped to their own) with search, status filter, and
- * pagination, then opens `AdminGRDetailsScreen` for the full record.
+ * (`admin/src/app/dashboard/orders/page.tsx`). In the local-first
+ * architecture the GR list is read from the on-device SQLite repository
+ * (`orderRepository.list`) instead of `GET /admin/orders`, so it works fully
+ * offline. Search, status filter, and pagination behave the same as before;
+ * tapping a card opens `AdminGRDetailsScreen` for the full record.
+ *
+ * The screen uses ONE load path (`fetchGRs`) guarded by an in-flight ref so
+ * the mount effect, focus listener, and the search/filter debounce can never
+ * run concurrently and leave `loading` stuck true. The skeleton is only shown
+ * while the first load is in flight and there is no data yet; every later
+ * reload (pull-to-refresh, search/filter change, return-from-detail) keeps the
+ * existing list visible and swaps in fresh rows, so the screen never hangs on
+ * a spinner.
  */
 export const AdminGRShipmentsScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { goBack, navigate, navigation } = useAppNav();
-  const accessToken = useAuthStore((state) => state.accessToken);
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
   const [items, setItems] = useState<GRListItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<LoadStatus>('loading');
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,53 +84,56 @@ export const AdminGRShipmentsScreen = () => {
   const [search, setSearch] = useState('');
   const [statusTab, setStatusTab] = useState('All');
 
+  // Guards against overlapping fetches from mount/focus/debounce. When a
+  // request is already in flight, a new trigger is ignored — the in-flight
+  // one will render the latest data anyway because it reads the current
+  // `search`/`statusTab` values.
+  const inFlightRef = useRef(false);
+
   const fetchGRs = useCallback(
-    async (pageNum: number, mode: 'initial' | 'refresh' | 'more' = 'initial') => {
-      if (!accessToken) return;
+    async (pageNum: number, mode: 'initial' | 'refresh' | 'more' | 'reload' = 'initial') => {
+      if (inFlightRef.current && mode !== 'more') return;
+      inFlightRef.current = true;
+      if (mode === 'initial') setStatus('loading');
+      if (mode === 'refresh') setRefreshing(true);
       if (mode === 'more') setLoadingMore(true);
       try {
-        const res = await api.get(ENDPOINTS.admin.orders.list, {
-          params: {
-            page: pageNum,
-            page_size: PAGE_SIZE,
-            status: FILTER_TO_STATUS[statusTab],
-            search: search || undefined,
-          },
+        const result = await orderRepository.list({
+          page: pageNum,
+          pageSize: PAGE_SIZE,
+          status: FILTER_TO_STATUS[statusTab],
+          search: search || undefined,
         });
-        const data = res.data?.data ?? { items: [] };
-        const newItems: GRListItem[] = data.items || [];
+        const newItems: GRListItem[] = result.items;
         setItems((prev) => (mode === 'more' ? [...prev, ...newItems] : newItems));
         setHasMore(newItems.length === PAGE_SIZE);
         setPage(pageNum);
         setError(null);
+        setStatus('success');
       } catch (err: any) {
-        const message =
-          err?.response?.data?.error?.message ??
-          (err?.message === 'Network Error'
-            ? 'Unable to connect to the server. Check your connection.'
-            : 'Could not load GR entries. Please try again.');
-        setError(message);
+        setError(err?.message ?? 'Could not load GR entries. Please try again.');
+        setStatus('error');
       } finally {
-        setLoading(false);
+        inFlightRef.current = false;
         setRefreshing(false);
         setLoadingMore(false);
       }
     },
-    [accessToken, search, statusTab]
+    [search, statusTab]
   );
 
   const didMount = useRef(false);
 
+  // Initial load.
   useEffect(() => {
-    setLoading(true);
     fetchGRs(1, 'initial');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Refetch when returning from Create GR / GR Details so mutations made
-  // there (creation, status change, assignment, slip upload) are reflected
-  // in the list without a manual pull-to-refresh. Skips the first (mount)
-  // focus event since the effect above already fetches on mount.
+  // there (creation, status change, assignment, slip upload) are reflected in
+  // the list without a manual pull-to-refresh. Skips the first (mount) focus
+  // event since the effect above already fetches on mount.
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       if (!didMount.current) {
@@ -135,34 +146,38 @@ export const AdminGRShipmentsScreen = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
 
+  // Debounced reload on search / status filter changes. Keeps the existing
+  // list visible instead of showing the skeleton again, so typing never
+  // produces a stuck loading state.
   useEffect(() => {
     const timer = setTimeout(() => {
-      setLoading(true);
-      fetchGRs(1, 'initial');
+      fetchGRs(1, 'reload');
     }, 400);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, statusTab]);
 
   const onRefresh = () => {
-    setRefreshing(true);
     fetchGRs(1, 'refresh');
   };
 
   const loadMore = () => {
-    if (!loading && !loadingMore && hasMore) {
+    if (!inFlightRef.current && !loadingMore && hasMore) {
       fetchGRs(page + 1, 'more');
     }
   };
 
-  if (loading) {
+  // Skeleton only while the very first load is in flight and nothing is shown.
+  const showSkeleton = status === 'loading' && items.length === 0;
+
+  if (showSkeleton) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
         <Header
-        title="GR / Shipments"
-        leftAction={{ icon: 'chevron-back', onPress: goBack }}
-        rightAction={{ icon: 'add', onPress: () => navigate('CreateGR'), accessibilityLabel: 'Create GR' }}
-      />
+          title="GR / Shipments"
+          leftAction={{ icon: 'chevron-back', onPress: goBack }}
+          rightAction={{ icon: 'add', onPress: () => navigate('CreateGR'), accessibilityLabel: 'Create GR' }}
+        />
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <ShimmerCard style={styles.searchShimmer} height={44} />
           <ShimmerCard style={styles.filterShimmer} height={36} />
@@ -213,23 +228,32 @@ export const AdminGRShipmentsScreen = () => {
           <FilterChips filters={STATUS_FILTERS} activeFilter={statusTab} onFilterChange={setStatusTab} />
         </View>
 
-        {error && (
-          <View style={[styles.errorCard, { backgroundColor: `${colors.error}12`, borderRadius: radii.lg }]}>
-            <Ionicons name="alert-circle-outline" size={20} color={colors.error} />
-            <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
-            <TouchableOpacity onPress={() => fetchGRs(1, 'initial')}>
-              <Text style={[styles.retryText, { color: colors.error }]}>Retry</Text>
-            </TouchableOpacity>
-          </View>
+        {status === 'error' && items.length === 0 && (
+          <EmptyState
+            icon="cloud-offline-outline"
+            title="Could not load GRs"
+            subtitle={error ?? 'Something went wrong while reading your shipments.'}
+            actionLabel="Retry"
+            onActionPress={() => fetchGRs(1, 'initial')}
+            iconColor={colors.error}
+          />
         )}
 
-        {!error && items.length === 0 ? (
+        {status === 'success' && items.length === 0 && (
           <EmptyState
             icon="reader-outline"
             title="No GR entries"
-            subtitle={search || statusTab !== 'All' ? 'No GRs match your search or filter.' : 'Shipments will appear here once created.'}
+            subtitle={
+              search || statusTab !== 'All'
+                ? 'No GRs match your search or filter.'
+                : 'Shipments will appear here once created.'
+            }
+            actionLabel="Create GR"
+            onActionPress={() => navigate('CreateGR')}
           />
-        ) : (
+        )}
+
+        {items.length > 0 && (
           <View style={styles.list}>
             {items.map((gr) => (
               <TouchableOpacity
@@ -284,9 +308,6 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     searchShimmer: { marginBottom: theme.spacing.md, borderRadius: theme.radii.lg },
     filters: { marginBottom: theme.spacing.lg },
     filterShimmer: { width: 200, borderRadius: theme.radii.pill, marginBottom: theme.spacing.lg },
-    errorCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, marginBottom: theme.spacing.md },
-    errorText: { flex: 1, fontSize: theme.fonts.size.sm, fontWeight: '600' },
-    retryText: { fontSize: theme.fonts.size.sm, fontWeight: '800' },
     list: { gap: theme.spacing.md },
     cardShimmer: { marginBottom: theme.spacing.md, borderRadius: theme.radii.lg },
     card: { padding: 16, gap: 6 },

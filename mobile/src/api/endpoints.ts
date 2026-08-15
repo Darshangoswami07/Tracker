@@ -43,6 +43,10 @@ export const ENDPOINTS = {
       assignDriver: (id: string) => `/admin/orders/${id}/assign-driver`,
       assignStaff: (id: string) => `/admin/orders/${id}/assign-staff`,
       attachmentFile: (id: string, attachmentId: string) => `/admin/orders/${id}/attachments/${attachmentId}/file`,
+      /** Transient OCR extraction of a transport slip image. Only the image
+       * travels to the server; extracted fields are returned to the device
+       * and saved locally. */
+      ocrExtract: '/admin/orders/ocr-extract',
     },
   },
   otp: {
@@ -54,6 +58,16 @@ export const ENDPOINTS = {
   },
   users: {
     me: '/users/me',
+  },
+  /** Device binding / license (control plane). Mobile registers the physical
+   * device after activation to receive its license key; business data never
+   * touches these. */
+  devices: {
+    register: '/devices/register',
+    heartbeat: '/devices/heartbeat',
+    status: '/devices/status',
+    list: '/devices/',
+    revoke: '/devices/revoke',
   },
   /** Still used by the admin-reused "GR Tracker (Classic)" screen
    * (StaffGRPanelScreen) — role-agnostic server-side for any GR-access role. */

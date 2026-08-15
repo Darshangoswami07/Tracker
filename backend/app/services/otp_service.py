@@ -119,6 +119,13 @@ class OTPService:
         # Set expiry (configurable, defaults to 5 minutes)
         expires_at = _utcnow() + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
 
+        logger.info(
+            "[OTP] approval OTP generated request_id=%s intent=%s expires_at=%s",
+            request_id,
+            OTPIntent.APPROVAL,
+            expires_at.isoformat(),
+        )
+
         # Create OTP record
         otp_record = await self.otp_repo.create_otp(
             otp_hash=otp_hash,
@@ -127,10 +134,16 @@ class OTPService:
             intent=OTPIntent.APPROVAL,
             expires_at=expires_at,
         )
+        logger.info(
+            "[OTP] approval OTP database record created request_id=%s otp_id=%s",
+            request_id,
+            otp_record.id,
+        )
 
         # Send OTP email to user (side effect — optional so callers can
         # background the send without blocking the HTTP request).
         if send_email:
+            logger.info("[OTP] sending approval OTP email recipient=%s", request.email)
             await self._send_user_otp_email(request, otp)
 
         return otp, otp_record
@@ -439,6 +452,10 @@ class OTPService:
     async def _send_user_otp_email(self, request: RegistrationRequest, otp: str) -> None:
         """Send user OTP email for approved registration request."""
         sent = await email_service.send_otp_email(request, otp)
+        if sent:
+            logger.info("[OTP] email send completed recipient=%s", request.email)
+        else:
+            logger.warning("[OTP] email send did not complete recipient=%s", request.email)
         self._raise_if_email_failed(sent)
 
     async def _send_resend_user_otp_email(self, request: RegistrationRequest, otp: str) -> None:
