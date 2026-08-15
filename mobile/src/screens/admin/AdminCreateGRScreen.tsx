@@ -1,13 +1,11 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useUserStore } from '../../store/userStore';
-import { useAuthStore } from '../../store/authStore';
 import { orderRepository } from '../../database/repositories/orderRepository';
-import { syncLookupTables } from '../../database/sync';
 import { extractSlipDetails, isOcrError, type SlipExtractedFields } from '../../services/slipOcr';
 import { persistSlipImage, type PersistedSlip } from '../../services/slipStorage';
 import { Header } from '../../components/Header';
@@ -28,11 +26,6 @@ const NIL_UUID = '00000000-0000-0000-0000-000000000000';
  * this size. Enforced client-side too so an oversized pick is rejected with
  * a clear message before it's persisted or sent anywhere. */
 const MAX_SLIP_FILE_SIZE_BYTES = 10 * 1024 * 1024;
-
-interface CompanyOption {
-  id: string;
-  name: string;
-}
 
 interface FormState {
   grNumber: string;
@@ -82,7 +75,9 @@ const parseOcrDate = (raw: string | null | undefined, fallback: string): string 
 /** Maps OCR output into the manual form, preserving anything already typed. */
 const mapSlipToForm = (slip: SlipExtractedFields, current: FormState): FormState => ({
   grNumber: pickValue(current.grNumber, slip.grNumber),
-  companyId: current.companyId,
+  // The Company field is free-typed text (the transport company printed on
+  // the slip), so OCR can pre-fill it exactly like every other text field.
+  companyId: pickValue(current.companyId, slip.transportCompany),
   consignorName: pickValue(current.consignorName, slip.consignorName),
   consigneeName: pickValue(current.consigneeName, slip.consigneeName),
   pickupAddress: pickValue(current.pickupAddress, slip.fromAddress),
@@ -116,15 +111,11 @@ export const AdminCreateGRScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { goBack, navigate } = useAppNav();
   const role = useUserStore((state) => state.user?.role) ?? '';
-  const accessToken = useAuthStore((state) => state.accessToken);
   const isSuperAdminTier = SUPER_ADMIN_TIER_ROLES.includes(role);
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
   const [mode, setMode] = useState<Mode>('choose');
-  const [companies, setCompanies] = useState<CompanyOption[]>([]);
-  const [loadingCompanies, setLoadingCompanies] = useState(isSuperAdminTier);
-  const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const [form, setForm] = useState<FormState>(initialForm(isSuperAdminTier ? '' : NIL_UUID));
   const [submitting, setSubmitting] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -135,35 +126,7 @@ export const AdminCreateGRScreen = () => {
   const [slipData, setSlipData] = useState<SlipExtractedFields | null>(null);
   const [persistedSlip, setPersistedSlip] = useState<PersistedSlip | null>(null);
 
-  useEffect(() => {
-    if (!isSuperAdminTier) {
-      setLoadingCompanies(false);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      // Local-first: read the on-device companies immediately so the picker
-      // is never stuck on a spinner — it reflects cached data right away.
-      setCompanies(await orderRepository.listCompanies());
-      if (cancelled) return;
-      setLoadingCompanies(false);
-      // Then best-effort refresh from the control plane in the background;
-      // failures are swallowed by syncLookupTables and leave local data as-is.
-      await syncLookupTables(accessToken);
-      if (cancelled) return;
-      setCompanies(await orderRepository.listCompanies());
-    })().catch(() => {
-      /* Non-fatal — the picker just stays with cached companies; submit is
-         blocked without a selection. */
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [isSuperAdminTier, accessToken]);
-
   const set = (key: keyof FormState) => (value: string) => setForm((prev) => ({ ...prev, [key]: value }));
-
-  const selectedCompanyName = companies.find((c) => c.id === form.companyId)?.name;
 
   const canSubmit =
     form.grNumber.trim() &&
@@ -453,25 +416,13 @@ export const AdminCreateGRScreen = () => {
         <Field label="GR Number" required value={form.grNumber} onChangeText={set('grNumber')} placeholder="e.g. GR100234" autoCapitalize="characters" />
 
         {isSuperAdminTier && (
-          <View style={styles.fieldGroup}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>
-              COMPANY <Text style={{ color: colors.error }}>*</Text>
-            </Text>
-            <TouchableOpacity
-              style={[styles.selectInput, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radii.md }]}
-              onPress={() => setCompanyPickerOpen(true)}
-              disabled={loadingCompanies}
-            >
-              {loadingCompanies ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : (
-                <Text style={[styles.selectText, { color: selectedCompanyName ? colors.textPrimary : colors.textSecondary }]}>
-                  {selectedCompanyName ?? 'Select a company'}
-                </Text>
-              )}
-              <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
+          <Field
+            label="Company"
+            required
+            value={form.companyId}
+            onChangeText={set('companyId')}
+            placeholder="Type the company name"
+          />
         )}
 
         <Field label="Consignor Name" required value={form.consignorName} onChangeText={set('consignorName')} placeholder="Sender name" />
@@ -504,38 +455,6 @@ export const AdminCreateGRScreen = () => {
           {submitting ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={[styles.submitText, { color: colors.onPrimary }]}>Create GR</Text>}
         </TouchableOpacity>
       </ScrollView>
-
-      <Modal visible={companyPickerOpen} animationType="slide" transparent onRequestClose={() => setCompanyPickerOpen(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { backgroundColor: colors.background, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Select Company</Text>
-              <TouchableOpacity onPress={() => setCompanyPickerOpen(false)} hitSlop={8}>
-                <Ionicons name="close" size={22} color={colors.textPrimary} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={{ maxHeight: 360 }}>
-              {companies.length === 0 ? (
-                <Text style={[styles.emptyCompanies, { color: colors.textSecondary }]}>No companies found.</Text>
-              ) : (
-                companies.map((c) => (
-                  <TouchableOpacity
-                    key={c.id}
-                    style={[styles.companyRow, { borderBottomColor: colors.border }]}
-                    onPress={() => {
-                      set('companyId')(c.id);
-                      setCompanyPickerOpen(false);
-                    }}
-                  >
-                    <Text style={[styles.companyName, { color: colors.textPrimary }]}>{c.name}</Text>
-                    {form.companyId === c.id && <Ionicons name="checkmark" size={18} color={colors.primary} />}
-                  </TouchableOpacity>
-                ))
-              )}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 };
@@ -620,18 +539,21 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 },
     input: { borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, fontSize: theme.fonts.size.md },
     inputMultiline: { minHeight: 70, textAlignVertical: 'top' },
-    selectInput: { borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    selectText: { fontSize: theme.fonts.size.md, fontWeight: '600' },
     row: { flexDirection: 'row', gap: theme.spacing.md },
     submitButton: { paddingVertical: 16, alignItems: 'center', justifyContent: 'center', marginTop: theme.spacing.md },
     submitText: { fontWeight: '800', fontSize: theme.fonts.size.md },
     reviewLink: { textAlign: 'center', fontWeight: '700', fontSize: theme.fonts.size.md },
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-    modalSheet: { padding: theme.spacing.lg, maxHeight: '70%' },
-    modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: theme.spacing.md },
-    modalTitle: { fontSize: theme.fonts.size.lg, fontWeight: '800' },
+    companySuggestions: {
+      borderWidth: 1,
+      marginTop: 6,
+      position: 'absolute',
+      top: '100%',
+      left: 0,
+      right: 0,
+      zIndex: 20,
+    },
     emptyCompanies: { textAlign: 'center', paddingVertical: 24, fontSize: theme.fonts.size.sm },
-    companyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth },
+    companyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 14, borderBottomWidth: StyleSheet.hairlineWidth },
     companyName: { fontSize: theme.fonts.size.md, fontWeight: '600' },
   });
 
