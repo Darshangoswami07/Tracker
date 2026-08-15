@@ -100,12 +100,12 @@ class Settings(BaseSettings):
     EXPOSE_RESET_TOKEN_IN_RESPONSE: bool = True
 
     # --- OCR (GR slip extraction) -------------------------------------------
-    # Optional Google AI Studio / Gemini API key used by the admin OCR
-    # endpoint (`POST /admin/orders/ocr-extract`). When unset, the endpoint
-    # returns 503 ocr_service_unavailable so the app degrades gracefully.
-    GOOGLE_API_KEY: str = ""
-    # Vision model used for slip extraction (must support JSON mode).
-    GOOGLE_GEMINI_MODEL: str = "gemini-2.0-flash"
+    # OCR.Space API key used by the admin OCR endpoint
+    # (`POST /admin/orders/ocr-extract`). When unset, the endpoint returns
+    # 503 ocr_service_unavailable so the app degrades gracefully (manual GR
+    # entry keeps working regardless).
+    OCR_SPACE_API_KEY: str = ""
+    OCR_SPACE_API_URL: str = "https://api.ocr.space/parse/image"
 
     # --- Email / SMTP ------------------------------------------------------
     # Transactional email provider: "brevo" (Brevo REST API, production

@@ -23,6 +23,11 @@ const SUPER_ADMIN_TIER_ROLES = ['admin', 'super_admin', 'dispatcher'];
  * discards it for non-Super-Admin callers (`create_gr` in `backend/app/api/v1/gr.py`
  * always resolves the real company from `effective_company_id`). */
 const NIL_UUID = '00000000-0000-0000-0000-000000000000';
+/** Matches the backend's `MAX_UPLOAD_SIZE` (`core/config.py`) — the original
+ * slip file (not the OCR provider's own, much smaller, limit) may be up to
+ * this size. Enforced client-side too so an oversized pick is rejected with
+ * a clear message before it's persisted or sent anywhere. */
+const MAX_SLIP_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
 interface CompanyOption {
   id: string;
@@ -239,6 +244,10 @@ export const AdminCreateGRScreen = () => {
           : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
       if (result.canceled) return;
       const asset = result.assets[0];
+      if (asset.fileSize && asset.fileSize > MAX_SLIP_FILE_SIZE_BYTES) {
+        Alert.alert('File Too Large', 'This file is too large. Please select an image or PDF up to 10 MB.');
+        return;
+      }
       setSlipImage(asset.uri);
       setSlipData(null);
       setPersistedSlip(null);

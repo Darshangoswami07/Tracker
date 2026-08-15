@@ -173,15 +173,20 @@ async def create_gr(payload: GRCreateRequest, admin: GRAccessUser) -> dict:
 
 @router.post("/ocr-extract")
 async def extract_gr_from_slip(admin: GRAccessUser, file: UploadFile = File(...)) -> dict:
-    """Extracts GR fields from an uploaded transport slip image using a remote
-    vision model. Stateless: the extracted JSON is returned to the caller and
-    is never persisted here — the mobile app saves it into its on-device
-    SQLite repository. Requires a `GOOGLE_API_KEY` to be configured."""
+    """Extracts GR fields from an uploaded transport slip (image or PDF) via
+    OCR.Space. Stateless: the extracted JSON is returned to the caller and is
+    never persisted here — the mobile app saves it into its on-device SQLite
+    repository. The user's original file is untouched; only a temporary,
+    in-memory optimized copy (when needed) is sent to the OCR provider.
+    Requires `OCR_SPACE_API_KEY` to be configured."""
     mime_type = file.content_type or "image/jpeg"
     data = await file.read()
     if not data:
         raise ValidationBusinessError("The uploaded file is empty.")
-    extracted = await extract_slip_fields(data, mime_type)
+    if len(data) > settings.MAX_UPLOAD_SIZE:
+        max_mb = settings.MAX_UPLOAD_SIZE / (1024 * 1024)
+        raise ValidationBusinessError(f"This file is too large. Please select an image or PDF up to {max_mb:.0f} MB.")
+    extracted = await extract_slip_fields(data, mime_type, file.filename or "slip")
     return success(extracted, message="Slip details extracted successfully.")
 
 

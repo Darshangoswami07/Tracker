@@ -230,7 +230,7 @@ class RegistrationRequestExistsError(AppError):
 class OCRServiceUnavailableError(AppError):
     status_code = 503
     code = "ocr_service_unavailable"
-    default_message = "The OCR service is not configured. Ask an administrator to set GOOGLE_API_KEY."
+    default_message = "The OCR service is not configured. Ask an administrator to set OCR_SPACE_API_KEY."
 
 
 class OCRServiceError(AppError):
