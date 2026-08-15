@@ -25,6 +25,14 @@ export interface LocalAttachment {
   url: string;
 }
 
+/** A single status transition, appended by `create`/`updateStatus`. */
+export interface LocalTimelineEvent {
+  id: string;
+  status: string;
+  note: string | null;
+  createdAt: string;
+}
+
 /** Mirrors `GRDetail` in `AdminGRDetailsScreen` / web `admin/src/types/gr.ts`. */
 export interface LocalGRDetail {
   id: string;
@@ -44,6 +52,7 @@ export interface LocalGRDetail {
   createdAt: string;
   slipData: Record<string, unknown> | null;
   attachments: LocalAttachment[];
+  timeline: LocalTimelineEvent[];
 }
 
 export interface GRCreateInput {
@@ -126,6 +135,7 @@ const rowToDetail = (row: any): LocalGRDetail => ({
   createdAt: row.createdAt,
   slipData: parseSlipData(row.slipData),
   attachments: [],
+  timeline: [],
 });
 
 const parseSlipData = (value: string | null | undefined): Record<string, unknown> | null => {
@@ -144,6 +154,13 @@ const rowToAttachment = (row: any): LocalAttachment => ({
   mimeType: row.mimeType,
   createdAt: row.createdAt,
   url: row.remoteUrl ?? row.localUri ?? '',
+});
+
+const rowToTimelineEvent = (row: any): LocalTimelineEvent => ({
+  id: row.id,
+  status: row.status,
+  note: row.note ?? null,
+  createdAt: row.createdAt,
 });
 
 export const orderRepository = {
@@ -184,17 +201,43 @@ export const orderRepository = {
     return { items: rows.map(rowToListItem), total: countRow?.total ?? 0 };
   },
 
-  /** Full GR record including its attachments. Equivalent of `GET /admin/orders/{id}`. */
+  /** Full GR record including its attachments and status timeline.
+   * Equivalent of `GET /admin/orders/{id}`. */
   async getById(id: string): Promise<LocalGRDetail | null> {
     await ensureDatabaseReady();
     const db = await getDatabase();
     const row = await db.getFirstAsync<any>('SELECT * FROM orders WHERE id = ? AND isDeleted = 0', id);
     if (!row) return null;
-    const attachments = await db.getAllAsync<any>(
-      'SELECT * FROM order_attachments WHERE orderId = ? ORDER BY createdAt ASC',
-      id
+    return this.hydrateDetail(row);
+  },
+
+  /** Looks a GR up by its human-readable GR number rather than internal id —
+   * what Customer Tracking / GR Tracker (Classic) search on. GR data is
+   * local-first (never synced to the backend), so this reads the on-device
+   * SQLite database directly instead of calling `GET /orders/track/{gr}`. */
+  async getByOrderNumber(orderNumber: string): Promise<LocalGRDetail | null> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    const row = await db.getFirstAsync<any>(
+      'SELECT * FROM orders WHERE orderNumber = ? AND isDeleted = 0',
+      orderNumber
     );
-    return { ...rowToDetail(row), attachments: attachments.map(rowToAttachment) };
+    if (!row) return null;
+    return this.hydrateDetail(row);
+  },
+
+  /** Attaches attachments + status timeline to a raw `orders` row. */
+  async hydrateDetail(row: any): Promise<LocalGRDetail> {
+    const db = await getDatabase();
+    const [attachments, timeline] = await Promise.all([
+      db.getAllAsync<any>('SELECT * FROM order_attachments WHERE orderId = ? ORDER BY createdAt ASC', row.id),
+      db.getAllAsync<any>('SELECT * FROM order_status_history WHERE orderId = ? ORDER BY createdAt ASC', row.id),
+    ]);
+    return {
+      ...rowToDetail(row),
+      attachments: attachments.map(rowToAttachment),
+      timeline: timeline.map(rowToTimelineEvent),
+    };
   },
 
   /** Creates a GR and appends its initial pending status history row. */

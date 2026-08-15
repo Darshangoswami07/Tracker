@@ -5,12 +5,10 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAppNav } from '../../hooks/useAppNav';
-import { useAuthStore } from '../../store/authStore';
 import { useUserStore } from '../../store/userStore';
-import { api } from '../../api/client';
-import { ENDPOINTS } from '../../api/endpoints';
+import { orderRepository } from '../../database/repositories/orderRepository';
+import { persistSlipImage } from '../../services/slipStorage';
 import { EmptyState } from '../../components/EmptyState';
-import { uploadOrderAttachment } from '../../services/orderAttachments';
 
 const NAVY = '#0F172A';
 const AMBER = '#F97316';
@@ -58,7 +56,6 @@ const STATUS_COLORS: Record<string, string> = {
 export const StaffGRPanelScreen = () => {
   const { spacing, radii } = useAppTheme();
   const { goBack, navigate } = useAppNav();
-  const accessToken = useAuthStore((state) => state.accessToken);
   const user = useUserStore((state) => state.user);
 
   const [entries, setEntries] = useState<GREntry[]>([]);
@@ -70,24 +67,25 @@ export const StaffGRPanelScreen = () => {
   const [statusPickerFor, setStatusPickerFor] = useState<GREntry | null>(null);
 
   const fetchEntries = useCallback(
-    async (isRefresh = false) => {
-      if (!accessToken) return;
+    async (_isRefresh = false) => {
       try {
-        const res = await api.get(`${ENDPOINTS.employee}/orders`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          params: { page: 1, pageSize: 50, search: search || undefined },
-        });
-        const items = (res.data.data.items || []).map((o: any) => ({
-          id: o.id,
-          orderNumber: o.orderNumber,
-          consignorName: o.consignorName,
-          consigneeName: o.consigneeName,
-          pickupAddress: o.pickupAddress,
-          deliveryAddress: o.deliveryAddress,
-          status: o.status,
-          hasSlip: !!o.hasSlip,
-        }));
-        setEntries(items);
+        // GR data is local-first (created on-device, never synced to the
+        // backend), so this reads the on-device SQLite database directly
+        // instead of `GET /employee/orders`, which only knows about
+        // backend-created orders.
+        const { items } = await orderRepository.list({ page: 1, pageSize: 50, search: search || undefined });
+        setEntries(
+          items.map((o) => ({
+            id: o.id,
+            orderNumber: o.orderNumber,
+            consignorName: o.consignorName ?? undefined,
+            consigneeName: o.consigneeName ?? undefined,
+            pickupAddress: o.pickupAddress,
+            deliveryAddress: o.deliveryAddress,
+            status: o.status,
+            hasSlip: o.hasSlip,
+          }))
+        );
       } catch (error) {
         console.error('Failed to fetch GR entries:', error);
       } finally {
@@ -95,7 +93,7 @@ export const StaffGRPanelScreen = () => {
         setRefreshing(false);
       }
     },
-    [accessToken, search]
+    [search]
   );
 
   useEffect(() => {
@@ -109,14 +107,9 @@ export const StaffGRPanelScreen = () => {
 
   const updateStatus = async (orderId: string, status: string) => {
     setStatusPickerFor(null);
-    if (!accessToken) return;
     setUpdatingId(orderId);
     try {
-      await api.patch(
-        ENDPOINTS.orders.updateStatus(orderId),
-        { status },
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
+      await orderRepository.updateStatus(orderId, status);
       fetchEntries(true);
     } catch (error) {
       console.error('Failed to update status:', error);
@@ -133,11 +126,20 @@ export const StaffGRPanelScreen = () => {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
-    if (result.canceled || !accessToken) return;
+    if (result.canceled) return;
 
     setUploadingId(entry.id);
     try {
-      await uploadOrderAttachment(entry.id, result.assets[0].uri, accessToken);
+      // Persisted into the app's Documents directory first so the photo
+      // survives restarts (gallery URIs are temporary cache entries the OS
+      // can evict), matching `AdminGRDetailsScreen`'s upload flow.
+      const persisted = await persistSlipImage(result.assets[0].uri, result.assets[0].mimeType ?? 'image/jpeg');
+      await orderRepository.addAttachment(entry.id, {
+        originalFilename: persisted.fileName,
+        mimeType: persisted.mimeType,
+        localUri: persisted.localUri,
+        fileSizeBytes: persisted.fileSizeBytes,
+      });
       fetchEntries(true);
     } catch (error) {
       console.error('Failed to upload photo:', error);

@@ -8,10 +8,10 @@ import { useAppNav } from '../../hooks/useAppNav';
 import { useAuthStore } from '../../store/authStore';
 import { api } from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
+import { orderRepository, type LocalAttachment, type LocalTimelineEvent, type LocalGRDetail } from '../../database/repositories/orderRepository';
 import { EmptyState } from '../../components/EmptyState';
 import { AttachmentViewerModal, type ViewableAttachment } from '../../components/AttachmentViewerModal';
 import { formatDateTime } from '../../utils/format';
-import type { OrderAttachment } from '../../services/orderAttachments';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { AdminStackParamList } from '../../navigation/types';
 
@@ -46,7 +46,7 @@ interface TrackedShipment {
   weight?: number | null;
   customerName?: string | null;
   customerPhone?: string | null;
-  attachments: OrderAttachment[];
+  attachments: LocalAttachment[];
   timeline: TimelineEvent[];
 }
 
@@ -70,6 +70,32 @@ const stageIndexFor = (status?: string): number => {
       return 0;
   }
 };
+
+/** Maps a local `order_status_history` row into the timeline shape this
+ * screen renders (there's no separate `location` in the local schema). */
+const toTimelineEvent = (event: LocalTimelineEvent): TimelineEvent => ({
+  id: event.id,
+  status: event.status,
+  description: event.note ?? undefined,
+  timestamp: event.createdAt,
+});
+
+const toTrackedShipment = (gr: LocalGRDetail): TrackedShipment => ({
+  id: gr.id,
+  orderNumber: gr.orderNumber,
+  status: gr.status,
+  createdAt: gr.createdAt,
+  updatedAt: gr.createdAt,
+  pickupAddress: gr.pickupAddress,
+  deliveryAddress: gr.deliveryAddress,
+  consignorName: gr.consignorName,
+  consigneeName: gr.consigneeName,
+  particulars: gr.particulars,
+  packageCount: gr.packageCount,
+  weight: gr.weight,
+  attachments: gr.attachments,
+  timeline: gr.timeline.map(toTimelineEvent),
+});
 
 type Props = NativeStackScreenProps<AdminStackParamList, 'CustomerTracking'>;
 
@@ -130,20 +156,21 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
 
   const handleTrack = async () => {
     const trimmed = grNumber.trim();
-    if (!trimmed || !accessToken) return;
+    if (!trimmed) return;
     setLoading(true);
     setSearched(true);
     setShipment(null);
     try {
-      const res = await api.get(ENDPOINTS.orders.track(trimmed), {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      setShipment(res.data.data);
-    } catch (error: any) {
+      // GR data is local-first (created on-device, never synced to the
+      // backend — see `AdminCreateGRScreen`), so tracking looks the GR up
+      // in the on-device SQLite database rather than calling
+      // `GET /orders/track/{gr}`, which only knows about backend-created
+      // orders and would 404 for every locally-created GR.
+      const local = await orderRepository.getByOrderNumber(trimmed);
+      setShipment(local ? toTrackedShipment(local) : null);
+    } catch {
       setShipment(null);
-      if (error?.response?.status !== 404) {
-        Alert.alert('Error', 'Could not look up that GR number. Please try again.');
-      }
+      Alert.alert('Error', 'Could not look up that GR number. Please try again.');
     } finally {
       setLoading(false);
     }
