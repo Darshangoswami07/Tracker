@@ -21,42 +21,71 @@ export type AuthStackParamList = {
   ResetPassword: { requestId: string };
 };
 
-export type AdminStackParamList = {
+/** Screens reached from the Dashboard tab (overview + super-admin drill-downs). */
+export type DashboardStackParamList = {
   AdminDashboard: undefined;
-  UserManagement: undefined;
-  DriverManagement: undefined;
-  VehicleManagement: undefined;
-  OrderManagement: undefined;
+  PendingApprovals: undefined;
+  StaffManagement: undefined;
+  Analytics: undefined;
+  AuditLogs: undefined;
+  SystemHealth: undefined;
+};
+
+/** Screens reached from the Shipments tab. */
+export type ShipmentsStackParamList = {
   GRShipments: undefined;
   CreateGR: undefined;
   GRDetails: { orderId: string };
   EditGR: { orderId: string };
+};
+
+/** Screens reached from the Tracking tab. */
+export type TrackingStackParamList = {
   CustomerTracking: { grNumber?: string } | undefined;
+};
+
+/** Screens reached from the GR Tracker (classic) tab. */
+export type GRTrackerStackParamList = {
   GRTrackerClassic: undefined;
-  OrderDetails: { orderId: string };
-  Analytics: undefined;
-  AuditLogs: undefined;
+};
+
+/** Screens reached from the More tab (account, settings, remaining admin tools). */
+export type MoreStackParamList = {
+  More: undefined;
   Notifications: undefined;
-  Settings: undefined;
-  SystemHealth: undefined;
-  PendingApprovals: undefined;
-  StaffManagement: undefined;
   Profile: undefined;
+  Settings: undefined;
   ChangePassword: undefined;
   HelpSupport: undefined;
+  UserManagement: undefined;
+  DriverManagement: undefined;
+  VehicleManagement: undefined;
+  OrderManagement: undefined;
+  OrderDetails: { orderId: string };
 };
+
+/** Union of every screen reachable inside the admin tab shell — kept for call sites that navigate by screen name without knowing which tab owns it. */
+export type AdminStackParamList = DashboardStackParamList &
+  ShipmentsStackParamList &
+  TrackingStackParamList &
+  GRTrackerStackParamList &
+  MoreStackParamList;
 
 export type AppStackParamList = AdminStackParamList;
 
-/** The role-aware drawer wraps the active role stack as its single screen. */
-export type MainDrawerParamList = {
-  Home: NavigatorScreenParams<AppStackParamList> | undefined;
+/** The role-aware shell wraps the active role's bottom-tab navigator. */
+export type AdminTabParamList = {
+  Dashboard: NavigatorScreenParams<DashboardStackParamList> | undefined;
+  Shipments: NavigatorScreenParams<ShipmentsStackParamList> | undefined;
+  Tracking: NavigatorScreenParams<TrackingStackParamList> | undefined;
+  GRTracker: NavigatorScreenParams<GRTrackerStackParamList> | undefined;
+  More: NavigatorScreenParams<MoreStackParamList> | undefined;
 };
 
 export type RootStackParamList = {
   Auth: NavigatorScreenParams<AuthStackParamList> | undefined;
   App: NavigatorScreenParams<AppStackParamList> | undefined;
-  Main: NavigatorScreenParams<MainDrawerParamList> | undefined;
+  Main: NavigatorScreenParams<AdminTabParamList> | undefined;
   Onboarding: undefined;
   Splash: undefined;
   NoInternet: undefined;

@@ -5,14 +5,12 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAppNav } from '../../hooks/useAppNav';
-import { useUserStore } from '../../store/userStore';
 import { orderRepository } from '../../database/repositories/orderRepository';
 import { persistSlipImage } from '../../services/slipStorage';
+import { Header } from '../../components/Header';
 import { EmptyState } from '../../components/EmptyState';
-
-const NAVY = '#0F172A';
-const AMBER = '#F97316';
-const CREAM = '#FAF6EE';
+import { StatusBadge } from '../../components/StatusBadge';
+import type { AppTheme } from '../../theme/types';
 
 interface GREntry {
   id: string;
@@ -42,21 +40,12 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: 'Cancelled',
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  pending: '#F59E0B',
-  assigned: '#06B6D4',
-  pickup: '#8B5CF6',
-  in_transit: '#3B82F6',
-  delivered: '#10B981',
-  failed: '#EF4444',
-  returned: '#F97316',
-  cancelled: '#6B7280',
-};
-
 export const StaffGRPanelScreen = () => {
-  const { spacing, radii } = useAppTheme();
-  const { goBack, navigate } = useAppNav();
-  const user = useUserStore((state) => state.user);
+  const theme = useAppTheme();
+  const { colors, spacing, radii, shadows } = theme;
+  const { navigate, goToNotifications } = useAppNav();
+
+  const styles = createStyles(theme);
 
   const [entries, setEntries] = useState<GREntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,102 +138,81 @@ export const StaffGRPanelScreen = () => {
     }
   };
 
-  const companyName = user?.fullName ? 'DeliveryHub' : 'DeliveryHub';
-
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={[styles.header, { paddingTop: spacing.md }]}>
-        <View style={styles.headerRow}>
-          <TouchableOpacity onPress={goBack} style={styles.backBtn} hitSlop={8}>
-            <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
-          </TouchableOpacity>
-          <View style={[styles.badge, { borderRadius: radii.md }]}>
-            <Text style={styles.badgeText}>DH</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.brandTitle}>{companyName}</Text>
-            <Text style={styles.brandSubtitle}>Staff Panel</Text>
-          </View>
-        </View>
-      </View>
-      <View style={styles.goldStrip} />
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
+      <Header title="GR Tracker" rightAction={{ icon: 'notifications-outline', onPress: goToNotifications }} />
 
       <View style={styles.toolbar}>
-        <Text style={styles.toolbarTitle}>All GR Entries</Text>
-        <TextInput
-          style={[styles.searchInput, { borderRadius: radii.md }]}
-          placeholder="Search GR number, consignor..."
-          placeholderTextColor="#9CA3AF"
-          value={search}
-          onChangeText={setSearch}
-          returnKeyType="search"
-          onSubmitEditing={() => fetchEntries()}
-        />
+        <View style={[styles.searchRow, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radii.lg }]}>
+          <Ionicons name="search" size={18} color={colors.textMuted} />
+          <TextInput
+            style={[styles.searchInput, { color: colors.textPrimary }]}
+            placeholder="Search GR number, consignor..."
+            placeholderTextColor={colors.textMuted}
+            value={search}
+            onChangeText={setSearch}
+            returnKeyType="search"
+            onSubmitEditing={() => fetchEntries()}
+          />
+        </View>
       </View>
 
       {loading ? (
         <View style={styles.centerFill}>
-          <ActivityIndicator color={AMBER} size="large" />
+          <ActivityIndicator color={colors.primary} size="large" />
         </View>
       ) : (
         <ScrollView
-          style={{ flex: 1, backgroundColor: CREAM }}
           contentContainerStyle={styles.scrollContent}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={AMBER} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} progressBackgroundColor={colors.surface} />}
         >
           {entries.length === 0 ? (
-            <EmptyState icon="document-text-outline" title="No GR entries" subtitle="Entries assigned to your company will appear here." iconColor={AMBER} />
+            <EmptyState icon="document-text-outline" title="No GR entries" subtitle="Entries assigned to your company will appear here." />
           ) : (
             entries.map((entry) => (
               <TouchableOpacity
                 key={entry.id}
-                style={[styles.row, { borderRadius: radii.md }]}
+                style={[styles.row, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
                 onPress={() => navigate('OrderDetails', { orderId: entry.id })}
                 activeOpacity={0.85}
               >
                 <View style={styles.rowTop}>
                   <Text style={styles.grNo}>{entry.orderNumber}</Text>
                   <TouchableOpacity
-                    style={[styles.statusPill, { backgroundColor: `${STATUS_COLORS[entry.status] || '#6B7280'}18` }]}
+                    style={styles.statusTrigger}
                     onPress={() => setStatusPickerFor(entry)}
                     disabled={updatingId === entry.id}
                   >
                     {updatingId === entry.id ? (
-                      <ActivityIndicator size="small" color={STATUS_COLORS[entry.status] || NAVY} />
+                      <ActivityIndicator size="small" color={colors.primary} />
                     ) : (
                       <>
-                        <Text style={[styles.statusPillText, { color: STATUS_COLORS[entry.status] || NAVY }]}>
-                          {STATUS_LABELS[entry.status] || entry.status}
-                        </Text>
-                        <Ionicons name="chevron-down" size={12} color={STATUS_COLORS[entry.status] || NAVY} />
+                        <StatusBadge status={entry.status} size="sm" />
+                        <Ionicons name="chevron-down" size={12} color={colors.textMuted} />
                       </>
                     )}
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.consignorLine}>
-                  {entry.consignorName || '—'} <Text style={{ color: '#9CA3AF' }}>→</Text> {entry.consigneeName || '—'}
+                  {entry.consignorName || '—'} <Text style={{ color: colors.textMuted }}>→</Text> {entry.consigneeName || '—'}
                 </Text>
-                <Text style={styles.routeLine}>{entry.pickupAddress} → {entry.deliveryAddress}</Text>
+                <Text style={styles.routeLine} numberOfLines={1}>{entry.pickupAddress} → {entry.deliveryAddress}</Text>
 
-                <View style={styles.rowFooter}>
-                  <TouchableOpacity
-                    style={styles.photoAction}
-                    onPress={() => handleUploadPhoto(entry)}
-                    disabled={uploadingId === entry.id}
-                  >
+                <View style={[styles.rowFooter, { borderTopColor: colors.border }]}>
+                  <TouchableOpacity style={styles.photoAction} onPress={() => handleUploadPhoto(entry)} disabled={uploadingId === entry.id}>
                     {uploadingId === entry.id ? (
-                      <ActivityIndicator size="small" color={NAVY} />
+                      <ActivityIndicator size="small" color={colors.textPrimary} />
                     ) : (
                       <>
-                        <Ionicons name="camera-outline" size={16} color={NAVY} />
+                        <Ionicons name="camera-outline" size={16} color={colors.textPrimary} />
                         <Text style={styles.photoActionText}>{entry.hasSlip ? 'Replace Photo' : 'Upload Photo'}</Text>
                       </>
                     )}
                   </TouchableOpacity>
                   {entry.hasSlip && (
                     <View style={styles.slipBadge}>
-                      <Ionicons name="checkmark-circle" size={14} color="#10B981" />
-                      <Text style={styles.slipBadgeText}>Slip on file</Text>
+                      <Ionicons name="checkmark-circle" size={14} color={colors.success} />
+                      <Text style={[styles.slipBadgeText, { color: colors.success }]}>Slip on file</Text>
                     </View>
                   )}
                 </View>
@@ -256,28 +224,26 @@ export const StaffGRPanelScreen = () => {
 
       <Modal visible={!!statusPickerFor} animationType="slide" transparent onRequestClose={() => setStatusPickerFor(null)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { borderRadius: radii.xl }]}>
+          <View style={[styles.modalSheet, { backgroundColor: colors.surface, borderRadius: radii.xl }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {statusPickerFor ? `Update GR ${statusPickerFor.orderNumber}` : 'Update Status'}
-              </Text>
+              <Text style={styles.modalTitle}>{statusPickerFor ? `Update GR ${statusPickerFor.orderNumber}` : 'Update Status'}</Text>
               <TouchableOpacity onPress={() => setStatusPickerFor(null)} hitSlop={8}>
-                <Ionicons name="close" size={22} color={NAVY} />
+                <Ionicons name="close" size={22} color={colors.textPrimary} />
               </TouchableOpacity>
             </View>
             <ScrollView style={{ maxHeight: 420 }}>
               {ALL_STATUSES.map((status) => (
                 <TouchableOpacity
                   key={status}
-                  style={styles.optionRow}
+                  style={[styles.optionRow, { borderBottomColor: colors.border }]}
                   onPress={() => statusPickerFor && updateStatus(statusPickerFor.id, status)}
                   disabled={!!updatingId}
                 >
                   <Text style={styles.optionName}>{STATUS_LABELS[status] || status}</Text>
                   {status === statusPickerFor?.status ? (
-                    <Ionicons name="checkmark" size={18} color={AMBER} />
+                    <Ionicons name="checkmark" size={18} color={colors.primary} />
                   ) : (
-                    <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                   )}
                 </TouchableOpacity>
               ))}
@@ -289,39 +255,31 @@ export const StaffGRPanelScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: NAVY },
-  header: { backgroundColor: NAVY, paddingHorizontal: 20, paddingBottom: 16 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  backBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  badge: { width: 40, height: 40, borderWidth: 1.5, borderColor: AMBER, alignItems: 'center', justifyContent: 'center' },
-  badgeText: { color: AMBER, fontWeight: '800', fontSize: 14 },
-  brandTitle: { color: '#FFFFFF', fontWeight: '800', fontSize: 17 },
-  brandSubtitle: { color: '#CBD5E1', fontSize: 12, marginTop: 1 },
-  goldStrip: { height: 4, backgroundColor: AMBER, opacity: 0.85 },
-  toolbar: { backgroundColor: CREAM, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12, gap: 10 },
-  toolbarTitle: { fontSize: 16, fontWeight: '800', color: NAVY },
-  searchInput: { backgroundColor: '#FFFFFF', paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: NAVY, borderWidth: 1, borderColor: '#EDE4D3' },
-  centerFill: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: CREAM },
-  scrollContent: { padding: 20, paddingTop: 4, gap: 12, paddingBottom: 60 },
-  row: { backgroundColor: '#FFFFFF', padding: 16, borderWidth: 1, borderColor: '#EDE4D3', gap: 6 },
-  rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  grNo: { fontWeight: '800', fontSize: 15, color: NAVY },
-  statusPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
-  statusPillText: { fontWeight: '700', fontSize: 11 },
-  consignorLine: { fontSize: 13, fontWeight: '600', color: NAVY },
-  routeLine: { fontSize: 12, color: '#6B7280' },
-  rowFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#F1F0EA' },
-  photoAction: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  photoActionText: { fontSize: 12, fontWeight: '700', color: NAVY },
-  slipBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  slipBadgeText: { fontSize: 11, color: '#10B981', fontWeight: '600' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  modalSheet: { backgroundColor: CREAM, padding: 20, maxHeight: '70%' },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-  modalTitle: { fontSize: 16, fontWeight: '800', color: NAVY },
-  optionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#EDE4D3' },
-  optionName: { fontSize: 14, fontWeight: '600', color: NAVY },
-});
+const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fonts' | 'shadows'>) =>
+  StyleSheet.create({
+    safe: { flex: 1 },
+    toolbar: { paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.md, paddingBottom: theme.spacing.sm },
+    searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 4 },
+    searchInput: { flex: 1, paddingVertical: 10, fontSize: theme.fonts.size.sm },
+    centerFill: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    scrollContent: { padding: theme.spacing.lg, paddingTop: theme.spacing.sm, gap: theme.spacing.md, paddingBottom: 60 },
+    row: { padding: 16, gap: 6 },
+    rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    grNo: { fontWeight: '800', fontSize: theme.fonts.size.md, color: theme.colors.textPrimary },
+    statusTrigger: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    consignorLine: { fontSize: theme.fonts.size.sm, fontWeight: '600', color: theme.colors.textPrimary },
+    routeLine: { fontSize: theme.fonts.size.xs, color: theme.colors.textMuted },
+    rowFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth },
+    photoAction: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    photoActionText: { fontSize: theme.fonts.size.xs, fontWeight: '700', color: theme.colors.textPrimary },
+    slipBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    slipBadgeText: { fontSize: theme.fonts.size.xs, fontWeight: '600' },
+    modalOverlay: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' },
+    modalSheet: { padding: 20, maxHeight: '70%' },
+    modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+    modalTitle: { fontSize: theme.fonts.size.lg, fontWeight: '800', color: theme.colors.textPrimary },
+    optionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth },
+    optionName: { fontSize: theme.fonts.size.md, fontWeight: '600', color: theme.colors.textPrimary },
+  });
 
 export default StaffGRPanelScreen;

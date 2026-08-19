@@ -24,7 +24,6 @@ export const STRINGS = {
   haveAccount: 'Already have an account?',
   loginNow: 'Sign in',
   agreeTo: 'I agree to the',
-  orContinueWith: 'or continue with',
   terms: 'Terms & Conditions',
   andLabel: 'and',
   privacy: 'Privacy Policy',

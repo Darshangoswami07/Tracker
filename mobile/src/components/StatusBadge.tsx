@@ -20,9 +20,13 @@ export const StatusBadge = ({ status, size = 'md', showIcon = true }: StatusBadg
       case 'approved_pending_otp': return { color: '#3B82F6', icon: 'mail-outline', label: 'Approved · OTP Sent' };
       case 'rejected': return { color: '#EF4444', icon: 'close-circle-outline', label: 'Rejected' };
       case 'assigned': return { color: '#06B6D4', icon: 'person-add-outline', label: 'Assigned' };
-      case 'picked_up': return { color: '#8B5CF6', icon: 'cube-outline', label: 'Picked Up' };
+      case 'pickup':
+      case 'picked_up': return { color: '#8B5CF6', icon: 'cube-outline', label: 'Pickup' };
       case 'in_transit': return { color: '#3B82F6', icon: 'navigate-outline', label: 'In Transit' };
+      case 'out_for_delivery': return { color: '#8B5CF6', icon: 'navigate-outline', label: 'Out for Delivery' };
       case 'delivered': return { color: '#10B981', icon: 'checkmark-circle-outline', label: 'Delivered' };
+      case 'failed': return { color: '#EF4444', icon: 'alert-circle-outline', label: 'Failed' };
+      case 'returned': return { color: '#F97316', icon: 'return-up-back-outline', label: 'Returned' };
       case 'cancelled': return { color: '#EF4444', icon: 'close-circle-outline', label: 'Cancelled' };
       case 'active': return { color: '#10B981', icon: 'checkmark-circle-outline', label: 'Active' };
       case 'inactive': return { color: '#EF4444', icon: 'close-circle-outline', label: 'Inactive' };

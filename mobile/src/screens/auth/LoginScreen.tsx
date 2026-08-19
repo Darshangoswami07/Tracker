@@ -2,7 +2,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { StyleSheet, Text, View } from 'react-native';
 import { AnimatedHeader } from '../../components/AnimatedHeader';
-import { AuthDivider } from '../../components/AuthDivider';
 import { AuthScaffold } from '../../components/AuthScaffold';
 import { FormCheckbox } from '../../components/form/FormCheckbox';
 import { FormPasswordField } from '../../components/form/FormPasswordField';
@@ -12,7 +11,6 @@ import { PrimaryButton } from '../../components/PrimaryButton';
 import { HeroBanner } from '../../components/HeroBanner';
 import { Logo } from '../../components/Logo';
 import { ScreenHeading } from '../../components/ScreenHeading';
-import { SocialButton } from '../../components/SocialButton';
 import { TextLink } from '../../components/TextLink';
 import { useAuth } from '../../hooks/useAuth';
 import { useSessionStore } from '../../store/sessionStore';
@@ -147,16 +145,6 @@ export const LoginScreen = ({ navigation, route }: Props) => {
         showArrow
       />
 
-      <View style={{ marginTop: spacing.xxl }}>
-        <View style={styles.socialSection}>
-          <AuthDivider label={STRINGS.orContinueWith} />
-          <View style={styles.socialRow}>
-            <SocialButton provider="google" flex={false} />
-            <SocialButton provider="apple" flex={false} />
-          </View>
-        </View>
-      </View>
-
       <View style={[styles.footerRow, { marginTop: spacing.xxl }]}>
         <Text style={[styles.footerText, { color: colors.textSecondary }]}>{STRINGS.noAccount} </Text>
         <TextLink label="Create one" onPress={() => navigation.navigate('Register', { accountType })} />
@@ -188,13 +176,6 @@ const styles = StyleSheet.create({
   },
   forgotSection: {
     flexShrink: 0,
-  },
-  socialSection: {
-    gap: 16,
-  },
-  socialRow: {
-    flexDirection: 'row',
-    gap: 12,
   },
   footerRow: {
     flexDirection: 'row',

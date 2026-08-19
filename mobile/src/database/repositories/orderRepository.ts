@@ -100,6 +100,19 @@ export interface PickerRow {
   name: string;
 }
 
+/** A single real GR/shipment event, sourced from `order_status_history` /
+ * `order_attachments` — the same tables that already back the Customer
+ * Tracking timeline and GR detail attachments list. */
+export interface ActivityEvent {
+  id: string;
+  kind: 'created' | 'status' | 'upload';
+  orderId: string;
+  orderNumber: string;
+  status?: string;
+  previousStatus?: string | null;
+  createdAt: string;
+}
+
 /** RFC-4122 v4 UUID without external deps (screens pass ids around as text). */
 const nowIso = (): string => new Date().toISOString();
 
@@ -363,6 +376,72 @@ export const orderRepository = {
     );
     await db.runAsync('UPDATE orders SET hasSlip = 1, updatedAt = ? WHERE id = ?', [nowIso(), orderId]);
     return this.getById(orderId)?.then((g) => g?.attachments.find((a) => a.id === id) ?? null);
+  },
+
+  /**
+   * Recent real GR/shipment events for the dashboard's Recent Activity feed:
+   * status transitions (including the "Created" row every GR gets) plus
+   * slip uploads, newest first. Read-only aggregation over the existing
+   * `order_status_history` / `order_attachments` tables — no schema change.
+   */
+  async listRecentActivity(limit = 10): Promise<ActivityEvent[]> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    const historyWindow = Math.max(limit * 4, 40);
+
+    const [historyRows, attachmentRows] = await Promise.all([
+      db.getAllAsync<any>(
+        `SELECT h.id, h.orderId, h.status, h.note, h.createdAt, o.orderNumber
+         FROM order_status_history h
+         JOIN orders o ON o.id = h.orderId AND o.isDeleted = 0
+         ORDER BY h.createdAt DESC LIMIT ?`,
+        [historyWindow]
+      ),
+      db.getAllAsync<any>(
+        `SELECT a.id, a.orderId, a.createdAt, o.orderNumber
+         FROM order_attachments a
+         JOIN orders o ON o.id = a.orderId AND o.isDeleted = 0
+         ORDER BY a.createdAt DESC LIMIT ?`,
+        [limit]
+      ),
+    ]);
+
+    // Group history rows by order, oldest-first, so each row can carry the
+    // status it transitioned *from* (the "changed from X to Y" description).
+    const byOrder = new Map<string, any[]>();
+    for (const row of [...historyRows].reverse()) {
+      const list = byOrder.get(row.orderId) ?? [];
+      list.push(row);
+      byOrder.set(row.orderId, list);
+    }
+
+    const statusEvents: ActivityEvent[] = [];
+    for (const rows of byOrder.values()) {
+      rows.forEach((row, index) => {
+        const isCreated = index === 0 && row.note === 'Created';
+        statusEvents.push({
+          id: row.id,
+          kind: isCreated ? 'created' : 'status',
+          orderId: row.orderId,
+          orderNumber: row.orderNumber,
+          status: row.status,
+          previousStatus: index > 0 ? rows[index - 1].status : null,
+          createdAt: row.createdAt,
+        });
+      });
+    }
+
+    const uploadEvents: ActivityEvent[] = attachmentRows.map((row) => ({
+      id: row.id,
+      kind: 'upload',
+      orderId: row.orderId,
+      orderNumber: row.orderNumber,
+      createdAt: row.createdAt,
+    }));
+
+    return [...statusEvents, ...uploadEvents]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, limit);
   },
 
   // ---- Lookup tables (GR pickers: companies, drivers, staff) ----

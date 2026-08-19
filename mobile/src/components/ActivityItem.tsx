@@ -22,9 +22,15 @@ export const ActivityItem = ({ activity }: ActivityItemProps) => {
   const getActivityConfig = (type: string): { icon: IoniconName; color: string; bg: string } => {
     switch (type) {
       case 'order_created': return { icon: 'document-text-outline', color: '#635BFF', bg: '#635BFF15' };
+      case 'order_pending': return { icon: 'time-outline', color: '#F59E0B', bg: '#F59E0B15' };
       case 'order_assigned': return { icon: 'person-add-outline', color: '#06B6D4', bg: '#06B6D415' };
       case 'order_picked_up': return { icon: 'cube-outline', color: '#8B5CF6', bg: '#8B5CF615' };
+      case 'order_in_transit': return { icon: 'navigate-outline', color: '#3B82F6', bg: '#3B82F615' };
       case 'order_delivered': return { icon: 'checkmark-circle-outline', color: '#10B981', bg: '#10B98115' };
+      case 'order_failed': return { icon: 'alert-circle-outline', color: '#EF4444', bg: '#EF444415' };
+      case 'order_returned': return { icon: 'return-up-back-outline', color: '#F97316', bg: '#F9731615' };
+      case 'order_cancelled': return { icon: 'close-circle-outline', color: '#EF4444', bg: '#EF444415' };
+      case 'slip_uploaded': return { icon: 'cloud-upload-outline', color: '#635BFF', bg: '#635BFF15' };
       case 'driver_assigned': return { icon: 'person-outline', color: '#F97316', bg: '#F9731615' };
       case 'vehicle_assigned': return { icon: 'car-outline', color: '#8B5CF6', bg: '#8B5CF615' };
       case 'payment_received': return { icon: 'cash-outline', color: '#10B981', bg: '#10B98115' };

@@ -1,5 +1,6 @@
-import { useNavigation, DrawerActions, CommonActions } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import { useUserStore } from '../store/userStore';
+import type { AdminTabParamList } from '../navigation/types';
 
 /**
  * Maps a role to the authenticated home screen. Used as the fallback target
@@ -14,28 +15,66 @@ export const getHomeScreenForRole = (role?: string): string => {
   }
 };
 
+/** Which bottom tab owns each screen name, so cross-tab navigation resolves correctly. */
+const SCREEN_TO_TAB: Record<string, keyof AdminTabParamList> = {
+  AdminDashboard: 'Dashboard',
+  PendingApprovals: 'Dashboard',
+  StaffManagement: 'Dashboard',
+  Analytics: 'Dashboard',
+  AuditLogs: 'Dashboard',
+  SystemHealth: 'Dashboard',
+
+  GRShipments: 'Shipments',
+  CreateGR: 'Shipments',
+  GRDetails: 'Shipments',
+  EditGR: 'Shipments',
+
+  CustomerTracking: 'Tracking',
+
+  GRTrackerClassic: 'GRTracker',
+
+  More: 'More',
+  Notifications: 'More',
+  Profile: 'More',
+  Settings: 'More',
+  ChangePassword: 'More',
+  HelpSupport: 'More',
+  UserManagement: 'More',
+  DriverManagement: 'More',
+  VehicleManagement: 'More',
+  OrderManagement: 'More',
+  OrderDetails: 'More',
+};
+
 /**
- * Navigation helpers used by screens inside the role-aware drawer stack.
- * Dashboards render these from the app drawer shell, so screens dispatch
- * drawer actions and navigate to the shared Notifications screen.
+ * Navigation helpers used by screens inside the role-aware bottom-tab shell.
+ * Dashboards render these from the tab shell, so screens dispatch tab
+ * navigation and navigate to the shared Notifications screen.
  */
 export const useAppNav = () => {
   const navigation = useNavigation();
   const role = useUserStore((state) => state.user?.role);
 
-  const openDrawer = () => navigation.dispatch(DrawerActions.openDrawer());
-  const closeDrawer = () => navigation.dispatch(DrawerActions.closeDrawer());
+  /** Opens the More tab — the mobile replacement for the old slide-out drawer menu. */
+  const openDrawer = () => navigation.navigate('More' as never);
+  /** No-op: there is no slide-out panel to close in the tab-based shell. Kept for API compatibility. */
+  const closeDrawer = () => {};
   const goToNotifications = () =>
     navigation.navigate('Notifications' as never);
 
   /**
-   * Navigates to a screen inside the role's navigation stack. Typed loosely
-   * because the drawer shell exposes the nested role stack to *all* roles,
-   * so the concrete route names cannot be statically verified here.
+   * Navigates to a screen inside the role's tab shell, resolving which tab
+   * owns it so navigation works the same whether the target is in the
+   * current tab or a different one.
    */
   const navigate = (screen: string, params?: Record<string, unknown> | undefined) => {
+    const tab = SCREEN_TO_TAB[screen];
+    if (!tab) {
+      navigation.dispatch(CommonActions.navigate(screen, params as unknown as object | undefined));
+      return;
+    }
     navigation.dispatch(
-      CommonActions.navigate('Home', {
+      CommonActions.navigate(tab, {
         screen,
         params: params as unknown as object | undefined,
       }),
@@ -51,7 +90,7 @@ export const useAppNav = () => {
     if (navigation.canGoBack()) {
       navigation.goBack();
     } else {
-      navigation.navigate(getHomeScreenForRole(role) as never);
+      navigate(getHomeScreenForRole(role));
     }
   };
 

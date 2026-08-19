@@ -1,6 +1,7 @@
 """Dashboard endpoints."""
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -32,27 +33,40 @@ async def get_dashboard_stats(
     company_repo = CompanyRepository()
     reg_request_repo = RegistrationRequestRepository()
 
-    total_orders = await order_repo.count()
-    completed_orders = await order_repo.count_by_status("delivered")
-    pending_orders = await order_repo.count_by_status("pending")
-    cancelled_orders = await order_repo.count_by_status("cancelled")
-    todays_deliveries = await order_repo.count_todays_deliveries()
-
-    active_drivers = await driver_repo.count_active()
-    online_drivers = await driver_repo.count_online()
-
-    vehicles = await vehicle_repo.count()
-    companies = await company_repo.count()
-    employees = await user_repo.count_by_role("employee")
-    total_users = await user_repo.count()
-    
-    # Pending registration approvals
-    pending_approvals = await reg_request_repo.count_pending()
-    
-    # Latest 5 pending requests for dashboard card
-    latest_pending, _ = await reg_request_repo.find_pending_requests(page=1, page_size=5)
-
-    revenue = await order_repo.get_total_revenue()
+    # All of these are independent queries against separate connections -
+    # run them concurrently instead of awaiting one-by-one, which was the
+    # cause of the endpoint blowing past Render's request timeout.
+    (
+        total_orders,
+        completed_orders,
+        pending_orders,
+        cancelled_orders,
+        todays_deliveries,
+        active_drivers,
+        online_drivers,
+        vehicles,
+        companies,
+        employees,
+        total_users,
+        pending_approvals,
+        (latest_pending, _),
+        revenue,
+    ) = await asyncio.gather(
+        order_repo.count(),
+        order_repo.count_by_status("delivered"),
+        order_repo.count_by_status("pending"),
+        order_repo.count_by_status("cancelled"),
+        order_repo.count_todays_deliveries(),
+        driver_repo.count_active(),
+        driver_repo.count_online(),
+        vehicle_repo.count(),
+        company_repo.count(),
+        user_repo.count_by_role("employee"),
+        user_repo.count(),
+        reg_request_repo.count_pending(),
+        reg_request_repo.find_pending_requests(page=1, page_size=5),
+        order_repo.get_total_revenue(),
+    )
     growth = 12.5
 
     return success({

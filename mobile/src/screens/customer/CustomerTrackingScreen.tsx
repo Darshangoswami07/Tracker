@@ -9,11 +9,14 @@ import { useAuthStore } from '../../store/authStore';
 import { api } from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
 import { orderRepository, type LocalAttachment, type LocalTimelineEvent, type LocalGRDetail } from '../../database/repositories/orderRepository';
+import { Header } from '../../components/Header';
 import { EmptyState } from '../../components/EmptyState';
+import { StatusBadge } from '../../components/StatusBadge';
 import { AttachmentViewerModal, type ViewableAttachment } from '../../components/AttachmentViewerModal';
 import { formatDateTime } from '../../utils/format';
+import type { AppTheme } from '../../theme/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { AdminStackParamList } from '../../navigation/types';
+import type { TrackingStackParamList } from '../../navigation/types';
 
 /** The four customer-facing delivery stages, derived from the backend status. */
 const STAGES = [
@@ -97,12 +100,17 @@ const toTrackedShipment = (gr: LocalGRDetail): TrackedShipment => ({
   timeline: gr.timeline.map(toTimelineEvent),
 });
 
-type Props = NativeStackScreenProps<AdminStackParamList, 'CustomerTracking'>;
+const humanizeStatus = (status: string): string => status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+type Props = NativeStackScreenProps<TrackingStackParamList, 'CustomerTracking'>;
 
 export const CustomerTrackingScreen = ({ route }: Props) => {
-  const { colors, spacing, radii, shadows } = useAppTheme();
-  const { openDrawer, goToNotifications } = useAppNav();
+  const theme = useAppTheme();
+  const { colors, spacing, radii, shadows } = theme;
+  const { navigate, goToNotifications } = useAppNav();
   const accessToken = useAuthStore((state) => state.accessToken);
+
+  const styles = createStyles(theme);
 
   const [grNumber, setGrNumber] = useState(route.params?.grNumber ?? '');
   const [loading, setLoading] = useState(false);
@@ -178,42 +186,24 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
-      <View style={[styles.topBar, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={openDrawer} style={styles.iconBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Open menu">
-          <Ionicons name="menu" size={24} color={colors.textPrimary} />
-        </TouchableOpacity>
-        <View style={styles.brandWrap}>
-          <View style={[styles.brandLogo, { backgroundColor: colors.primary }]}>
-            <Ionicons name="cube" size={16} color="#FFFFFF" />
-          </View>
-          <Text style={[styles.brandTitle, { color: colors.textPrimary }]}>DeliveryHub</Text>
-        </View>
-        <TouchableOpacity onPress={goToNotifications} style={styles.iconBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Notifications">
-          <View style={styles.bellWrap}>
-            <Ionicons name="notifications-outline" size={24} color={colors.textPrimary} />
-            {unread > 0 && (
-              <View style={[styles.bellDot, { backgroundColor: colors.error, borderRadius: radii.pill }]}>
-                <Text style={styles.bellDotText}>{unread > 99 ? '99+' : unread}</Text>
-              </View>
-            )}
-          </View>
-        </TouchableOpacity>
-      </View>
+      <Header
+        title="Tracking"
+        leftAction={{ icon: 'person-circle-outline', onPress: () => navigate('Profile'), accessibilityLabel: 'Profile' }}
+        rightAction={{ icon: 'notifications-outline', onPress: goToNotifications, badge: unread }}
+      />
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-          <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>Track Shipment</Text>
-          <Text style={[styles.screenSubtitle, { color: colors.textSecondary }]}>
-            Enter your GR number to see the latest delivery status.
-          </Text>
+          <Text style={styles.screenTitle}>Track Shipment</Text>
+          <Text style={styles.screenSubtitle}>Enter your GR number to see the latest delivery status.</Text>
 
           <LinearGradient
-            colors={['#F6F4FF', '#FFFFFF']}
+            colors={[colors.primarySoft, colors.surface]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={[styles.searchCard, { borderRadius: radii.xl, ...shadows.md }]}
           >
-            <View style={[styles.searchRow, { borderRadius: radii.lg }]}>
+            <View style={[styles.searchRow, { borderColor: colors.border, borderRadius: radii.lg }]}>
               <View style={[styles.searchIcon, { backgroundColor: colors.primarySoft, borderRadius: radii.md }]}>
                 <Ionicons name="cube-outline" size={20} color={colors.primary} />
               </View>
@@ -230,7 +220,7 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
               />
             </View>
             <TouchableOpacity
-              style={[styles.trackBtn, { borderRadius: radii.button }]}
+              style={[styles.trackBtn, { backgroundColor: colors.primary, borderRadius: radii.button }]}
               onPress={handleTrack}
               disabled={loading || !grNumber.trim()}
               activeOpacity={0.85}
@@ -238,11 +228,11 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
               accessibilityLabel="Track shipment"
             >
               {loading ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
+                <ActivityIndicator color={colors.onPrimary} size="small" />
               ) : (
                 <>
-                  <Ionicons name="search" size={18} color="#FFFFFF" />
-                  <Text style={styles.trackBtnText}>Track</Text>
+                  <Ionicons name="search" size={18} color={colors.onPrimary} />
+                  <Text style={[styles.trackBtnText, { color: colors.onPrimary }]}>Track</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -271,33 +261,26 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
           )}
 
           {shipment && (
-            <View style={[styles.card, { borderRadius: radii.xl, ...shadows.md }]}>
+            <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radii.xl, ...shadows.md }]}>
               <View style={styles.cardHeader}>
                 <View>
-                  <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>GR NUMBER</Text>
-                  <Text style={[styles.grNumber, { color: colors.textPrimary }]}>{shipment.orderNumber}</Text>
-                  {shipment.createdAt && (
-                    <Text style={[styles.cardDate, { color: colors.textMuted }]}>
-                      Booked {formatDateTime(shipment.createdAt)}
-                    </Text>
-                  )}
+                  <Text style={styles.fieldLabel}>GR NUMBER</Text>
+                  <Text style={styles.grNumber}>{shipment.orderNumber}</Text>
+                  {shipment.createdAt && <Text style={styles.cardDate}>Booked {formatDateTime(shipment.createdAt)}</Text>}
                 </View>
-                <StatusPill status={shipment.status} />
+                <StatusBadge status={shipment.status} size="lg" />
               </View>
 
               {/* 4-stage progress timeline */}
               <View style={[styles.timelineCard, { backgroundColor: colors.surfaceMuted, borderRadius: radii.lg }]}>
-                <View style={styles.timelineTrack}>
+                <View style={[styles.timelineTrack, { backgroundColor: colors.border }]}>
                   <Animated.View
                     style={[
                       styles.timelineFill,
                       {
                         backgroundColor: colors.primary,
                         borderRadius: radii.pill,
-                        width: progressAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: ['0%', '100%'],
-                        }),
+                        width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
                       },
                     ]}
                   />
@@ -311,26 +294,16 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
                           style={[
                             styles.stepDot,
                             {
-                              backgroundColor: reached ? colors.primary : '#E5E7EB',
-                              borderColor: reached ? colors.primary : '#D1D5DB',
+                              backgroundColor: reached ? colors.primary : colors.surfaceMuted,
+                              borderColor: reached ? colors.primary : colors.borderStrong,
                             },
                           ]}
                         >
-                          <Ionicons
-                            name={reached ? 'checkmark' : 'ellipse'}
-                            size={10}
-                            color={reached ? '#FFFFFF' : '#9CA3AF'}
-                          />
+                          <Ionicons name={reached ? 'checkmark' : 'ellipse'} size={10} color={reached ? colors.onPrimary : colors.textMuted} />
                         </View>
                         <Text
                           numberOfLines={1}
-                          style={[
-                            styles.stepLabel,
-                            {
-                              color: reached ? colors.textPrimary : colors.textMuted,
-                              fontWeight: reached ? '700' : '500',
-                            },
-                          ]}
+                          style={[styles.stepLabel, { color: reached ? colors.textPrimary : colors.textMuted, fontWeight: reached ? '700' : '500' }]}
                         >
                           {stage.label}
                         </Text>
@@ -342,65 +315,57 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
 
               {shipment.timeline.length > 0 && (
                 <View style={styles.historyBlock}>
-                  <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>STATUS HISTORY</Text>
+                  <Text style={styles.fieldLabel}>STATUS HISTORY</Text>
                   {shipment.timeline.map((event) => (
                     <View key={event.id} style={styles.historyRow}>
                       <View style={[styles.historyDot, { backgroundColor: colors.primary }]} />
                       <View style={{ flex: 1 }}>
-                        <Text style={[styles.historyStatus, { color: colors.textPrimary }]}>
-                          {humanizeStatus(event.status)}
-                        </Text>
-                        {event.description ? (
-                          <Text style={[styles.historyDesc, { color: colors.textSecondary }]}>{event.description}</Text>
-                        ) : null}
+                        <Text style={styles.historyStatus}>{humanizeStatus(event.status)}</Text>
+                        {event.description ? <Text style={styles.historyDesc}>{event.description}</Text> : null}
                       </View>
-                      {event.timestamp && (
-                        <Text style={[styles.historyTime, { color: colors.textMuted }]}>
-                          {formatDateTime(event.timestamp)}
-                        </Text>
-                      )}
+                      {event.timestamp && <Text style={styles.historyTime}>{formatDateTime(event.timestamp)}</Text>}
                     </View>
                   ))}
                 </View>
               )}
 
-              <View style={styles.divider} />
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
               <View style={styles.grid}>
-                <Field label="Consignor" value={shipment.consignorName || '—'} />
-                <Field label="Consignee" value={shipment.consigneeName || '—'} />
-                <Field label="From → To" value={`${shipment.pickupAddress} → ${shipment.deliveryAddress}`} wide />
-                <Field label="Delivery At" value={shipment.deliveryAddress} wide />
+                <Field theme={theme} label="Consignor" value={shipment.consignorName || '—'} />
+                <Field theme={theme} label="Consignee" value={shipment.consigneeName || '—'} />
+                <Field theme={theme} label="From → To" value={`${shipment.pickupAddress} → ${shipment.deliveryAddress}`} wide />
+                <Field theme={theme} label="Delivery At" value={shipment.deliveryAddress} wide />
               </View>
 
-              <View style={styles.divider} />
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
               <View style={styles.particularsRow}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>PARTICULARS</Text>
-                  <Text style={[styles.fieldValue, { color: colors.textPrimary }]}>{shipment.particulars || '—'}</Text>
+                  <Text style={styles.fieldLabel}>PARTICULARS</Text>
+                  <Text style={styles.fieldValue}>{shipment.particulars || '—'}</Text>
                 </View>
                 <View>
-                  <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>PACKAGES</Text>
-                  <Text style={[styles.fieldValue, { color: colors.textPrimary }]}>{shipment.packageCount ?? '—'}</Text>
+                  <Text style={styles.fieldLabel}>PACKAGES</Text>
+                  <Text style={styles.fieldValue}>{shipment.packageCount ?? '—'}</Text>
                 </View>
                 <View>
-                  <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>WEIGHT</Text>
-                  <Text style={[styles.fieldValue, { color: colors.textPrimary }]}>{shipment.weight ? `${shipment.weight} kg` : '—'}</Text>
+                  <Text style={styles.fieldLabel}>WEIGHT</Text>
+                  <Text style={styles.fieldValue}>{shipment.weight ? `${shipment.weight} kg` : '—'}</Text>
                 </View>
               </View>
 
-              <View style={styles.divider} />
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-              <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>PHOTOS / SLIP</Text>
+              <Text style={styles.fieldLabel}>PHOTOS / SLIP</Text>
               {shipment.attachments.length === 0 ? (
-                <Text style={[styles.noPhotos, { color: colors.textMuted }]}>No photos uploaded yet.</Text>
+                <Text style={styles.noPhotos}>No photos uploaded yet.</Text>
               ) : (
                 <View style={{ gap: 8, marginTop: 8 }}>
                   {shipment.attachments.map((a) => (
                     <TouchableOpacity key={a.id} style={[styles.photoRow, { backgroundColor: colors.surfaceMuted, borderRadius: radii.md }]} onPress={() => setPreviewAttachment(a)}>
                       <Ionicons name={a.mimeType?.startsWith('image/') ? 'image-outline' : 'document-text-outline'} size={18} color={colors.primary} />
-                      <Text style={[styles.photoName, { color: colors.textPrimary }]} numberOfLines={1}>{a.originalFilename}</Text>
+                      <Text style={styles.photoName} numberOfLines={1}>{a.originalFilename}</Text>
                       <Ionicons name="eye-outline" size={16} color={colors.textMuted} />
                     </TouchableOpacity>
                   ))}
@@ -415,103 +380,55 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
   );
 };
 
-const Field = ({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) => {
-  const { colors, fonts } = useAppTheme();
+const Field = ({ theme, label, value, wide = false }: { theme: AppTheme; label: string; value: string; wide?: boolean }) => {
+  const styles = createStyles(theme);
   return (
     <View style={[styles.gridItem, wide && styles.gridItemWide]}>
-      <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>{label.toUpperCase()}</Text>
-      <Text style={[styles.fieldValue, { color: colors.textPrimary, fontSize: fonts.size.sm }]}>{value}</Text>
+      <Text style={styles.fieldLabel}>{label.toUpperCase()}</Text>
+      <Text style={[styles.fieldValue, { fontSize: theme.fonts.size.sm }]}>{value}</Text>
     </View>
   );
 };
 
-const StatusPill = ({ status }: { status: string }) => {
-  const config = statusConfig(status);
-  return (
-    <View style={[styles.statusPill, { backgroundColor: config.bg, borderRadius: 999 }]}>
-      <Ionicons name={config.icon} size={14} color={config.color} />
-      <Text style={[styles.statusPillText, { color: config.color }]}>{config.label}</Text>
-    </View>
-  );
-};
-
-const statusConfig = (status: string): { color: string; bg: string; icon: 'time-outline' | 'navigate-outline' | 'cube-outline' | 'checkmark-circle-outline' | 'close-circle-outline' | 'help-outline'; label: string } => {
-  switch (status.toLowerCase()) {
-    case 'pending': return { color: '#B45309', bg: '#F59E0B20', icon: 'time-outline', label: 'Pending' };
-    case 'assigned': return { color: '#0E7490', bg: '#06B6D420', icon: 'navigate-outline', label: 'Assigned' };
-    case 'pickup': return { color: '#7C3AED', bg: '#8B5CF620', icon: 'cube-outline', label: 'Pickup' };
-    case 'in_transit': return { color: '#1D4ED8', bg: '#3B82F620', icon: 'navigate-outline', label: 'In Transit' };
-    case 'out_for_delivery': return { color: '#7C3AED', bg: '#8B5CF620', icon: 'navigate-outline', label: 'Out for Delivery' };
-    case 'delivered': return { color: '#047857', bg: '#10B98120', icon: 'checkmark-circle-outline', label: 'Delivered' };
-    case 'cancelled': return { color: '#B91C1C', bg: '#EF444420', icon: 'close-circle-outline', label: 'Cancelled' };
-    default: return { color: '#6B7280', bg: '#6B728015', icon: 'help-outline', label: humanizeStatus(status) };
-  }
-};
-
-const humanizeStatus = (status: string): string => status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-
-const styles = StyleSheet.create({
-  safe: { flex: 1 },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  iconBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  brandWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  brandLogo: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  brandTitle: { fontWeight: '800', fontSize: 17 },
-  bellWrap: { position: 'relative' },
-  bellDot: { position: 'absolute', top: -4, right: -6, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
-  bellDotText: { color: '#FFFFFF', fontSize: 9, fontWeight: '800' },
-  scrollContent: { padding: 20, paddingBottom: 60 },
-  screenTitle: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5 },
-  screenSubtitle: { fontSize: 14, fontWeight: '500', marginTop: 4, marginBottom: 18 },
-  searchCard: { padding: 16, gap: 12, marginBottom: 4 },
-  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: '#E8EAF5', paddingHorizontal: 14, paddingVertical: 4 },
-  searchIcon: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  searchInput: { flex: 1, paddingVertical: 12, fontSize: 15, fontWeight: '600' },
-  trackBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#635BFF',
-    height: 52,
-  },
-  trackBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 16 },
-  card: { backgroundColor: '#FFFFFF', padding: 20, marginTop: 20, borderWidth: 1, borderColor: '#E8EAF5' },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
-  grNumber: { fontSize: 22, fontWeight: '800', marginTop: 2 },
-  cardDate: { fontSize: 12, marginTop: 3 },
-  statusPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7 },
-  statusPillText: { fontWeight: '800', fontSize: 11, textTransform: 'capitalize' },
-  timelineCard: { padding: 16, marginBottom: 16 },
-  timelineTrack: { height: 6, backgroundColor: '#E5E7EB', borderRadius: 999, overflow: 'hidden' },
-  timelineFill: { height: 6, width: '100%' },
-  timelineSteps: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
-  stepWrap: { alignItems: 'center', gap: 6, width: '24%' },
-  stepDot: { width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 2 },
-  stepLabel: { fontSize: 9, textAlign: 'center' },
-  historyBlock: { gap: 10, marginBottom: 8 },
-  historyRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  historyDot: { width: 8, height: 8, borderRadius: 4, marginTop: 6 },
-  historyStatus: { fontSize: 13, fontWeight: '700' },
-  historyDesc: { fontSize: 12, marginTop: 1 },
-  historyTime: { fontSize: 11, marginLeft: 8 },
-  divider: { height: 1, backgroundColor: '#F1F0EA', marginVertical: 16 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
-  gridItem: { minWidth: '45%', flexGrow: 1 },
-  gridItemWide: { minWidth: '100%' },
-  fieldLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
-  fieldValue: { fontWeight: '600', marginTop: 3, lineHeight: 18 },
-  particularsRow: { flexDirection: 'row', gap: 16 },
-  noPhotos: { fontSize: 13, fontStyle: 'italic', marginTop: 6 },
-  photoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12 },
-  photoName: { flex: 1, fontSize: 13, fontWeight: '600' },
-});
+const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fonts' | 'shadows'>) =>
+  StyleSheet.create({
+    safe: { flex: 1 },
+    scrollContent: { padding: theme.spacing.xl, paddingBottom: 60 },
+    screenTitle: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5, color: theme.colors.textPrimary },
+    screenSubtitle: { fontSize: 14, fontWeight: '500', marginTop: 4, marginBottom: 18, color: theme.colors.textSecondary },
+    searchCard: { padding: 16, gap: 12, marginBottom: 4 },
+    searchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 4 },
+    searchIcon: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+    searchInput: { flex: 1, paddingVertical: 12, fontSize: 15, fontWeight: '600' },
+    trackBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 52 },
+    trackBtnText: { fontWeight: '800', fontSize: 16 },
+    card: { padding: 20, marginTop: 20, borderWidth: 1 },
+    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, gap: 12 },
+    grNumber: { fontSize: 22, fontWeight: '800', marginTop: 2, color: theme.colors.textPrimary },
+    cardDate: { fontSize: 12, marginTop: 3, color: theme.colors.textMuted },
+    timelineCard: { padding: 16, marginBottom: 16 },
+    timelineTrack: { height: 6, borderRadius: 999, overflow: 'hidden' },
+    timelineFill: { height: 6, width: '100%' },
+    timelineSteps: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
+    stepWrap: { alignItems: 'center', gap: 6, width: '24%' },
+    stepDot: { width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 2 },
+    stepLabel: { fontSize: 9, textAlign: 'center' },
+    historyBlock: { gap: 10, marginBottom: 8 },
+    historyRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+    historyDot: { width: 8, height: 8, borderRadius: 4, marginTop: 6 },
+    historyStatus: { fontSize: 13, fontWeight: '700', color: theme.colors.textPrimary },
+    historyDesc: { fontSize: 12, marginTop: 1, color: theme.colors.textSecondary },
+    historyTime: { fontSize: 11, marginLeft: 8, color: theme.colors.textMuted },
+    divider: { height: 1, marginVertical: 16 },
+    grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
+    gridItem: { minWidth: '45%', flexGrow: 1 },
+    gridItemWide: { minWidth: '100%' },
+    fieldLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5, color: theme.colors.textMuted },
+    fieldValue: { fontWeight: '600', marginTop: 3, lineHeight: 18, color: theme.colors.textPrimary },
+    particularsRow: { flexDirection: 'row', gap: 16 },
+    noPhotos: { fontSize: 13, fontStyle: 'italic', marginTop: 6, color: theme.colors.textMuted },
+    photoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12 },
+    photoName: { flex: 1, fontSize: 13, fontWeight: '600', color: theme.colors.textPrimary },
+  });
 
 export default CustomerTrackingScreen;
