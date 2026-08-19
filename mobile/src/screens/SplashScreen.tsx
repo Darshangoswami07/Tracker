@@ -17,6 +17,7 @@ import { useRegistrationStore } from '../store/registrationStore';
 import { useSessionStore } from '../store/sessionStore';
 import { useThemeStore } from '../store/themeStore';
 import { useSettingsStore } from '../store/settingsStore';
+import { useProfileLocalStore } from '../store/profileLocalStore';
 import { useAppTheme } from '../theme/useAppTheme';
 import { getLogger } from '../utils/logger';
 import { withTimeout } from '../utils/withTimeout';
@@ -41,6 +42,7 @@ export const SplashScreen = () => {
   const hydrateTheme = useThemeStore((state) => state.hydrate);
   const hydrateSettings = useSettingsStore((state) => state.hydrate);
   const hydrateRegistration = useRegistrationStore((state) => state.hydrate);
+  const hydrateProfileLocal = useProfileLocalStore((state) => state.hydrate);
 
   const dotPulse = useSharedValue(0.5);
 
@@ -67,6 +69,7 @@ export const SplashScreen = () => {
           withTimeout(hydrateSession(), HYDRATE_TIMEOUT_MS).catch(() => undefined),
           withTimeout(hydrate(), HYDRATE_TIMEOUT_MS).catch(() => undefined),
           withTimeout(hydrateRegistration(), HYDRATE_TIMEOUT_MS).catch(() => undefined),
+          withTimeout(hydrateProfileLocal(), HYDRATE_TIMEOUT_MS).catch(() => undefined),
         ]);
         await withTimeout(validateSession(), SESSION_VALIDATION_TIMEOUT_MS).catch(
           () => undefined,

@@ -22,6 +22,7 @@ import { useThemeStore, type ThemePreference } from '../../store/themeStore';
 import { useSettingsStore, type LanguageCode } from '../../store/settingsStore';
 import { Header } from '../../components/Header';
 import { ActionButton } from '../../components/ActionButton';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { useAppNav } from '../../hooks/useAppNav';
 
 const SUPPORT_EMAIL = 'jobpilotdesk@gmail.com';
@@ -71,6 +72,7 @@ export const SettingsScreen = () => {
   const setLanguage = useSettingsStore((s) => s.setLanguage);
 
   const [themeModalVisible, setThemeModalVisible] = useState(false);
+  const [signOutDialogVisible, setSignOutDialogVisible] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(20));
 
@@ -80,6 +82,7 @@ export const SettingsScreen = () => {
   const styles = StyleSheet.create({
     safe: { flex: 1 },
     header: { paddingTop: 8 },
+    scroll: { flex: 1 },
     scrollContent: { paddingBottom: 40, paddingHorizontal: spacing.lg },
     section: { marginBottom: spacing.xl },
     sectionTitle: { fontSize: fonts.size.md, fontWeight: '800', marginBottom: spacing.md },
@@ -120,37 +123,9 @@ export const SettingsScreen = () => {
     ]).start();
   }, [fadeAnim, slideAnim]);
 
-  const handleSignOut = () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign Out', style: 'destructive', onPress: () => { signOut(); } },
-    ]);
-  };
-
-  const handleDeleteAccount = () => {
-    Alert.alert(
-      'Delete Account',
-      'This action is irreversible. All your data will be permanently deleted.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete Account',
-          style: 'destructive',
-          onPress: () =>
-            Alert.alert('Confirm', 'Type DELETE to confirm', [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'DELETE',
-                style: 'destructive',
-                onPress: () => {
-                  Alert.alert('Account Deleted', 'Your account has been permanently deleted. You will be signed out.');
-                  signOut();
-                },
-              },
-            ]),
-        },
-      ],
-    );
+  const handleConfirmSignOut = () => {
+    setSignOutDialogVisible(false);
+    signOut();
   };
 
   const handleContactSupport = () => {
@@ -174,17 +149,17 @@ export const SettingsScreen = () => {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-      <Animated.View
-        style={{
-          opacity: fadeAnim,
-          transform: [{ translateY: slideAnim }],
-        }}
-      >
-        <View style={styles.header}>
-          <Header title="Settings" leftAction={{ icon: 'chevron-back', onPress: goBack, accessibilityLabel: 'Go back' }} />
-        </View>
+      <View style={styles.header}>
+        <Header title="Settings" leftAction={{ icon: 'chevron-back', onPress: goBack, accessibilityLabel: 'Go back' }} />
+      </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <Animated.View
+          style={{
+            opacity: fadeAnim,
+            transform: [{ translateY: slideAnim }],
+          }}
+        >
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Appearance</Text>
             <View style={[styles.settingsCard, { backgroundColor: colors.surface, borderRadius: radii.xl, ...shadows.sm }]}>
@@ -342,35 +317,6 @@ export const SettingsScreen = () => {
           </View>
 
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Data & Storage</Text>
-            <View style={[styles.settingsCard, { backgroundColor: colors.surface, borderRadius: radii.xl, ...shadows.sm }]}>
-              <SettingRow
-                icon="trash-outline"
-                label="Clear Cache"
-                value="2.4 MB"
-                showChevron
-                onPress={() => Alert.alert('Clear Cache', 'Cache cleared successfully!')}
-              />
-              <SettingRow
-                icon="download-outline"
-                label="Download Data"
-                description="Request a copy of your data"
-                showChevron
-                onPress={() =>
-                  Alert.alert('Download Data', 'Your data download request has been submitted. You will receive an email with a link to download your data.')
-                }
-              />
-              <SettingRow
-                icon="trash-bin-outline"
-                label="Delete Account"
-                showChevron
-                onPress={handleDeleteAccount}
-                destructive
-              />
-            </View>
-          </View>
-
-          <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Language</Text>
             <View style={[styles.settingsCard, { backgroundColor: colors.surface, borderRadius: radii.xl, ...shadows.sm }]}>
               <SettingRow
@@ -432,15 +378,15 @@ export const SettingsScreen = () => {
               variant="danger"
               size="lg"
               fullWidth
-              onPress={handleSignOut}
+              onPress={() => setSignOutDialogVisible(true)}
             />
           </View>
 
           <View style={styles.version}>
             <Text style={[styles.versionText, { color: colors.textMuted }]}>DeliveryHub v1.0.0 • Build 100</Text>
           </View>
-        </ScrollView>
-      </Animated.View>
+        </Animated.View>
+      </ScrollView>
 
       <Modal
         visible={themeModalVisible}
@@ -492,6 +438,16 @@ export const SettingsScreen = () => {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      <ConfirmDialog
+        visible={signOutDialogVisible}
+        title="Sign Out"
+        message="Are you sure you want to sign out?"
+        confirmLabel="Sign Out"
+        destructive
+        onConfirm={handleConfirmSignOut}
+        onCancel={() => setSignOutDialogVisible(false)}
+      />
     </SafeAreaView>
   );
 };

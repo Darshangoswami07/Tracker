@@ -54,9 +54,11 @@ export type MoreStackParamList = {
   More: undefined;
   Notifications: undefined;
   Profile: undefined;
+  EditProfile: undefined;
   Settings: undefined;
   ChangePassword: undefined;
   HelpSupport: undefined;
+  About: undefined;
   UserManagement: undefined;
   DriverManagement: undefined;
   VehicleManagement: undefined;

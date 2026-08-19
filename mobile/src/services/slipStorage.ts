@@ -9,18 +9,24 @@ export interface PersistedSlip {
 }
 
 const SLIP_DIR_NAME = 'slips';
+const AVATAR_DIR_NAME = 'avatars';
 
 /**
  * Copies a picked photo (expo-image-picker returns a cache URI that the OS
- * may evict) into the app's persistent Documents directory so slip images
- * survive app restarts and can be viewed fully offline from GR Details.
- * Falls back to the original URI if persistence is unavailable (e.g. web).
+ * may evict) into the app's persistent Documents directory, under `subdir`,
+ * so it survives app restarts and can be viewed fully offline. Falls back to
+ * the original URI if persistence is unavailable (e.g. web).
  */
-export const persistSlipImage = async (sourceUri: string, mimeType: string = 'image/jpeg'): Promise<PersistedSlip> => {
+const persistPickedImage = async (
+  sourceUri: string,
+  mimeType: string,
+  subdir: string,
+  filePrefix: string,
+): Promise<PersistedSlip> => {
   const ext = mimeType === 'image/png' ? '.png' : '.jpg';
-  const fileName = `slip_${uuid()}${ext}`;
+  const fileName = `${filePrefix}_${uuid()}${ext}`;
   try {
-    const dir = new Directory(Paths.document, SLIP_DIR_NAME);
+    const dir = new Directory(Paths.document, subdir);
     if (!dir.exists) {
       dir.create({ idempotent: true, intermediates: true });
     }
@@ -35,3 +41,11 @@ export const persistSlipImage = async (sourceUri: string, mimeType: string = 'im
     return { localUri: sourceUri, fileName, mimeType, fileSizeBytes: 0 };
   }
 };
+
+/** GR/transport slip photos — see `AdminGRDetailsScreen`/`StaffGRPanelScreen`. */
+export const persistSlipImage = async (sourceUri: string, mimeType: string = 'image/jpeg'): Promise<PersistedSlip> =>
+  persistPickedImage(sourceUri, mimeType, SLIP_DIR_NAME, 'slip');
+
+/** User profile avatar photo — local-only, see `ProfileScreen`. */
+export const persistAvatarImage = async (sourceUri: string, mimeType: string = 'image/jpeg'): Promise<PersistedSlip> =>
+  persistPickedImage(sourceUri, mimeType, AVATAR_DIR_NAME, 'avatar');

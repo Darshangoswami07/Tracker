@@ -72,6 +72,7 @@ export const OrderDetailsScreen = ({ route }: any) => {
   const styles = StyleSheet.create({
     safe: { flex: 1 },
     header: { paddingTop: 8 },
+    scroll: { flex: 1 },
     scrollContent: { paddingBottom: 40, paddingHorizontal: spacing.lg },
     statusCard: { backgroundColor: colors.surface, borderRadius: radii.xl, padding: 20, ...shadows.md, marginBottom: spacing.lg },
     statusHeader: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 16 },
@@ -208,21 +209,21 @@ export const OrderDetailsScreen = ({ route }: any) => {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-      <Animated.View
-        style={{
-          opacity: fadeAnim,
-          transform: [{ translateY: slideAnim }],
-        }}
-      >
-        <View style={styles.header}>
-          <Header 
-            title={order.orderNumber} 
-            leftAction={{ icon: 'chevron-back', onPress: goBack }} 
-            rightAction={{ icon: 'share-outline', onPress: () => Share.share({ message: `DeliveryHub order ${order.orderNumber} — ${order.customerName} — ${order.pickupAddress} → ${order.deliveryAddress}` }).catch(() => {}) }}
-          />
-        </View>
+      <View style={styles.header}>
+        <Header
+          title={order.orderNumber}
+          leftAction={{ icon: 'chevron-back', onPress: goBack }}
+          rightAction={{ icon: 'share-outline', onPress: () => Share.share({ message: `DeliveryHub order ${order.orderNumber} — ${order.customerName} — ${order.pickupAddress} → ${order.deliveryAddress}` }).catch(() => {}) }}
+        />
+      </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <Animated.View
+          style={{
+            opacity: fadeAnim,
+            transform: [{ translateY: slideAnim }],
+          }}
+        >
           <View style={styles.statusCard}>
             <View style={styles.statusHeader}>
               <View style={[styles.statusBadgeLarge, { backgroundColor: statusConfig.color + '15', borderRadius: radii.lg }]}>
@@ -426,8 +427,8 @@ export const OrderDetailsScreen = ({ route }: any) => {
               </View>
             </View>
           )}
-        </ScrollView>
-      </Animated.View>
+        </Animated.View>
+      </ScrollView>
       <AttachmentViewerModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
     </SafeAreaView>
   );

@@ -1,19 +1,19 @@
 import { useEffect, useState } from 'react';
 import type { ComponentProps } from 'react';
-import { Animated, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View, Linking, Platform } from 'react-native';
+import { Animated, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useNavigation } from '@react-navigation/native';
 import { useAuthStore } from '../../store/authStore';
 import { useUserStore } from '../../store/userStore';
+import { useProfileLocalStore } from '../../store/profileLocalStore';
 import { Header } from '../../components/Header';
 import { ActionButton } from '../../components/ActionButton';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { formatDateTime } from '../../utils/format';
+import { persistAvatarImage } from '../../services/slipStorage';
 import * as ImagePicker from 'expo-image-picker';
-
-const SUPPORT_EMAIL = 'jobpilotdesk@gmail.com';
-const SUPPORT_PHONE = '7456849590';
 
 export const ProfileScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
@@ -24,7 +24,8 @@ export const ProfileScreen = () => {
   const styles = StyleSheet.create({
     safe: { flex: 1 },
     header: { paddingTop: 8 },
-    scrollContent: { paddingBottom: 40, paddingHorizontal: spacing.lg },
+    scroll: { flex: 1 },
+    scrollContent: { paddingBottom: spacing.huge, paddingHorizontal: spacing.lg },
     profileHeader: { alignItems: 'center', gap: 16, marginBottom: spacing.xl, paddingTop: spacing.lg },
     avatarContainer: { position: 'relative' },
     avatar: { width: 100, height: 100, borderRadius: 50 },
@@ -45,8 +46,16 @@ export const ProfileScreen = () => {
     versionText: { fontSize: fonts.size.xs, fontWeight: '500' },
   });
 
-  const [avatar, setAvatar] = useState<string | null>(null);
+  const avatarUri = useProfileLocalStore((state) => state.avatarUri);
+  const setAvatarUri = useProfileLocalStore((state) => state.setAvatarUri);
+  const nameOverride = useProfileLocalStore((state) => state.nameOverride);
+  const emailOverride = useProfileLocalStore((state) => state.emailOverride);
+  const phoneOverride = useProfileLocalStore((state) => state.phoneOverride);
+  const displayName = nameOverride ?? user?.fullName ?? 'User';
+  const displayEmail = emailOverride ?? user?.email ?? 'N/A';
+  const displayPhone = phoneOverride ?? user?.phone ?? 'N/A';
   const [loading, setLoading] = useState(false);
+  const [signOutDialogVisible, setSignOutDialogVisible] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(20));
 
@@ -70,8 +79,12 @@ export const ProfileScreen = () => {
       quality: 0.8,
     });
     if (!result.canceled) {
-      setAvatar(result.assets[0].uri);
-      // In real app, upload to server
+      const asset = result.assets[0];
+      const persisted = await persistAvatarImage(asset.uri, asset.mimeType ?? 'image/jpeg');
+      // No backend endpoint exists to upload/store a user avatar (only GR
+      // attachments are supported) — persisted locally so it survives
+      // restarts, same precedent as GR slip photos.
+      setAvatarUri(persisted.localUri);
     }
   };
 
@@ -87,69 +100,61 @@ export const ProfileScreen = () => {
       quality: 0.8,
     });
     if (!result.canceled) {
-      setAvatar(result.assets[0].uri);
+      const asset = result.assets[0];
+      const persisted = await persistAvatarImage(asset.uri, asset.mimeType ?? 'image/jpeg');
+      setAvatarUri(persisted.localUri);
     }
   };
 
-  const handleContactSupport = () => {
-    Alert.alert('Contact Support', `Reach us anytime at:\n\n📧 ${SUPPORT_EMAIL}\n📞 +91 ${SUPPORT_PHONE}`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Call', onPress: () => Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {}) },
-      { text: 'Email', onPress: () => Linking.openURL(`mailto:${SUPPORT_EMAIL}`).catch(() => {}) },
-    ]);
-  };
+  const handleContactSupport = () => navigation.navigate('HelpSupport' as never);
 
-  const handleEditProfile = () => Alert.alert('Edit Profile', 'Editing your profile details is coming soon.');
-  const handleNotificationSettings = () => Alert.alert('Notification Settings', 'Manage your notification preferences here soon.');
+  const handleEditProfile = () => navigation.navigate('EditProfile' as never);
+  const handleNotificationSettings = () => navigation.navigate('Settings' as never);
   const handleLanguage = () => Alert.alert('Language', 'Language selection is coming soon.');
-  const handleSecurity = () => Alert.alert('Security & Privacy', 'Security and privacy settings are coming soon.');
-  const handleAbout = () => Alert.alert('About', 'DeliveryHub\nVersion 1.0.0\nA complete logistics and delivery management platform.');
+  const handleSecurity = () => navigation.navigate('Settings' as never);
+  const handleAbout = () => navigation.navigate('About' as never);
 
   const showAvatarOptions = () => {
     Alert.alert('Update Profile Photo', 'Choose an option', [
       { text: 'Take Photo', onPress: takeAvatar },
       { text: 'Choose from Gallery', onPress: pickAvatar },
-      { text: 'Remove Photo', onPress: () => setAvatar(null), style: 'destructive' },
+      { text: 'Remove Photo', onPress: () => setAvatarUri(null), style: 'destructive' },
       { text: 'Cancel', style: 'cancel' },
     ]);
   };
 
-  const handleSignOut = () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign Out', style: 'destructive', onPress: () => { signOut(); } },
-    ]);
+  const handleConfirmSignOut = () => {
+    setSignOutDialogVisible(false);
+    signOut();
   };
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-      <Animated.View
-        style={{
-          opacity: fadeAnim,
-          transform: [{ translateY: slideAnim }],
-        }}
-      >
-        <View style={styles.header}>
-          <Header title="Profile" leftAction={{ icon: 'chevron-back', onPress: () => navigation.goBack() }} />
-        </View>
+      <View style={styles.header}>
+        <Header title="Profile" leftAction={{ icon: 'chevron-back', onPress: () => navigation.goBack() }} />
+      </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <Animated.View
-            style={{
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }],
-            }}
-          >
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <Animated.View
+          style={{
+            opacity: fadeAnim,
+            transform: [{ translateY: slideAnim }],
+          }}
+        >
             <View style={styles.profileHeader}>
               <TouchableOpacity style={styles.avatarContainer} onPress={showAvatarOptions} activeOpacity={0.8}>
-                {avatar ? (
-                  <Image source={{ uri: avatar }} style={styles.avatar} />
+                {avatarUri ? (
+                  <Image source={{ uri: avatarUri }} style={styles.avatar} />
                 ) : user?.profileImage ? (
                   <Image source={{ uri: user.profileImage }} style={styles.avatar} />
                 ) : (
                   <View style={[styles.avatarPlaceholder, { backgroundColor: colors.primarySoft, borderRadius: radii.pill }]}>
                     <Text style={[styles.avatarText, { color: colors.primary, fontSize: fonts.size.xxxl }]}>
-                      {user?.fullName?.charAt(0).toUpperCase() || 'U'}
+                      {displayName.charAt(0).toUpperCase() || 'U'}
                     </Text>
                   </View>
                 )}
@@ -158,17 +163,17 @@ export const ProfileScreen = () => {
                 </View>
               </TouchableOpacity>
               <View style={styles.profileInfo}>
-                <Text style={[styles.name, { color: colors.textPrimary }]}>{user?.fullName || 'User'}</Text>
+                <Text style={[styles.name, { color: colors.textPrimary }]}>{displayName}</Text>
                 <View style={styles.roleBadge}>
                   <Text style={[styles.roleText, { color: '#635BFF' }]}>{user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Employee'}</Text>
                 </View>
                 <View style={styles.contactRow}>
                   <Ionicons name="mail-outline" size={16} color={colors.textMuted} />
-                  <Text style={[styles.contactText, { color: colors.textSecondary }]}>{user?.email || 'N/A'}</Text>
+                  <Text style={[styles.contactText, { color: colors.textSecondary }]}>{displayEmail}</Text>
                 </View>
                 <View style={styles.contactRow}>
                   <Ionicons name="call-outline" size={16} color={colors.textMuted} />
-                  <Text style={[styles.contactText, { color: colors.textSecondary }]}>{user?.phone || 'N/A'}</Text>
+                  <Text style={[styles.contactText, { color: colors.textSecondary }]}>{displayPhone}</Text>
                 </View>
               </View>
             </View>
@@ -203,16 +208,25 @@ export const ProfileScreen = () => {
                 variant="danger"
                 size="lg"
                 fullWidth
-                onPress={handleSignOut}
+                onPress={() => setSignOutDialogVisible(true)}
               />
             </View>
 
             <View style={styles.version}>
               <Text style={[styles.versionText, { color: colors.textMuted }]}>DeliveryHub v1.0.0</Text>
             </View>
-          </Animated.View>
-        </ScrollView>
-      </Animated.View>
+        </Animated.View>
+      </ScrollView>
+
+      <ConfirmDialog
+        visible={signOutDialogVisible}
+        title="Sign Out"
+        message="Are you sure you want to sign out?"
+        confirmLabel="Sign Out"
+        destructive
+        onConfirm={handleConfirmSignOut}
+        onCancel={() => setSignOutDialogVisible(false)}
+      />
     </SafeAreaView>
   );
 };

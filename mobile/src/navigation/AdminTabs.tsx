@@ -34,9 +34,11 @@ import { StaffGRPanelScreen } from '../screens/employee/StaffGRPanelScreen';
 import { MoreScreen } from '../screens/common/MoreScreen';
 import { NotificationsScreen } from '../screens/common/NotificationsScreen';
 import { ProfileScreen } from '../screens/common/ProfileScreen';
+import { EditProfileScreen } from '../screens/common/EditProfileScreen';
 import { SettingsScreen } from '../screens/common/SettingsScreen';
 import { ChangePasswordScreen } from '../screens/common/ChangePasswordScreen';
 import { HelpSupportScreen } from '../screens/common/HelpSupportScreen';
+import { AboutScreen } from '../screens/common/AboutScreen';
 import { UserManagementScreen } from '../screens/admin/UserManagementScreen';
 import { DriverManagementScreen } from '../screens/admin/DriverManagementScreen';
 import { VehicleManagementScreen } from '../screens/admin/VehicleManagementScreen';
@@ -96,9 +98,11 @@ const MoreTabStack = () => (
     <MoreStack.Screen name="More" component={MoreScreen} />
     <MoreStack.Screen name="Notifications" component={NotificationsScreen} />
     <MoreStack.Screen name="Profile" component={ProfileScreen} />
+    <MoreStack.Screen name="EditProfile" component={EditProfileScreen} />
     <MoreStack.Screen name="Settings" component={SettingsScreen} />
     <MoreStack.Screen name="ChangePassword" component={ChangePasswordScreen} />
     <MoreStack.Screen name="HelpSupport" component={HelpSupportScreen} />
+    <MoreStack.Screen name="About" component={AboutScreen} />
     <MoreStack.Screen name="UserManagement" component={UserManagementScreen} />
     <MoreStack.Screen name="DriverManagement" component={DriverManagementScreen} />
     <MoreStack.Screen name="VehicleManagement" component={VehicleManagementScreen} />

@@ -6,12 +6,14 @@ import {
   logout as logoutApi,
   register as registerApi,
   verifyOTP as verifyOTPApi,
+  verifyPasswordResetOTP as verifyPasswordResetOTPApi,
 } from '../features/auth/api/authApi';
 import type {
   ForgotPasswordPayload,
   LoginPayload,
   OTPVerificationPayload,
   RegisterPayload,
+  VerifyPasswordResetOTPPayload,
 } from '../features/auth/types';
 import { useAuthStore } from '../store/authStore';
 import { toAppError } from '../services/errorMapper';
@@ -55,6 +57,10 @@ export const useAuth = () => {
     mutationFn: (payload: ForgotPasswordPayload) => forgotPasswordApi(payload),
   });
 
+  const verifyPasswordResetOTPMutation = useMutation({
+    mutationFn: (payload: VerifyPasswordResetOTPPayload) => verifyPasswordResetOTPApi(payload),
+  });
+
   const signOut = useCallback(async () => {
     const refreshToken = useAuthStore.getState().refreshToken;
     // Clear the local session first so logout always succeeds locally, then
@@ -84,6 +90,10 @@ export const useAuth = () => {
     forgotPasswordOTP: {
       ...forgotPasswordMutation,
       error: forgotPasswordMutation.error ? toAppError(forgotPasswordMutation.error) : null,
+    },
+    verifyPasswordResetOTP: {
+      ...verifyPasswordResetOTPMutation,
+      error: verifyPasswordResetOTPMutation.error ? toAppError(verifyPasswordResetOTPMutation.error) : null,
     },
     signOut,
   };

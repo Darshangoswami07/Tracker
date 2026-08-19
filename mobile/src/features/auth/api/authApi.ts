@@ -12,6 +12,7 @@ import type {
   RefreshPayload,
   RegistrationRequestPayload,
   RegistrationRequestResult,
+  VerifyPasswordResetOTPPayload,
 } from '../types';
 
 /** Performs a login request and stores the session tokens + user. */
@@ -41,6 +42,13 @@ export const refresh = async (payload: RefreshPayload): Promise<AuthResult> => {
 /** Requests a password reset OTP for the given address. */
 export const forgotPasswordOTP = async (payload: ForgotPasswordPayload): Promise<MessageResult> => {
   const response = await apiClient.post<unknown>(ENDPOINTS.otp.forgotPassword, payload);
+  return unwrap<MessageResult>(response);
+};
+
+/** Verifies a password-reset OTP and sets the new password in one call
+ * (`POST /otp/verify-password-reset`). Revokes all sessions server-side. */
+export const verifyPasswordResetOTP = async (payload: VerifyPasswordResetOTPPayload): Promise<MessageResult> => {
+  const response = await apiClient.post<unknown>(ENDPOINTS.otp.verifyPasswordReset, payload);
   return unwrap<MessageResult>(response);
 };
 

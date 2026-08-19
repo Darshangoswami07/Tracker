@@ -65,6 +65,13 @@ export interface ForgotPasswordPayload {
   email: string;
 }
 
+/** Matches backend `ResetPasswordOTPRequest` (`POST /otp/verify-password-reset`). */
+export interface VerifyPasswordResetOTPPayload {
+  email: string;
+  otp: string;
+  password: string;
+}
+
 export interface ResetPasswordPayload {
   token: string;
   password: string;

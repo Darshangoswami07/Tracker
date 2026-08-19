@@ -1,23 +1,41 @@
-import { useEffect, useState, type ComponentProps } from 'react';
-import { Animated, Alert, Pressable, ScrollView, StyleSheet, Text, View, Platform } from 'react-native';
+import { useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/useAppTheme';
+import { useAuth } from '../../hooks/useAuth';
+import { useAppNav } from '../../hooks/useAppNav';
+import { useAuthStore } from '../../store/authStore';
+import { useUserStore } from '../../store/userStore';
 import { Header } from '../../components/Header';
 import { CustomInput } from '../../components/CustomInput';
+import { OTPInput } from '../../components/auth/OTPInput';
 import { ActionButton } from '../../components/ActionButton';
 
-type IoniconName = ComponentProps<typeof Ionicons>['name'];
+const validateNewPassword = (pwd: string): string | undefined => {
+  if (!pwd) return 'Password is required';
+  if (pwd.length < 8) return 'Must be at least 8 characters';
+  if (!/[A-Z]/.test(pwd)) return 'Must contain an uppercase letter';
+  if (!/[a-z]/.test(pwd)) return 'Must contain a lowercase letter';
+  if (!/[0-9]/.test(pwd)) return 'Must contain a number';
+  if (!/[!@#$%^&*]/.test(pwd)) return 'Must contain a special character (!@#$%^&*)';
+  return undefined;
+};
 
-interface PasswordFieldProps {
+/** Local password field with a show/hide eye toggle (non form-hook version). */
+const PasswordField = ({
+  label,
+  placeholder,
+  value,
+  onChangeText,
+  error,
+}: {
   label: string;
   placeholder: string;
   value: string;
   onChangeText: (text: string) => void;
-}
-
-/** Local password field with a show/hide eye toggle (non form-hook version). */
-const PasswordField = ({ label, placeholder, value, onChangeText }: PasswordFieldProps) => {
+  error?: string;
+}) => {
   const [hidden, setHidden] = useState(true);
   return (
     <CustomInput
@@ -29,6 +47,7 @@ const PasswordField = ({ label, placeholder, value, onChangeText }: PasswordFiel
       secureTextEntry={hidden}
       autoCapitalize="none"
       autoCorrect={false}
+      error={error}
       rightElement={
         <Pressable
           onPress={() => setHidden((h) => !h)}
@@ -36,11 +55,7 @@ const PasswordField = ({ label, placeholder, value, onChangeText }: PasswordFiel
           accessibilityLabel={hidden ? 'Show password' : 'Hide password'}
           hitSlop={8}
         >
-          <Ionicons
-            name={hidden ? 'eye-off-outline' : 'eye-outline'}
-            size={18}
-            color={'#6B7280'}
-          />
+          <Ionicons name={hidden ? 'eye-off-outline' : 'eye-outline'} size={18} color="#6B7280" />
         </Pressable>
       }
     />
@@ -48,82 +63,145 @@ const PasswordField = ({ label, placeholder, value, onChangeText }: PasswordFiel
 };
 
 /**
- * Change Password screen. Lets the user set a new password using a UI whose
- * server handshake streams in with the account/security phase; validation is
- * enforced client-side today.
+ * Change Password screen. There is no in-session "current password → new
+ * password" backend endpoint — the only real password-change mechanism the
+ * app has is the email-OTP pair `POST /otp/forgot-password` +
+ * `POST /otp/verify-password-reset`, already wired for the logged-out forgot
+ * password flow. This screen reuses those exact endpoints for a logged-in
+ * user changing their own password: request a code to their account email,
+ * then verify it alongside the new password in one call.
  */
 export const ChangePasswordScreen = () => {
   const { colors, spacing, radii, fonts } = useAppTheme();
-  const [currentPassword, setCurrentPassword] = useState('');
+  const user = useUserStore((state) => state.user);
+  const clearSession = useAuthStore((state) => state.clearSession);
+  const { forgotPasswordOTP, verifyPasswordResetOTP } = useAuth();
+  const { goBack } = useAppNav();
+
+  const [step, setStep] = useState<'request' | 'verify'>('request');
+  const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [fadeAnim] = useState(new Animated.Value(0));
-  const [slideAnim] = useState(new Animated.Value(20));
+  const [passwordError, setPasswordError] = useState<string | undefined>();
+  const [confirmError, setConfirmError] = useState<string | undefined>();
 
   const styles = StyleSheet.create({
     safe: { flex: 1 },
     header: { paddingTop: 8 },
-    scrollContent: { paddingBottom: 40, paddingHorizontal: spacing.lg, paddingTop: spacing.lg },
+    scroll: { flex: 1 },
+    scrollContent: { paddingBottom: spacing.huge, paddingHorizontal: spacing.lg, paddingTop: spacing.lg },
     form: { gap: spacing.md, marginBottom: spacing.lg },
     hint: { fontSize: fonts.size.xs, fontWeight: '500', color: colors.textMuted, lineHeight: 18 },
     note: { backgroundColor: colors.infoSoft, borderRadius: radii.md, padding: spacing.md, marginBottom: spacing.xl },
     noteText: { fontSize: fonts.size.sm, fontWeight: '500', color: colors.info, lineHeight: 20 },
+    emailRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surfaceMuted, borderRadius: radii.md, padding: spacing.md, marginBottom: spacing.lg },
+    emailText: { fontSize: fonts.size.md, fontWeight: '700', color: colors.textPrimary },
+    otpLabel: { fontSize: fonts.size.sm, fontWeight: '700', color: colors.textSecondary, marginBottom: spacing.sm },
+    resendLink: { alignSelf: 'center', marginTop: spacing.md, marginBottom: spacing.lg },
+    resendText: { fontSize: fonts.size.sm, fontWeight: '700', color: colors.primary },
   });
 
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: Platform.OS !== 'web' }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: Platform.OS !== 'web' }),
-    ]).start();
-  }, [fadeAnim, slideAnim]);
+  const email = user?.email ?? '';
+
+  const handleSendCode = () => {
+    forgotPasswordOTP.mutate(
+      { email },
+      {
+        onSuccess: () => setStep('verify'),
+        onError: () => Alert.alert('Could not send code', 'Please check your connection and try again.'),
+      },
+    );
+  };
 
   const handleSubmit = () => {
-    if (!currentPassword) {
-      Alert.alert('Current Password Required', 'Please enter your current password.');
+    const pwdErr = validateNewPassword(newPassword);
+    const confErr = newPassword !== confirmPassword ? 'Passwords do not match' : undefined;
+    setPasswordError(pwdErr);
+    setConfirmError(confErr);
+    if (pwdErr || confErr || otp.length < 6) {
+      if (otp.length < 6) Alert.alert('Enter the code', 'Please enter the 6-digit code sent to your email.');
       return;
     }
-    if (newPassword.length < 8) {
-      Alert.alert('Weak Password', 'Your new password must be at least 8 characters long.');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      Alert.alert('Passwords Do Not Match', 'Your new passwords must be identical.');
-      return;
-    }
-    setLoading(true);
-    // Server integration ships with the account/security phase.
-    setTimeout(() => {
-      setLoading(false);
-      Alert.alert('Password Changed', 'Your password has been updated successfully.');
-    }, 600);
+    verifyPasswordResetOTP.mutate(
+      { email, otp, password: newPassword },
+      {
+        onSuccess: () => {
+          Alert.alert('Password Changed', 'Your password has been updated. Please sign in again with your new password.', [
+            { text: 'OK', onPress: () => clearSession() },
+          ]);
+        },
+        onError: () => Alert.alert('Verification failed', 'That code is invalid or expired. Please try again.'),
+      },
+    );
   };
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-      <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-        <View style={styles.header}>
-          <Header title="Change Password" />
-        </View>
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <View style={styles.note}>
-            <Text style={styles.noteText}>
-              Use a strong password that you don't use for other services.
-            </Text>
-          </View>
+      <View style={styles.header}>
+        <Header title="Change Password" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
+      </View>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {step === 'request' ? (
+          <>
+            <View style={styles.note}>
+              <Text style={styles.noteText}>
+                We&apos;ll email a 6-digit verification code to your account email to confirm it&apos;s you before changing your password.
+              </Text>
+            </View>
+            <View style={styles.emailRow}>
+              <Ionicons name="mail-outline" size={18} color={colors.textMuted} />
+              <Text style={styles.emailText}>{email || 'N/A'}</Text>
+            </View>
+            <ActionButton
+              label="Send Code"
+              icon="paper-plane"
+              size="lg"
+              fullWidth
+              loading={forgotPasswordOTP.isPending}
+              disabled={!email}
+              onPress={handleSendCode}
+            />
+          </>
+        ) : (
+          <>
+            <View style={styles.note}>
+              <Text style={styles.noteText}>Enter the code sent to {email} along with your new password.</Text>
+            </View>
 
-          <View style={styles.form}>
-            <PasswordField label="Current Password" placeholder="Enter current password" value={currentPassword} onChangeText={setCurrentPassword} />
-            <PasswordField label="New Password" placeholder="Enter new password" value={newPassword} onChangeText={setNewPassword} />
-            <PasswordField label="Confirm New Password" placeholder="Re-enter new password" value={confirmPassword} onChangeText={setConfirmPassword} />
-            <Text style={styles.hint}>
-              Minimum 8 characters with at least one letter and one number.
-            </Text>
-          </View>
+            <Text style={styles.otpLabel}>VERIFICATION CODE</Text>
+            <View style={{ marginBottom: spacing.lg }}>
+              <OTPInput value={otp} onChange={setOtp} accessibilityLabel="Verification code" />
+            </View>
 
-          <ActionButton label="Update Password" icon="lock-closed" size="lg" fullWidth loading={loading} onPress={handleSubmit} />
-        </ScrollView>
-      </Animated.View>
+            <View style={styles.form}>
+              <PasswordField label="New Password" placeholder="Enter new password" value={newPassword} onChangeText={setNewPassword} error={passwordError} />
+              <PasswordField label="Confirm New Password" placeholder="Re-enter new password" value={confirmPassword} onChangeText={setConfirmPassword} error={confirmError} />
+              <Text style={styles.hint}>
+                Minimum 8 characters with uppercase, lowercase, a number and a special character.
+              </Text>
+            </View>
+
+            <ActionButton
+              label="Update Password"
+              icon="lock-closed"
+              size="lg"
+              fullWidth
+              loading={verifyPasswordResetOTP.isPending}
+              onPress={handleSubmit}
+            />
+
+            <Pressable
+              style={styles.resendLink}
+              onPress={handleSendCode}
+              disabled={forgotPasswordOTP.isPending}
+              accessibilityRole="button"
+              accessibilityLabel="Resend code"
+            >
+              <Text style={styles.resendText}>{forgotPasswordOTP.isPending ? 'Sending…' : 'Resend Code'}</Text>
+            </Pressable>
+          </>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 };
