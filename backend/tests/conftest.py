@@ -21,10 +21,26 @@ os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 # Load .env without overriding the values set above (override=False is default).
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
-# Allow a dedicated scratch database for tests (otherwise the configured
-# DATABASE_URL is used — tables are dropped and recreated between tests).
-if os.environ.get("TEST_DATABASE_URL"):
-    os.environ["DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
+# The test suite drops and recreates every table before/after each test
+# (see the `database` fixture below). That is only safe against a dedicated
+# scratch database — running it against the real DATABASE_URL destroys all
+# production/development data. TEST_DATABASE_URL is therefore mandatory, not
+# an opt-in: refuse to start rather than silently fall back to DATABASE_URL.
+_test_db_url = os.environ.get("TEST_DATABASE_URL")
+if not _test_db_url:
+    raise RuntimeError(
+        "TEST_DATABASE_URL is not set. The test suite drops and recreates "
+        "the entire schema around every test, so it must never run against "
+        "your real DATABASE_URL. Set TEST_DATABASE_URL to a separate "
+        "scratch database (e.g. a Neon branch) before running pytest."
+    )
+if _test_db_url == os.environ.get("DATABASE_URL"):
+    raise RuntimeError(
+        "TEST_DATABASE_URL is identical to DATABASE_URL. They must point to "
+        "different databases — the test suite drops and recreates the "
+        "entire schema around every test."
+    )
+os.environ["DATABASE_URL"] = _test_db_url
 
 # Tests must never send real email: with SMTP_HOST blank, the email service
 # falls back to logging, keeping the suite fast and side-effect free.

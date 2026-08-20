@@ -24,8 +24,39 @@ interface GRAttachment {
   url: string;
 }
 
+/** Extended GR/slip fields — mirrors `GRExtendedFields` in `orderRepository.ts`
+ * / `backend/app/models/order.py`. All optional: only shown when present. */
+interface GRExtendedDetail {
+  grDate?: string;
+  transportCompanyName?: string;
+  transportGstin?: string;
+  ewbNumber?: string;
+  billType?: string;
+  specialService?: string;
+  fromLocation?: string;
+  toLocation?: string;
+  deliveryAt?: string;
+  rate?: number;
+  goodsValue?: number;
+  grCharge?: number;
+  freight?: number;
+  labour?: number;
+  pf?: number;
+  doorDelivery?: number;
+  taxGst?: number;
+  netAmount?: number;
+  toPay?: number;
+  proprietorName?: string;
+  proprietorPhone?: string;
+  packageType?: string;
+  consignorGstin?: string;
+  consignorPhone?: string;
+  consigneeGstin?: string;
+  consigneePhone?: string;
+}
+
 /** Full GR record from `GET /admin/orders/{id}` — matches `admin/src/types/gr.ts` `GR` on the web reference. */
-interface GRDetail {
+interface GRDetail extends GRExtendedDetail {
   id: string;
   orderNumber: string;
   status: string;
@@ -289,11 +320,11 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>ROUTE</Text>
           <View style={styles.routeRow}>
             <Ionicons name="ellipse" size={10} color="#10B981" />
-            <Text style={[styles.routeText, { color: colors.textPrimary }]}>{gr.pickupAddress}</Text>
+            <Text style={[styles.routeText, { color: colors.textPrimary }]}>{gr.fromLocation || gr.pickupAddress}</Text>
           </View>
           <View style={styles.routeRow}>
             <Ionicons name="location" size={12} color="#EF4444" />
-            <Text style={[styles.routeText, { color: colors.textPrimary }]}>{gr.deliveryAddress}</Text>
+            <Text style={[styles.routeText, { color: colors.textPrimary }]}>{gr.toLocation || gr.deliveryAddress}</Text>
           </View>
         </View>
 
@@ -308,6 +339,54 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
           <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
             <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>PARTICULARS</Text>
             <Text style={[styles.bodyText, { color: colors.textPrimary }]}>{gr.particulars}</Text>
+          </View>
+        )}
+
+        {(gr.grDate || gr.transportCompanyName || gr.ewbNumber || gr.billType || gr.packageType) && (
+          <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>SLIP DETAILS</Text>
+            <View style={styles.grid}>
+              {gr.grDate && <Field label="GR Date" value={formatDate(gr.grDate)} />}
+              {gr.transportCompanyName && <Field label="Transport Company" value={gr.transportCompanyName} />}
+              {gr.billType && <Field label="Bill Type" value={gr.billType} />}
+              {gr.ewbNumber && <Field label="EWB Number" value={gr.ewbNumber} />}
+              {gr.packageType && <Field label="Package Type" value={gr.packageType} />}
+            </View>
+          </View>
+        )}
+
+        {(gr.proprietorName || gr.proprietorPhone) && (
+          <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>TRANSPORT DETAILS</Text>
+            <View style={styles.grid}>
+              {gr.proprietorName && <Field label="Proprietor" value={gr.proprietorName} />}
+              {gr.proprietorPhone && <Field label="Transport Phone Number" value={gr.proprietorPhone} />}
+            </View>
+          </View>
+        )}
+
+        {(gr.rate != null || gr.goodsValue != null || gr.grCharge != null || gr.freight != null || gr.labour != null || gr.pf != null || gr.doorDelivery != null || gr.taxGst != null || gr.netAmount != null || gr.toPay != null) && (
+          <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>CHARGES</Text>
+            <View style={styles.grid}>
+              {gr.rate != null && <Field label="Rate" value={String(gr.rate)} />}
+              {gr.goodsValue != null && <Field label="Goods Value" value={String(gr.goodsValue)} />}
+              {gr.grCharge != null && <Field label="GR Charge" value={String(gr.grCharge)} />}
+              {gr.freight != null && <Field label="Freight" value={String(gr.freight)} />}
+              {gr.labour != null && <Field label="Labour" value={String(gr.labour)} />}
+              {gr.pf != null && <Field label="P.F." value={String(gr.pf)} />}
+              {gr.doorDelivery != null && <Field label="Door Delivery" value={String(gr.doorDelivery)} />}
+              {gr.taxGst != null && <Field label="Tax (GST)" value={String(gr.taxGst)} />}
+              {gr.netAmount != null && <Field label="Net Amount" value={String(gr.netAmount)} />}
+              {gr.toPay != null && <Field label="To Pay" value={String(gr.toPay)} />}
+            </View>
+          </View>
+        )}
+
+        {gr.notes && (
+          <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>REMARKS</Text>
+            <Text style={[styles.bodyText, { color: colors.textPrimary }]}>{gr.notes}</Text>
           </View>
         )}
 

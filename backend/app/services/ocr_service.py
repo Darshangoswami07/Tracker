@@ -23,7 +23,7 @@ from PIL import Image, ImageOps
 
 from app.core.config import settings
 from app.core.exceptions import OCRServiceError, OCRServiceUnavailableError
-from app.services.slip_parser import parse_slip_text
+from app.services.slip_parser import parse_slip_text, reconstruct_table_fields
 
 logger = logging.getLogger("app.ocr")
 
@@ -94,7 +94,7 @@ def _prepare_upload(file_bytes: bytes, mime_type: str, filename: str) -> tuple[b
     return upload_bytes, "slip.jpg", "image/jpeg"
 
 
-async def _call_ocr_space(upload_bytes: bytes, upload_filename: str, upload_mime_type: str) -> str:
+async def _call_ocr_space(upload_bytes: bytes, upload_filename: str, upload_mime_type: str) -> tuple[str, list[dict]]:
     api_key = settings.OCR_SPACE_API_KEY.strip()
     if not api_key:
         raise OCRServiceUnavailableError()
@@ -103,7 +103,13 @@ async def _call_ocr_space(upload_bytes: bytes, upload_filename: str, upload_mime
     data = {
         "apikey": api_key,
         "language": "eng",
-        "isOverlayRequired": "false",
+        # Word-position overlay is required to reconstruct table columns
+        # (see `slip_parser.reconstruct_table_fields`) — OCR.Space's plain
+        # text output loses column alignment entirely for multi-column
+        # tables (e.g. "Nug | Particulars | Weight | Rate"), printing all
+        # column headers first and all values afterwards with no reliable
+        # line-based correspondence between them.
+        "isOverlayRequired": "true",
         "OCREngine": "2",
         "scale": "true",
         "detectOrientation": "true",
@@ -155,18 +161,35 @@ async def _call_ocr_space(upload_bytes: bytes, upload_filename: str, upload_mime
     if not text.strip():
         raise OCRServiceError("The slip is difficult to read. Please upload a clearer image.")
 
+    overlay_lines: list[dict] = []
+    for r in results:
+        overlay_lines.extend((r.get("TextOverlay") or {}).get("Lines") or [])
+
     logger.info("[OCR] extraction completed")
-    return text
+    return text, overlay_lines
 
 
 async def extract_slip_fields(file_bytes: bytes, mime_type: str, filename: str = "slip") -> dict:
     """Sends the slip (image or PDF) to OCR.Space and returns the extracted
-    GR field dictionary, parsed from the raw OCR text. Raises
-    `OCRServiceUnavailableError` when no API key is configured and
-    `OCRServiceError` for provider/parsing failures."""
+    GR field dictionary. Fields are parsed primarily from the raw OCR text
+    (`parse_slip_text`); any field a multi-column table left unmatched
+    (position-based line text can't tell which value belongs under which
+    header) is then filled in, where possible, from the word-position
+    overlay via `reconstruct_table_fields` — never overriding a value the
+    text parser already found. Raises `OCRServiceUnavailableError` when no
+    API key is configured and `OCRServiceError` for provider/parsing
+    failures."""
     if not settings.OCR_SPACE_API_KEY.strip():
         raise OCRServiceUnavailableError()
 
     upload_bytes, upload_filename, upload_mime_type = _prepare_upload(file_bytes, mime_type, filename)
-    text = await _call_ocr_space(upload_bytes, upload_filename, upload_mime_type)
-    return parse_slip_text(text)
+    text, overlay_lines = await _call_ocr_space(upload_bytes, upload_filename, upload_mime_type)
+    result = parse_slip_text(text)
+
+    if overlay_lines:
+        table_fields = reconstruct_table_fields(overlay_lines)
+        for key, value in table_fields.items():
+            if result.get(key) is None:
+                result[key] = value
+
+    return result

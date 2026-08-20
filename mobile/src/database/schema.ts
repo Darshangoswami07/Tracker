@@ -9,7 +9,7 @@
  * Column names mirror `backend/app/models/order.py` so that a future online
  * sync can map rows 1:1 without transformation.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 5;
 
 /**
  * DDL executed against a fresh database (user_version == 0). Kept as a plain
@@ -53,6 +53,35 @@ CREATE TABLE IF NOT EXISTS orders (
   -- JSON snapshot of the OCR-extracted slip fields (added in v2 via migration
   -- for installs that predate it; fresh databases get it inline below).
   slipData           TEXT,
+  -- Extended GR/slip fields (added in v3 via migration for installs that
+  -- predate it; fresh databases get them inline below). Mirrors the same
+  -- additions in backend/app/models/order.py.
+  grDate                TEXT,
+  transportCompanyName  TEXT,
+  transportGstin        TEXT,
+  ewbNumber              TEXT,
+  billType               TEXT,
+  specialService         TEXT,
+  fromLocation           TEXT,
+  toLocation             TEXT,
+  deliveryAt             TEXT,
+  rate                   REAL,
+  goodsValue             REAL,
+  grCharge               REAL,
+  freight                REAL,
+  labour                 REAL,
+  pf                     REAL,
+  doorDelivery           REAL,
+  taxGst                 REAL,
+  netAmount              REAL,
+  toPay                  REAL,
+  proprietorName         TEXT,
+  proprietorPhone        TEXT,
+  packageType            TEXT,
+  consignorGstin         TEXT,
+  consignorPhone         TEXT,
+  consigneeGstin         TEXT,
+  consigneePhone         TEXT,
   createdAt          TEXT NOT NULL,
   updatedAt          TEXT NOT NULL,
   isDeleted          INTEGER NOT NULL DEFAULT 0

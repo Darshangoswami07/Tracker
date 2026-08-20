@@ -13,18 +13,30 @@ export interface SlipExtractedFields {
   consigneeName?: string | null;
   fromAddress?: string | null;
   toAddress?: string | null;
+  deliveryAt?: string | null;
   particulars?: string | null;
   packageCount?: number | null;
+  packageType?: string | null;
   weight?: number | null;
+  ewbNumber?: string | null;
+  billType?: string | null;
   rate?: number | null;
+  goodsValue?: number | null;
+  grCharge?: number | null;
   freight?: number | null;
   labour?: number | null;
   pf?: number | null;
   doorDelivery?: number | null;
   taxGst?: number | null;
   netAmount?: number | null;
+  toPay?: number | null;
   specialService?: string | null;
   proprietor?: string | null;
+  proprietorPhone?: string | null;
+  /** The transport company's own contact number (letterhead phone),
+   * distinct from `proprietorPhone` (the proprietor's personal number
+   * printed next to their name/signature) — see `slip_parser.py`. */
+  transportPhone?: string | null;
   phone?: string | null;
 }
 

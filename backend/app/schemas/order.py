@@ -11,7 +11,42 @@ from app.models.enums import FileKind, OrderStatus
 from app.schemas.common import Paginated
 
 
-class GRCreateRequest(BaseModel):
+class GRExtendedFields(BaseModel):
+    """Structured business fields a real transport/Bilti slip carries beyond
+    the original 10-field GR form. Shared by create/update/out schemas so the
+    field list only needs to be maintained in one place. All optional - a GR
+    is always valid without them, and OCR only fills in what it can
+    confidently read (see `app/services/slip_parser.py`)."""
+
+    grDate: Optional[datetime] = None
+    transportCompanyName: Optional[str] = Field(default=None, max_length=160)
+    transportGstin: Optional[str] = Field(default=None, max_length=20)
+    ewbNumber: Optional[str] = Field(default=None, max_length=50)
+    billType: Optional[str] = Field(default=None, max_length=30)
+    specialService: Optional[str] = Field(default=None, max_length=255)
+    fromLocation: Optional[str] = Field(default=None, max_length=160)
+    toLocation: Optional[str] = Field(default=None, max_length=160)
+    deliveryAt: Optional[str] = Field(default=None, max_length=255)
+    rate: Optional[float] = Field(default=None, ge=0)
+    goodsValue: Optional[float] = Field(default=None, ge=0)
+    grCharge: Optional[float] = Field(default=None, ge=0)
+    freight: Optional[float] = Field(default=None, ge=0)
+    labour: Optional[float] = Field(default=None, ge=0)
+    pf: Optional[float] = Field(default=None, ge=0)
+    doorDelivery: Optional[float] = Field(default=None, ge=0)
+    taxGst: Optional[float] = Field(default=None, ge=0)
+    netAmount: Optional[float] = Field(default=None, ge=0)
+    toPay: Optional[float] = Field(default=None, ge=0)
+    proprietorName: Optional[str] = Field(default=None, max_length=160)
+    proprietorPhone: Optional[str] = Field(default=None, max_length=20)
+    packageType: Optional[str] = Field(default=None, max_length=80)
+    consignorGstin: Optional[str] = Field(default=None, max_length=20)
+    consignorPhone: Optional[str] = Field(default=None, max_length=20)
+    consigneeGstin: Optional[str] = Field(default=None, max_length=20)
+    consigneePhone: Optional[str] = Field(default=None, max_length=20)
+
+
+class GRCreateRequest(GRExtendedFields):
     """Fields required to create a new GR/shipment entry."""
 
     grNumber: str = Field(min_length=1, max_length=50)
@@ -37,7 +72,7 @@ class GRCreateRequest(BaseModel):
         return value.strip()
 
 
-class GRUpdateRequest(BaseModel):
+class GRUpdateRequest(GRExtendedFields):
     """Partial update for an existing GR — all fields optional."""
 
     pickupAddress: Optional[str] = Field(default=None, max_length=500)
@@ -79,7 +114,7 @@ class OrderAttachmentOut(BaseModel):
         from_attributes = True
 
 
-class GROut(BaseModel):
+class GROut(GRExtendedFields):
     """Full GR/shipment detail, including consignor/consignee and attachments."""
 
     id: UUID

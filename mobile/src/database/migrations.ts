@@ -26,6 +26,56 @@ export const runMigrations = async (db: SQLiteDatabase): Promise<void> => {
     version = 2;
   }
 
+  // v2 -> v3: add the extended GR/slip fields (mirrors
+  // `backend/app/models/order.py`'s 010_gr_slip_extended_fields migration)
+  // to existing installs without touching any existing rows.
+  if (version === 2) {
+    await db.execAsync(`
+      ALTER TABLE orders ADD COLUMN grDate TEXT;
+      ALTER TABLE orders ADD COLUMN transportCompanyName TEXT;
+      ALTER TABLE orders ADD COLUMN transportGstin TEXT;
+      ALTER TABLE orders ADD COLUMN ewbNumber TEXT;
+      ALTER TABLE orders ADD COLUMN billType TEXT;
+      ALTER TABLE orders ADD COLUMN specialService TEXT;
+      ALTER TABLE orders ADD COLUMN fromLocation TEXT;
+      ALTER TABLE orders ADD COLUMN toLocation TEXT;
+      ALTER TABLE orders ADD COLUMN deliveryAt TEXT;
+      ALTER TABLE orders ADD COLUMN rate REAL;
+      ALTER TABLE orders ADD COLUMN goodsValue REAL;
+      ALTER TABLE orders ADD COLUMN grCharge REAL;
+      ALTER TABLE orders ADD COLUMN freight REAL;
+      ALTER TABLE orders ADD COLUMN labour REAL;
+      ALTER TABLE orders ADD COLUMN pf REAL;
+      ALTER TABLE orders ADD COLUMN doorDelivery REAL;
+      ALTER TABLE orders ADD COLUMN taxGst REAL;
+      ALTER TABLE orders ADD COLUMN netAmount REAL;
+      ALTER TABLE orders ADD COLUMN proprietorName TEXT;
+    `);
+    version = 3;
+  }
+
+  // v3 -> v4: add To Pay, package type, and consignor/consignee GSTIN+phone
+  // (mirrors backend/app/models/order.py's 011_gr_parties_and_charges_fields
+  // migration) to existing installs without touching any existing rows.
+  if (version === 3) {
+    await db.execAsync(`
+      ALTER TABLE orders ADD COLUMN toPay REAL;
+      ALTER TABLE orders ADD COLUMN packageType TEXT;
+      ALTER TABLE orders ADD COLUMN consignorGstin TEXT;
+      ALTER TABLE orders ADD COLUMN consignorPhone TEXT;
+      ALTER TABLE orders ADD COLUMN consigneeGstin TEXT;
+      ALTER TABLE orders ADD COLUMN consigneePhone TEXT;
+    `);
+    version = 4;
+  }
+
+  // v4 -> v5: add proprietorPhone (mirrors backend's 012_gr_proprietor_phone
+  // migration) to existing installs without touching any existing rows.
+  if (version === 4) {
+    await db.execAsync('ALTER TABLE orders ADD COLUMN proprietorPhone TEXT');
+    version = 5;
+  }
+
   await db.execAsync(`PRAGMA user_version = ${version}`);
 };
 

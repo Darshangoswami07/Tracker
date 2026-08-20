@@ -33,8 +33,49 @@ export interface LocalTimelineEvent {
   createdAt: string;
 }
 
+/** Extended GR/slip fields — structured business information read off a
+ * transport slip beyond the original 10-field GR form. Mirrors the same
+ * additions in `backend/app/models/order.py`. All optional: a GR can always
+ * be created/edited without them. */
+export interface GRExtendedFields {
+  grDate?: string;
+  transportCompanyName?: string;
+  transportGstin?: string;
+  ewbNumber?: string;
+  billType?: string;
+  specialService?: string;
+  fromLocation?: string;
+  toLocation?: string;
+  deliveryAt?: string;
+  rate?: number;
+  goodsValue?: number;
+  grCharge?: number;
+  freight?: number;
+  labour?: number;
+  pf?: number;
+  doorDelivery?: number;
+  taxGst?: number;
+  netAmount?: number;
+  toPay?: number;
+  proprietorName?: string;
+  proprietorPhone?: string;
+  packageType?: string;
+  consignorGstin?: string;
+  consignorPhone?: string;
+  consigneeGstin?: string;
+  consigneePhone?: string;
+}
+
+const EXTENDED_FIELD_KEYS: (keyof GRExtendedFields)[] = [
+  'grDate', 'transportCompanyName', 'transportGstin', 'ewbNumber', 'billType',
+  'specialService', 'fromLocation', 'toLocation', 'deliveryAt', 'rate',
+  'goodsValue', 'grCharge', 'freight', 'labour', 'pf', 'doorDelivery',
+  'taxGst', 'netAmount', 'toPay', 'proprietorName', 'proprietorPhone', 'packageType',
+  'consignorGstin', 'consignorPhone', 'consigneeGstin', 'consigneePhone',
+];
+
 /** Mirrors `GRDetail` in `AdminGRDetailsScreen` / web `admin/src/types/gr.ts`. */
-export interface LocalGRDetail {
+export interface LocalGRDetail extends GRExtendedFields {
   id: string;
   orderNumber: string;
   status: string;
@@ -55,7 +96,7 @@ export interface LocalGRDetail {
   timeline: LocalTimelineEvent[];
 }
 
-export interface GRCreateInput {
+export interface GRCreateInput extends GRExtendedFields {
   grNumber: string;
   companyId?: string;
   consignorName: string;
@@ -67,11 +108,12 @@ export interface GRCreateInput {
   packageCount?: number;
   weight?: number;
   trackingCode?: string;
+  notes?: string;
   /** OCR-extracted slip snapshot (JSON string) persisted alongside the GR. */
   slipData?: string;
 }
 
-export interface GRUpdateInput {
+export interface GRUpdateInput extends GRExtendedFields {
   consignorName?: string;
   consigneeName?: string;
   particulars?: string;
@@ -130,6 +172,18 @@ const rowToListItem = (row: any): LocalGRListItem => ({
   hasSlip: Boolean(row.hasSlip),
 });
 
+/** Picks the extended-field columns off a raw SQLite row, converting `null`
+ * (SQLite's absence marker) to `undefined` so they match `GRExtendedFields`'s
+ * optional-field shape. */
+const rowToExtendedFields = (row: any): GRExtendedFields => {
+  const result: GRExtendedFields = {};
+  for (const key of EXTENDED_FIELD_KEYS) {
+    const value = row[key];
+    if (value !== null && value !== undefined) (result as any)[key] = value;
+  }
+  return result;
+};
+
 const rowToDetail = (row: any): LocalGRDetail => ({
   id: row.id,
   orderNumber: row.orderNumber,
@@ -149,6 +203,7 @@ const rowToDetail = (row: any): LocalGRDetail => ({
   slipData: parseSlipData(row.slipData),
   attachments: [],
   timeline: [],
+  ...rowToExtendedFields(row),
 });
 
 const parseSlipData = (value: string | null | undefined): Record<string, unknown> | null => {
@@ -259,12 +314,16 @@ export const orderRepository = {
     const db = await getDatabase();
     const id = uuid();
     const createdAt = nowIso();
+    const extendedCols = EXTENDED_FIELD_KEYS.join(', ');
+    const extendedPlaceholders = EXTENDED_FIELD_KEYS.map(() => '?').join(', ');
+    const extendedValues = EXTENDED_FIELD_KEYS.map((key) => (input[key] as string | number | undefined) ?? null);
     await db.runAsync(
       `INSERT INTO orders (
         id, orderNumber, companyId, consignorName, consigneeName, particulars,
         packageCount, pickupAddress, deliveryAddress, pickupTime, weight,
-        priority, status, trackingCode, hasSlip, slipData, createdAt, updatedAt, isDeleted
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        priority, status, trackingCode, notes, hasSlip, slipData, ${extendedCols},
+        createdAt, updatedAt, isDeleted
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${extendedPlaceholders}, ?, ?, ?)`,
       [
         id,
         input.grNumber,
@@ -280,8 +339,10 @@ export const orderRepository = {
         'normal',
         'pending',
         input.trackingCode ?? null,
+        input.notes ?? null,
         0,
         input.slipData ?? null,
+        ...extendedValues,
         createdAt,
         createdAt,
         0,
@@ -319,6 +380,7 @@ export const orderRepository = {
     setIf('packageCount', 'packageCount');
     setIf('weight', 'weight');
     setIf('notes', 'notes');
+    for (const key of EXTENDED_FIELD_KEYS) setIf(key, key);
 
     if (fields.length === 0) return this.getById(id);
     bind.push(nowIso(), id);

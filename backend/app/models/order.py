@@ -43,6 +43,37 @@ class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     particulars: Mapped[str | None] = mapped_column(String(500), nullable=True)
     packageCount: Mapped[int | None] = mapped_column(nullable=True)
 
+    # Extended GR/slip fields - structured business information read off a
+    # transport slip that goes beyond the original 10-field GR form. All
+    # nullable/optional: a GR can always be created without them (manual
+    # entry), and OCR only ever fills in what it can confidently read.
+    grDate: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    transportCompanyName: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    transportGstin: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    ewbNumber: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    billType: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    specialService: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    fromLocation: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    toLocation: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    deliveryAt: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    goodsValue: Mapped[float | None] = mapped_column(Float, nullable=True)
+    grCharge: Mapped[float | None] = mapped_column(Float, nullable=True)
+    freight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    labour: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pf: Mapped[float | None] = mapped_column(Float, nullable=True)
+    doorDelivery: Mapped[float | None] = mapped_column(Float, nullable=True)
+    taxGst: Mapped[float | None] = mapped_column(Float, nullable=True)
+    netAmount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    toPay: Mapped[float | None] = mapped_column(Float, nullable=True)
+    proprietorName: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    proprietorPhone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    packageType: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    consignorGstin: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    consignorPhone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    consigneeGstin: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    consigneePhone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     pickupAddress: Mapped[str] = mapped_column(String(500))
     deliveryAddress: Mapped[str] = mapped_column(String(500))
     pickupTime: Mapped[datetime] = mapped_column(DateTime(timezone=True))

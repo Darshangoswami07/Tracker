@@ -1,11 +1,11 @@
-import { useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useEffect, useState, type ReactNode } from 'react';
+import { ActivityIndicator, Alert, BackHandler, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useUserStore } from '../../store/userStore';
-import { orderRepository } from '../../database/repositories/orderRepository';
+import { orderRepository, type PickerRow } from '../../database/repositories/orderRepository';
 import { extractSlipDetails, isOcrError, type SlipExtractedFields } from '../../services/slipOcr';
 import { persistSlipImage, type PersistedSlip } from '../../services/slipStorage';
 import { Header } from '../../components/Header';
@@ -27,17 +27,44 @@ const NIL_UUID = '00000000-0000-0000-0000-000000000000';
  * a clear message before it's persisted or sent anywhere. */
 const MAX_SLIP_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
+/** Simple Bill Type choices shown as a two-way toggle (matches the app's
+ * existing values — no new billing logic introduced). */
+const BILL_TYPE_OPTIONS = ['To Pay', 'Paid'] as const;
+
 interface FormState {
   grNumber: string;
   companyId: string;
   consignorName: string;
   consigneeName: string;
-  pickupAddress: string;
-  deliveryAddress: string;
-  pickupTime: string;
   particulars: string;
   packageCount: string;
   weight: string;
+  // Extended GR/slip fields — all optional, mirror `GRExtendedFields`
+  // (`orderRepository.ts`) / `backend/app/models/order.py`.
+  grDate: string;
+  /** Name of the transport company printed on the GR slip (e.g. "SOMNATH
+   * TRANSPORT COMPANY") — OCR-filled but always manually editable. Distinct
+   * from `companyId` below, which is the tenant/company this GR record is
+   * scoped under in the multi-company system, not the slip's issuing
+   * transport company name. */
+  transportCompanyName: string;
+  ewbNumber: string;
+  billType: string;
+  fromLocation: string;
+  toLocation: string;
+  rate: string;
+  goodsValue: string;
+  grCharge: string;
+  freight: string;
+  labour: string;
+  pf: string;
+  doorDelivery: string;
+  taxGst: string;
+  netAmount: string;
+  toPay: string;
+  proprietorName: string;
+  proprietorPhone: string;
+  packageType: string;
 }
 
 const initialForm = (defaultCompanyId: string): FormState => ({
@@ -45,12 +72,28 @@ const initialForm = (defaultCompanyId: string): FormState => ({
   companyId: defaultCompanyId,
   consignorName: '',
   consigneeName: '',
-  pickupAddress: '',
-  deliveryAddress: '',
-  pickupTime: new Date().toISOString().slice(0, 16).replace('T', ' '),
   particulars: '',
   packageCount: '',
   weight: '',
+  grDate: '',
+  transportCompanyName: '',
+  ewbNumber: '',
+  billType: '',
+  fromLocation: '',
+  toLocation: '',
+  rate: '',
+  goodsValue: '',
+  grCharge: '',
+  freight: '',
+  labour: '',
+  pf: '',
+  doorDelivery: '',
+  taxGst: '',
+  netAmount: '',
+  toPay: '',
+  proprietorName: '',
+  proprietorPhone: '',
+  packageType: '',
 });
 
 /** Picks which local value flows into a given manual form field, falling back
@@ -62,30 +105,77 @@ const pickValue = (current: string, ocr: string | null | undefined): string => {
   return current.trim() ? current : trimmed;
 };
 
-/** Parses an OCR date (YYYY-MM-DD) into the form's `YYYY-MM-DD HH:mm` shape,
- * keeping today's time when the slip only gives a date. */
-const parseOcrDate = (raw: string | null | undefined, fallback: string): string => {
-  if (!raw) return fallback;
-  const match = String(raw).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) return fallback;
-  const [, y, m, d] = match;
-  return `${y}-${m}-${d} ${fallback.split(' ')[1] ?? '00:00'}`;
+/** Normalizes a company name for tolerant comparison (case/punctuation/spacing
+ * insensitive) — used only to match OCR text against real companies, never to
+ * fabricate one. */
+const normalizeCompanyName = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** Finds a confident match for the slip's printed transport-company name among
+ * the real companies list. A confident match is an exact normalized match or
+ * a full containment either way (handles "ABC Transport" vs "ABC Transport
+ * Co."). Returns null rather than guessing when nothing lines up. */
+const findConfidentCompanyMatch = (ocrName: string, companies: PickerRow[]): PickerRow | null => {
+  const normalizedOcr = normalizeCompanyName(ocrName);
+  if (!normalizedOcr) return null;
+  for (const company of companies) {
+    const normalizedCompany = normalizeCompanyName(company.name);
+    if (!normalizedCompany) continue;
+    if (normalizedCompany === normalizedOcr || normalizedCompany.includes(normalizedOcr) || normalizedOcr.includes(normalizedCompany)) {
+      return company;
+    }
+  }
+  return null;
 };
 
-/** Maps OCR output into the manual form, preserving anything already typed. */
+/** Picks a numeric OCR value into a string form field, only when the user
+ * hasn't already typed something — mirrors `pickValue` for number-shaped
+ * fields (packageCount/weight already used this pattern inline; the new
+ * numeric fields below share it too). */
+const pickNumber = (current: string, ocr: number | null | undefined): string =>
+  ocr != null && !current.trim() ? String(ocr) : current;
+
+/** Maps OCR output into the manual form, preserving anything already typed.
+ * `companyId` (the tenant/company this GR is scoped under) is intentionally
+ * excluded here — it's matched against the real companies list separately
+ * (see `handleExtract`) rather than pre-filled with raw OCR text, so a
+ * company is never invented. `transportCompanyName` (the slip's printed
+ * issuing transport company, e.g. "SOMNATH TRANSPORT COMPANY") is a
+ * distinct, freely-editable text field and is OCR-filled directly like any
+ * other field. `fromLocation`/`toLocation` capture the slip's raw short
+ * From/To text for display, separate from the required Pickup/Delivery
+ * Address fields (which keep their existing pre-fill behavior below,
+ * unchanged). */
 const mapSlipToForm = (slip: SlipExtractedFields, current: FormState): FormState => ({
   grNumber: pickValue(current.grNumber, slip.grNumber),
-  // The Company field is free-typed text (the transport company printed on
-  // the slip), so OCR can pre-fill it exactly like every other text field.
-  companyId: pickValue(current.companyId, slip.transportCompany),
+  companyId: current.companyId,
   consignorName: pickValue(current.consignorName, slip.consignorName),
   consigneeName: pickValue(current.consigneeName, slip.consigneeName),
-  pickupAddress: pickValue(current.pickupAddress, slip.fromAddress),
-  deliveryAddress: pickValue(current.deliveryAddress, slip.toAddress),
-  pickupTime: current.pickupTime.trim() ? current.pickupTime : parseOcrDate(slip.grDate, current.pickupTime),
   particulars: pickValue(current.particulars, slip.particulars),
   packageCount: slip.packageCount != null && !current.packageCount.trim() ? String(slip.packageCount) : current.packageCount,
   weight: slip.weight != null && !current.weight.trim() ? String(slip.weight) : current.weight,
+  grDate: pickValue(current.grDate, slip.grDate),
+  transportCompanyName: pickValue(current.transportCompanyName, slip.transportCompany),
+  ewbNumber: pickValue(current.ewbNumber, slip.ewbNumber),
+  billType: pickValue(current.billType, slip.billType),
+  fromLocation: pickValue(current.fromLocation, slip.fromAddress),
+  toLocation: pickValue(current.toLocation, slip.toAddress),
+  rate: pickNumber(current.rate, slip.rate),
+  goodsValue: pickNumber(current.goodsValue, slip.goodsValue),
+  grCharge: pickNumber(current.grCharge, slip.grCharge),
+  freight: pickNumber(current.freight, slip.freight),
+  labour: pickNumber(current.labour, slip.labour),
+  pf: pickNumber(current.pf, slip.pf),
+  doorDelivery: pickNumber(current.doorDelivery, slip.doorDelivery),
+  taxGst: pickNumber(current.taxGst, slip.taxGst),
+  netAmount: pickNumber(current.netAmount, slip.netAmount),
+  toPay: pickNumber(current.toPay, slip.toPay),
+  proprietorName: pickValue(current.proprietorName, slip.proprietor),
+  // `form.proprietorPhone` renders as "Transport Phone Number" — it must be
+  // the transport company's own contact number, not the proprietor's
+  // personal number (which OCR separately reads into `slip.proprietorPhone`,
+  // printed right under their name/signature and never used here).
+  proprietorPhone: pickValue(current.proprietorPhone, slip.transportPhone),
+  packageType: pickValue(current.packageType, slip.packageType),
 });
 
 type Mode = 'choose' | 'manual' | 'slip';
@@ -120,6 +210,37 @@ export const AdminCreateGRScreen = () => {
   const [submitting, setSubmitting] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
 
+  // Company/tenant resolution (Super Admin tier only) — there is no visible
+  // "Company" field in this form; `companyId` (which tenant this GR is filed
+  // under) is resolved silently in the background by matching whatever the
+  // user has typed/OCR-filled into Transport Company against the real
+  // companies list below, never shown or picked directly. If nothing
+  // confidently matches, the GR is simply created without a companyId (the
+  // same as the non-privileged-role path) rather than blocking submission.
+  const [companies, setCompanies] = useState<PickerRow[]>([]);
+
+  useEffect(() => {
+    if (!isSuperAdminTier) return;
+    orderRepository.listCompanies().then(setCompanies).catch(() => {});
+  }, [isSuperAdminTier]);
+
+  useEffect(() => {
+    if (!isSuperAdminTier || !companies.length || !form.transportCompanyName.trim()) return;
+    const match = findConfidentCompanyMatch(form.transportCompanyName, companies);
+    if (match && form.companyId !== match.id) {
+      setForm((prev) => ({ ...prev, companyId: match.id }));
+    }
+  }, [isSuperAdminTier, companies, form.transportCompanyName]);
+
+  // Which optional sections are expanded — GR/Consignor/Consignee/Route/Goods
+  // start open (they hold the required fields), Charges/Additional start
+  // collapsed so the form doesn't dump 25 fields on screen at once.
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    charges: false,
+    additional: false,
+  });
+  const toggleSection = (key: string) => setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
+
   // Slip import state.
   const [slipImage, setSlipImage] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
@@ -128,37 +249,74 @@ export const AdminCreateGRScreen = () => {
 
   const set = (key: keyof FormState) => (value: string) => setForm((prev) => ({ ...prev, [key]: value }));
 
+  /** Detection badge for a field, only shown once OCR has actually run
+   * (`slipData` present). Always surfaces a successful detection (a quiet
+   * green "Detected" is welcome, not noisy) but only flags a *missed* field
+   * when `flagUndetected` is set — most optional metadata (charges,
+   * proprietor, special service, etc.) is legitimately blank on many real
+   * slips, and warning on every one of them is exactly the cluttered UI this
+   * screen used to have. Pass `flagUndetected: true` only for the handful of
+   * fields worth calling out when OCR misses them. */
+  const ocrBadge = (ocrValue: unknown, flagUndetected = false): 'detected' | 'undetected' | undefined => {
+    if (!slipData) return undefined;
+    const hasValue = ocrValue !== null && ocrValue !== undefined && String(ocrValue).trim() !== '';
+    if (hasValue) return 'detected';
+    return flagUndetected ? 'undetected' : undefined;
+  };
+
   const canSubmit =
     form.grNumber.trim() &&
-    form.companyId &&
+    form.transportCompanyName.trim() &&
     form.consignorName.trim() &&
     form.consigneeName.trim() &&
-    form.pickupAddress.trim() &&
-    form.deliveryAddress.trim() &&
-    form.pickupTime.trim() &&
+    form.fromLocation.trim() &&
+    form.toLocation.trim() &&
     !submitting;
 
   const handleSubmit = async () => {
-    const parsedPickup = new Date(form.pickupTime.replace(' ', 'T'));
-    if (Number.isNaN(parsedPickup.getTime())) {
-      setErrorText('Enter a valid pickup date/time, e.g. 2026-08-20 14:30.');
-      return;
-    }
     setSubmitting(true);
     setErrorText(null);
     try {
+      const num = (value: string): number | undefined => (value.trim() ? Number(value) : undefined);
+      const str = (value: string): string | undefined => (value.trim() ? value.trim() : undefined);
+      const parsedGrDate = form.grDate.trim() ? new Date(form.grDate.trim()) : null;
+      const validGrDate = parsedGrDate && !Number.isNaN(parsedGrDate.getTime()) ? parsedGrDate : null;
+      // `pickupAddress`/`deliveryAddress`/`pickupTime` remain required, non-null
+      // columns in the database (`backend/app/models/order.py`), but the
+      // simplified form no longer asks for them directly — the required
+      // From/To route fields and GR Date stand in for them so no schema
+      // change or extra user input is needed.
       const created = await orderRepository.create({
         grNumber: form.grNumber.trim(),
         companyId: form.companyId || undefined,
         consignorName: form.consignorName.trim(),
         consigneeName: form.consigneeName.trim(),
-        pickupAddress: form.pickupAddress.trim(),
-        deliveryAddress: form.deliveryAddress.trim(),
-        pickupTime: parsedPickup.toISOString(),
+        pickupAddress: form.fromLocation.trim(),
+        deliveryAddress: form.toLocation.trim(),
+        pickupTime: (validGrDate ?? new Date()).toISOString(),
         particulars: form.particulars.trim() || undefined,
         packageCount: form.packageCount.trim() ? Number(form.packageCount) : undefined,
         weight: form.weight.trim() ? Number(form.weight) : undefined,
         slipData: slipData ? JSON.stringify(slipData) : undefined,
+        grDate: validGrDate ? validGrDate.toISOString() : undefined,
+        transportCompanyName: str(form.transportCompanyName),
+        ewbNumber: str(form.ewbNumber),
+        billType: str(form.billType),
+        fromLocation: str(form.fromLocation),
+        toLocation: str(form.toLocation),
+        rate: num(form.rate),
+        goodsValue: num(form.goodsValue),
+        grCharge: num(form.grCharge),
+        freight: num(form.freight),
+        labour: num(form.labour),
+        pf: num(form.pf),
+        doorDelivery: num(form.doorDelivery),
+        taxGst: num(form.taxGst),
+        netAmount: num(form.netAmount),
+        toPay: num(form.toPay),
+        proprietorName: str(form.proprietorName),
+        proprietorPhone: str(form.proprietorPhone),
+        packageType: str(form.packageType),
       });
       // Attach the slip image (persisted durably) so it is viewable offline
       // from the GR details screen, and flag hasSlip on the order.
@@ -229,6 +387,9 @@ export const AdminCreateGRScreen = () => {
     try {
       const extracted = await extractSlipDetails(slipImage);
       setSlipData(extracted);
+      // Transport Company (and, silently, the matching tenant `companyId`
+      // for Super Admin tier) is set here via `mapSlipToForm` /
+      // the `form.transportCompanyName` auto-resolve effect above.
       setForm((prev) => mapSlipToForm(extracted, prev));
       setErrorText(null);
     } catch (err: any) {
@@ -273,11 +434,61 @@ export const AdminCreateGRScreen = () => {
     setMode('slip');
   };
 
+  /** True once the user has actually entered something worth confirming
+   * before discarding — any of the key manual fields typed, or a slip
+   * picked/scanned. Kept deliberately narrow (not every optional field) so
+   * an untouched form doesn't prompt on the way back. */
+  const hasFormProgress = () =>
+    Boolean(
+      form.grNumber.trim() ||
+        form.consignorName.trim() ||
+        form.consigneeName.trim() ||
+        form.fromLocation.trim() ||
+        form.toLocation.trim() ||
+        slipImage ||
+        slipData
+    );
+
+  /** Single back handler for every step of Create GR (header button and
+   * Android hardware back alike): actually leaves the screen via the app's
+   * normal navigation (`goBack` from `useAppNav` — pops this stack entry, or
+   * falls back to the role's dashboard if there's no history), the same as
+   * any other screen's back button. Never just resets local state and stays
+   * on Create GR — that reads as the button "doing nothing" to the user.
+   * Prompts for confirmation first only when there's something to lose. */
+  const handleBack = () => {
+    if (hasFormProgress()) {
+      Alert.alert(
+        'Leave Create GR?',
+        'Your entered details will be discarded if you leave this screen.',
+        [
+          { text: 'Continue Editing', style: 'cancel' },
+          { text: 'Discard', style: 'destructive', onPress: goBack },
+        ]
+      );
+    } else {
+      goBack();
+    }
+  };
+
+  // Android hardware back must behave identically to the in-app Back
+  // button at every step of Create GR — always a real navigation back
+  // (with the same discard prompt when there's unsaved progress), never a
+  // no-op or an in-place reset.
+  useEffect(() => {
+    const onHardwareBack = () => {
+      handleBack();
+      return true;
+    };
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+    return () => subscription.remove();
+  }, [mode, form, slipImage, slipData]);
+
   // ---------- Mode chooser ----------
   if (mode === 'choose') {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-        <Header title="Create GR" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
+        <Header title="Create GR" leftAction={{ icon: 'chevron-back', onPress: handleBack }} />
         <ScrollView contentContainerStyle={styles.chooseContent}>
           <Text style={[styles.chooseHint, { color: colors.textMuted }]}>How would you like to create this GR?</Text>
           <TouchableOpacity
@@ -322,7 +533,7 @@ export const AdminCreateGRScreen = () => {
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
         <Header
           title="Import From Slip"
-          leftAction={{ icon: 'chevron-back', onPress: slipImage || extracting ? resetSlipFlow : goBack }}
+          leftAction={{ icon: 'chevron-back', onPress: handleBack }}
         />
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           {errorText && (
@@ -396,13 +607,13 @@ export const AdminCreateGRScreen = () => {
   // ---------- Manual / review form ----------
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-      <Header title="Create GR" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
+      <Header title="Create GR" leftAction={{ icon: 'chevron-back', onPress: handleBack }} />
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         {slipImage && slipData && (
           <View style={[styles.slipBanner, { backgroundColor: `${colors.primary}12`, borderRadius: radii.lg }]}>
             <Ionicons name="scan-outline" size={18} color={colors.primary} />
             <Text style={[styles.slipBannerText, { color: colors.primary }]}>
-              Fields pre-filled from the slip — review and edit if needed.
+              GR slip scanned successfully. Please review the extracted details before creating the GR.
             </Text>
           </View>
         )}
@@ -413,38 +624,145 @@ export const AdminCreateGRScreen = () => {
           </View>
         )}
 
-        <Field label="GR Number" required value={form.grNumber} onChangeText={set('grNumber')} placeholder="e.g. GR100234" autoCapitalize="characters" />
-
-        {isSuperAdminTier && (
+        <Section title="GR Information" expanded>
+          <Field label="GR Number" required value={form.grNumber} onChangeText={set('grNumber')} placeholder="e.g. GR100234" autoCapitalize="characters" />
+          {slipData && !slipData.grNumber && !form.grNumber.trim() && (
+            <Text style={[styles.ocrHintText, { color: colors.error }]}>GR number could not be detected. Please enter it manually.</Text>
+          )}
+          <Field label="GR Date" value={form.grDate} onChangeText={set('grDate')} placeholder="YYYY-MM-DD" badge={ocrBadge(slipData?.grDate)} />
           <Field
-            label="Company"
+            label="Transport Company"
             required
-            value={form.companyId}
-            onChangeText={set('companyId')}
-            placeholder="Type the company name"
+            value={form.transportCompanyName}
+            onChangeText={set('transportCompanyName')}
+            placeholder="e.g. Somnath Transport Company"
+            badge={ocrBadge(slipData?.transportCompany, true)}
           />
-        )}
 
-        <Field label="Consignor Name" required value={form.consignorName} onChangeText={set('consignorName')} placeholder="Sender name" />
-        <Field label="Consignee Name" required value={form.consigneeName} onChangeText={set('consigneeName')} placeholder="Receiver name" />
-        <Field label="Pickup Address" required value={form.pickupAddress} onChangeText={set('pickupAddress')} placeholder="Origin address" multiline />
-        <Field label="Delivery Address" required value={form.deliveryAddress} onChangeText={set('deliveryAddress')} placeholder="Destination address" multiline />
-        <Field
-          label="Pickup Date/Time"
-          required
-          value={form.pickupTime}
-          onChangeText={set('pickupTime')}
-          placeholder="YYYY-MM-DD HH:mm"
-        />
-        <Field label="Particulars" value={form.particulars} onChangeText={set('particulars')} placeholder="Description of goods (optional)" multiline />
-        <View style={styles.row}>
-          <View style={{ flex: 1 }}>
-            <Field label="Package Count" value={form.packageCount} onChangeText={set('packageCount')} placeholder="0" keyboardType="number-pad" />
+          {/* No separate "Company" field: for Super Admin tier, the tenant
+           * (`companyId`) is resolved silently in the background from
+           * whatever is typed above (see the `form.transportCompanyName`
+           * auto-resolve effect) rather than picked here. */}
+
+          <View style={styles.fieldGroup}>
+            <View style={styles.labelRow}>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>BILL TYPE</Text>
+              {ocrBadge(slipData?.billType) === 'detected' && (
+                <View style={styles.badgeRow}>
+                  <Ionicons name="checkmark-circle" size={12} color="#10B981" />
+                  <Text style={[styles.badgeText, { color: '#10B981' }]}>Detected</Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.row}>
+              {BILL_TYPE_OPTIONS.map((option) => {
+                const selected = form.billType === option;
+                return (
+                  <TouchableOpacity
+                    key={option}
+                    style={[
+                      styles.billTypeChip,
+                      {
+                        borderRadius: radii.md,
+                        borderColor: selected ? colors.primary : colors.border,
+                        backgroundColor: selected ? `${colors.primary}15` : colors.surface,
+                      },
+                    ]}
+                    onPress={() => set('billType')(option)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.billTypeChipText, { color: selected ? colors.primary : colors.textPrimary }]}>{option}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
-          <View style={{ flex: 1 }}>
-            <Field label="Weight (kg)" value={form.weight} onChangeText={set('weight')} placeholder="0" keyboardType="decimal-pad" />
+          <Field
+            label="EWB Number"
+            value={form.ewbNumber}
+            onChangeText={set('ewbNumber')}
+            placeholder="E-way bill no. (optional)"
+            badge={ocrBadge(slipData?.ewbNumber, true)}
+            badgeUndetectedLabel="Not detected — optional"
+          />
+        </Section>
+
+        <Section title="Parties" expanded>
+          <Field label="Consignor Name" required value={form.consignorName} onChangeText={set('consignorName')} placeholder="Sender name" badge={ocrBadge(slipData?.consignorName, true)} />
+          <Field label="Consignee Name" required value={form.consigneeName} onChangeText={set('consigneeName')} placeholder="Receiver name" badge={ocrBadge(slipData?.consigneeName, true)} />
+        </Section>
+
+        <Section title="Route" expanded>
+          <Field label="From" required value={form.fromLocation} onChangeText={set('fromLocation')} placeholder="e.g. Haldwani" badge={ocrBadge(slipData?.fromAddress, true)} />
+          <Field label="To" required value={form.toLocation} onChangeText={set('toLocation')} placeholder="e.g. Garur" badge={ocrBadge(slipData?.toAddress, true)} />
+        </Section>
+
+        <Section title="Goods" expanded>
+          <Field label="Particulars" value={form.particulars} onChangeText={set('particulars')} placeholder="Description of goods (optional)" multiline badge={ocrBadge(slipData?.particulars, true)} />
+          <View style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Field label="Package Count" value={form.packageCount} onChangeText={set('packageCount')} placeholder="0" keyboardType="number-pad" badge={ocrBadge(slipData?.packageCount, true)} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field label="Package Type" value={form.packageType} onChangeText={set('packageType')} placeholder="e.g. Box, Nug" badge={ocrBadge(slipData?.packageType)} />
+            </View>
           </View>
-        </View>
+          <View style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Field label="Weight (kg)" value={form.weight} onChangeText={set('weight')} placeholder="0" keyboardType="decimal-pad" badge={ocrBadge(slipData?.weight, true)} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field label="Rate" value={form.rate} onChangeText={set('rate')} placeholder="0" keyboardType="decimal-pad" badge={ocrBadge(slipData?.rate, true)} />
+            </View>
+          </View>
+          <Field label="Goods Value" value={form.goodsValue} onChangeText={set('goodsValue')} placeholder="0" keyboardType="decimal-pad" badge={ocrBadge(slipData?.goodsValue)} />
+        </Section>
+
+        <Section title="Charges" expanded={expandedSections.charges} onToggle={() => toggleSection('charges')}>
+          <View style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Field label="GR Charge" value={form.grCharge} onChangeText={set('grCharge')} placeholder="0" keyboardType="decimal-pad" badge={ocrBadge(slipData?.grCharge)} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field label="Freight" value={form.freight} onChangeText={set('freight')} placeholder="0" keyboardType="decimal-pad" badge={ocrBadge(slipData?.freight)} />
+            </View>
+          </View>
+          <View style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Field label="Labour" value={form.labour} onChangeText={set('labour')} placeholder="0" keyboardType="decimal-pad" badge={ocrBadge(slipData?.labour)} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field label="P.F." value={form.pf} onChangeText={set('pf')} placeholder="0" keyboardType="decimal-pad" badge={ocrBadge(slipData?.pf)} />
+            </View>
+          </View>
+          <View style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Field label="Door Delivery" value={form.doorDelivery} onChangeText={set('doorDelivery')} placeholder="0" keyboardType="decimal-pad" badge={ocrBadge(slipData?.doorDelivery)} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field label="Tax (GST)" value={form.taxGst} onChangeText={set('taxGst')} placeholder="0" keyboardType="decimal-pad" badge={ocrBadge(slipData?.taxGst)} />
+            </View>
+          </View>
+          <View style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Field label="Net Amount" value={form.netAmount} onChangeText={set('netAmount')} placeholder="0" keyboardType="decimal-pad" badge={ocrBadge(slipData?.netAmount, true)} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field label="To Pay" value={form.toPay} onChangeText={set('toPay')} placeholder="0" keyboardType="decimal-pad" badge={ocrBadge(slipData?.toPay)} />
+            </View>
+          </View>
+        </Section>
+
+        <Section title="Transport Details" expanded>
+          <View style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Field label="Proprietor" value={form.proprietorName} onChangeText={set('proprietorName')} placeholder="Owner name" badge={ocrBadge(slipData?.proprietor)} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field label="Transport Phone Number" value={form.proprietorPhone} onChangeText={set('proprietorPhone')} placeholder="Phone number" keyboardType="number-pad" badge={ocrBadge(slipData?.transportPhone)} />
+            </View>
+          </View>
+        </Section>
 
         <TouchableOpacity
           style={[styles.submitButton, { backgroundColor: colors.primary, borderRadius: radii.md, opacity: canSubmit ? 1 : 0.5 }]}
@@ -468,16 +786,35 @@ interface FieldProps {
   multiline?: boolean;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   keyboardType?: 'default' | 'number-pad' | 'decimal-pad';
+  /** OCR detection status, shown as a small badge next to the label — only
+   * passed during the OCR review flow (see `ocrBadge` in the screen). */
+  badge?: 'detected' | 'undetected';
+  /** Overrides the default "Not detected" copy — used for fields where a
+   * miss is expected/low-stakes (e.g. "Not detected — optional" for EWB). */
+  badgeUndetectedLabel?: string;
 }
 
-const Field = ({ label, value, onChangeText, placeholder, required, multiline, autoCapitalize, keyboardType }: FieldProps) => {
+const Field = ({ label, value, onChangeText, placeholder, required, multiline, autoCapitalize, keyboardType, badge, badgeUndetectedLabel }: FieldProps) => {
   const theme = useAppTheme();
   const styles = createStyles(theme);
   return (
     <View style={styles.fieldGroup}>
-      <Text style={[styles.label, { color: theme.colors.textSecondary }]}>
-        {label.toUpperCase()} {required ? <Text style={{ color: theme.colors.error }}>*</Text> : null}
-      </Text>
+      <View style={styles.labelRow}>
+        <Text style={[styles.label, { color: theme.colors.textSecondary }]}>
+          {label.toUpperCase()} {required ? <Text style={{ color: theme.colors.error }}>*</Text> : null}
+        </Text>
+        {badge === 'detected' && (
+          <View style={styles.badgeRow}>
+            <Ionicons name="checkmark-circle" size={12} color="#10B981" />
+            <Text style={[styles.badgeText, { color: '#10B981' }]}>Detected</Text>
+          </View>
+        )}
+        {badge === 'undetected' && (
+          <View style={styles.badgeRow}>
+            <Text style={[styles.badgeText, { color: theme.colors.textMuted }]}>{badgeUndetectedLabel ?? 'Not detected'}</Text>
+          </View>
+        )}
+      </View>
       <TextInput
         style={[
           styles.input,
@@ -492,6 +829,35 @@ const Field = ({ label, value, onChangeText, placeholder, required, multiline, a
         autoCapitalize={autoCapitalize ?? 'sentences'}
         keyboardType={keyboardType ?? 'default'}
       />
+    </View>
+  );
+};
+
+interface SectionProps {
+  title: string;
+  /** Whether the section's fields are shown. Omit `onToggle` for a section
+   * that is always expanded (holds required fields) — no chevron/tap target
+   * is rendered in that case. */
+  expanded: boolean;
+  onToggle?: () => void;
+  children: ReactNode;
+}
+
+/** Collapsible form section — keeps the sectioned Create GR form scannable
+ * on mobile instead of dumping every field on one long screen. */
+const Section = ({ title, expanded, onToggle, children }: SectionProps) => {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
+  const HeaderRow = onToggle ? TouchableOpacity : View;
+  return (
+    <View style={[styles.sectionCard, { backgroundColor: theme.colors.surface, borderRadius: theme.radii.lg }]}>
+      <HeaderRow style={styles.sectionHeaderRow} onPress={onToggle} activeOpacity={0.7}>
+        <Text style={[styles.sectionTitle, { color: theme.colors.textPrimary }]}>{title.toUpperCase()}</Text>
+        {onToggle && (
+          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={theme.colors.textMuted} />
+        )}
+      </HeaderRow>
+      {expanded && <View style={styles.sectionBody}>{children}</View>}
     </View>
   );
 };
@@ -536,25 +902,30 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     slipPreview: { width: '100%', height: 320 },
     slipPreviewActions: { flexDirection: 'row', justifyContent: 'flex-end' },
     fieldGroup: { marginBottom: theme.spacing.md },
-    label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 },
+    labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+    label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+    badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+    badgeText: { fontSize: 10, fontWeight: '700' },
+    billTypeChip: { flex: 1, borderWidth: 1, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
+    billTypeChipText: { fontSize: theme.fonts.size.sm, fontWeight: '700' },
+    ocrHintText: { fontSize: theme.fonts.size.sm, fontWeight: '500', marginTop: 4, marginBottom: theme.spacing.sm },
+    sectionCard: { marginBottom: theme.spacing.md, overflow: 'hidden' },
+    sectionHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: theme.spacing.md,
+      paddingVertical: 14,
+    },
+    sectionTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 0.6 },
+    sectionBody: { paddingHorizontal: theme.spacing.md, paddingBottom: theme.spacing.md },
+    subsectionLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6, marginBottom: theme.spacing.xs },
     input: { borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, fontSize: theme.fonts.size.md },
     inputMultiline: { minHeight: 70, textAlignVertical: 'top' },
     row: { flexDirection: 'row', gap: theme.spacing.md },
     submitButton: { paddingVertical: 16, alignItems: 'center', justifyContent: 'center', marginTop: theme.spacing.md },
     submitText: { fontWeight: '800', fontSize: theme.fonts.size.md },
     reviewLink: { textAlign: 'center', fontWeight: '700', fontSize: theme.fonts.size.md },
-    companySuggestions: {
-      borderWidth: 1,
-      marginTop: 6,
-      position: 'absolute',
-      top: '100%',
-      left: 0,
-      right: 0,
-      zIndex: 20,
-    },
-    emptyCompanies: { textAlign: 'center', paddingVertical: 24, fontSize: theme.fonts.size.sm },
-    companyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 14, borderBottomWidth: StyleSheet.hairlineWidth },
-    companyName: { fontSize: theme.fonts.size.md, fontWeight: '600' },
   });
 
 export default AdminCreateGRScreen;
