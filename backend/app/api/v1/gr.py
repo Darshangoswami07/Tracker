@@ -14,7 +14,7 @@ from uuid import UUID
 from fastapi import APIRouter, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse
 
-from app.api.deps import GRAccessUser
+from app.api.deps import AdminUser, GRAccessUser
 from app.core.config import settings
 from app.core.exceptions import NotFoundError, ValidationBusinessError
 from app.core.tenancy import assert_same_company, effective_company_id
@@ -278,6 +278,25 @@ async def update_gr_status(order_id: UUID, payload: GRStatusUpdateRequest, admin
     await assert_same_company(admin, order.companyId)
     updated = await order_repo.update_status(order_id, payload.status.value, user_id=admin.id)
     return success((await _gr_out(updated)).model_dump(mode="json"), message="GR status updated.")
+
+
+@router.delete("/{order_id}")
+async def delete_gr(order_id: UUID, admin: AdminUser) -> dict:
+    """Soft-deletes a GR (sets `deletedAt`/`isActive=False` — see
+    `OrderRepository.soft_delete_order`), the same reversible pattern used
+    for companies (`CompanyRepository.soft_delete_company`). Admin-tier only
+    (`AdminUser` = ADMIN/SUPER_ADMIN): unlike the broader `GRAccessUser` used
+    by the read/update endpoints above, Dispatcher/Staff/Driver may not
+    delete GRs. Tenant-scoped via `assert_same_company`, identical to
+    `update_gr`/`update_gr_status` — a caller can never delete a GR outside
+    their own company by guessing/changing `order_id`. Never touches any
+    other GR, company, or user record."""
+    existing = await order_repo.find_by_id(str(order_id))
+    if existing is None:
+        raise NotFoundError("GR not found.")
+    await assert_same_company(admin, existing.companyId)
+    await order_repo.soft_delete_order(order_id)
+    return success(None, message="GR deleted successfully.")
 
 
 @router.post("/{order_id}/assign-driver")

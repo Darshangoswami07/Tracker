@@ -399,6 +399,18 @@ export const orderRepository = {
     return this.getById(id);
   },
 
+  /** Soft-deletes a GR: sets `isDeleted = 1`, the same flag every read query
+   * (`list`, `getById`, `getByOrderNumber`) already filters on — so the row
+   * simply stops appearing anywhere without actually being removed from the
+   * on-device database. Never touches any other row. Mirrors the backend's
+   * `DELETE /admin/orders/{id}` soft-delete for the (separate, backend-synced)
+   * web GR records — this only affects the local copy on this device. */
+  async delete(id: string): Promise<void> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    await db.runAsync('UPDATE orders SET isDeleted = 1, updatedAt = ? WHERE id = ?', [nowIso(), id]);
+  },
+
   /** Appends a status-history row whenever the status changes. */
   async updateStatus(id: string, status: string): Promise<LocalGRDetail | null> {
     await ensureDatabaseReady();

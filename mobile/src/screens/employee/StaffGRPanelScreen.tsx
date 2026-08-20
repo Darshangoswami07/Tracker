@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -10,6 +10,9 @@ import { persistSlipImage } from '../../services/slipStorage';
 import { Header } from '../../components/Header';
 import { EmptyState } from '../../components/EmptyState';
 import { StatusBadge } from '../../components/StatusBadge';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { useUserStore } from '../../store/userStore';
+import { canDeleteGR as roleCanDeleteGR } from '../../constants/roles';
 import type { AppTheme } from '../../theme/types';
 
 interface GREntry {
@@ -55,6 +58,25 @@ export const StaffGRPanelScreen = () => {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [statusPickerFor, setStatusPickerFor] = useState<GREntry | null>(null);
 
+  const role = useUserStore((state) => state.user?.role);
+  const canDeleteGR = roleCanDeleteGR(role);
+
+  // The GR whose "⋮" per-card menu (View GR / Delete GR) is open, if any.
+  const [menuTarget, setMenuTarget] = useState<GREntry | null>(null);
+  // The GR pending delete confirmation, if any.
+  const [deleteTarget, setDeleteTarget] = useState<GREntry | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  // Brief inline banner for the delete outcome — `Alert.alert` is a no-op on
+  // web (react-native-web has no native alert/toast implementation), so this
+  // mirrors the pattern already used on the GR / Shipments list screen.
+  const [actionMessage, setActionMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (!actionMessage) return;
+    const timer = setTimeout(() => setActionMessage(null), 4000);
+    return () => clearTimeout(timer);
+  }, [actionMessage]);
+
   const fetchEntries = useCallback(
     async (_isRefresh = false) => {
       try {
@@ -92,6 +114,24 @@ export const StaffGRPanelScreen = () => {
   const onRefresh = () => {
     setRefreshing(true);
     fetchEntries(true);
+  };
+
+  const confirmDeleteGR = async () => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    try {
+      await orderRepository.delete(deleteTarget.id);
+      setEntries((prev) => prev.filter((entry) => entry.id !== deleteTarget.id));
+      setActionMessage({ kind: 'success', text: `GR ${deleteTarget.orderNumber} deleted successfully.` });
+      setDeleteTarget(null);
+    } catch (error: any) {
+      console.warn('[GR Delete] Failed:', error?.message ?? error);
+      setActionMessage({ kind: 'error', text: 'Unable to delete GR. Please try again.' });
+      // Deliberately keep the GR visible and the dialog open on failure — it
+      // was not actually deleted, and the Admin can retry from here.
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const updateStatus = async (orderId: string, status: string) => {
@@ -143,6 +183,31 @@ export const StaffGRPanelScreen = () => {
       <Header title="GR Tracker" rightAction={{ icon: 'notifications-outline', onPress: goToNotifications }} />
 
       <View style={styles.toolbar}>
+        {actionMessage && (
+          <View
+            style={[
+              styles.actionBanner,
+              {
+                backgroundColor: actionMessage.kind === 'success' ? colors.successSoft : colors.errorSoft,
+                borderRadius: radii.lg,
+              },
+            ]}
+          >
+            <Ionicons
+              name={actionMessage.kind === 'success' ? 'checkmark-circle-outline' : 'alert-circle-outline'}
+              size={18}
+              color={actionMessage.kind === 'success' ? colors.success : colors.error}
+            />
+            <Text
+              style={[
+                styles.actionBannerText,
+                { color: actionMessage.kind === 'success' ? colors.success : colors.error },
+              ]}
+            >
+              {actionMessage.text}
+            </Text>
+          </View>
+        )}
         <View style={[styles.searchRow, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radii.lg }]}>
           <Ionicons name="search" size={18} color={colors.textMuted} />
           <TextInput
@@ -173,25 +238,37 @@ export const StaffGRPanelScreen = () => {
               <TouchableOpacity
                 key={entry.id}
                 style={[styles.row, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
-                onPress={() => navigate('OrderDetails', { orderId: entry.id })}
+                onPress={() => navigate('GRDetails', { orderId: entry.id })}
                 activeOpacity={0.85}
               >
                 <View style={styles.rowTop}>
                   <Text style={styles.grNo}>{entry.orderNumber}</Text>
-                  <TouchableOpacity
-                    style={styles.statusTrigger}
-                    onPress={() => setStatusPickerFor(entry)}
-                    disabled={updatingId === entry.id}
-                  >
-                    {updatingId === entry.id ? (
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                      <>
-                        <StatusBadge status={entry.status} size="sm" />
-                        <Ionicons name="chevron-down" size={12} color={colors.textMuted} />
-                      </>
+                  <View style={styles.rowTopRight}>
+                    <TouchableOpacity
+                      style={styles.statusTrigger}
+                      onPress={() => setStatusPickerFor(entry)}
+                      disabled={updatingId === entry.id}
+                    >
+                      {updatingId === entry.id ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                      ) : (
+                        <>
+                          <StatusBadge status={entry.status} size="sm" />
+                          <Ionicons name="chevron-down" size={12} color={colors.textMuted} />
+                        </>
+                      )}
+                    </TouchableOpacity>
+                    {canDeleteGR && (
+                      <TouchableOpacity
+                        onPress={() => setMenuTarget(entry)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={styles.menuButton}
+                        accessibilityLabel={`More actions for GR ${entry.orderNumber}`}
+                      >
+                        <Ionicons name="ellipsis-vertical" size={16} color={colors.textMuted} />
+                      </TouchableOpacity>
                     )}
-                  </TouchableOpacity>
+                  </View>
                 </View>
                 <Text style={styles.consignorLine}>
                   {entry.consignorName || '—'} <Text style={{ color: colors.textMuted }}>→</Text> {entry.consigneeName || '—'}
@@ -251,6 +328,52 @@ export const StaffGRPanelScreen = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Per-card "⋮" action menu (View GR / Delete GR) — only rendered for
+       * roles `canDeleteGR` allows (the "⋮" button itself is hidden for
+       * everyone else, so `menuTarget` can never be set by an unauthorized
+       * user). Uses a `Modal`, not `Alert.alert`, which is a no-op on web. */}
+      <Modal visible={!!menuTarget} transparent animationType="fade" onRequestClose={() => setMenuTarget(null)}>
+        <Pressable style={[styles.menuBackdrop, { backgroundColor: colors.overlay }]} onPress={() => setMenuTarget(null)}>
+          <View style={[styles.menuCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.lg }]}>
+            <Text style={styles.menuTitle}>GR {menuTarget?.orderNumber}</Text>
+            <TouchableOpacity
+              style={styles.menuRow}
+              onPress={() => {
+                if (menuTarget) navigate('GRDetails', { orderId: menuTarget.id });
+                setMenuTarget(null);
+              }}
+            >
+              <Ionicons name="eye-outline" size={18} color={colors.textPrimary} />
+              <Text style={[styles.menuRowText, { color: colors.textPrimary }]}>View GR</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.menuRow}
+              onPress={() => {
+                setDeleteTarget(menuTarget);
+                setMenuTarget(null);
+              }}
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.error} />
+              <Text style={[styles.menuRowText, { color: colors.error }]}>Delete GR</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <ConfirmDialog
+        visible={!!deleteTarget}
+        title={`Delete GR ${deleteTarget?.orderNumber ?? ''}?`}
+        message="Are you sure you want to delete this GR? This action cannot be undone."
+        confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+        cancelLabel="Cancel"
+        destructive
+        confirmDisabled={deleting}
+        onConfirm={confirmDeleteGR}
+        onCancel={() => {
+          if (!deleting) setDeleteTarget(null);
+        }}
+      />
     </SafeAreaView>
   );
 };
@@ -265,6 +388,8 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     scrollContent: { padding: theme.spacing.lg, paddingTop: theme.spacing.sm, gap: theme.spacing.md, paddingBottom: 60 },
     row: { padding: 16, gap: 6 },
     rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    rowTopRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    menuButton: { padding: 2 },
     grNo: { fontWeight: '800', fontSize: theme.fonts.size.md, color: theme.colors.textPrimary },
     statusTrigger: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     consignorLine: { fontSize: theme.fonts.size.sm, fontWeight: '600', color: theme.colors.textPrimary },
@@ -280,6 +405,26 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     modalTitle: { fontSize: theme.fonts.size.lg, fontWeight: '800', color: theme.colors.textPrimary },
     optionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth },
     optionName: { fontSize: theme.fonts.size.md, fontWeight: '600', color: theme.colors.textPrimary },
+    actionBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      padding: 12,
+      marginBottom: theme.spacing.sm,
+    },
+    actionBannerText: { flex: 1, fontSize: theme.fonts.size.sm, fontWeight: '600' },
+    menuBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
+    menuCard: { width: '100%', maxWidth: 320, paddingVertical: 8 },
+    menuTitle: {
+      fontSize: theme.fonts.size.xs,
+      fontWeight: '700',
+      color: theme.colors.textMuted,
+      paddingHorizontal: 16,
+      paddingTop: 10,
+      paddingBottom: 4,
+    },
+    menuRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
+    menuRowText: { fontSize: theme.fonts.size.md, fontWeight: '600' },
   });
 
 export default StaffGRPanelScreen;

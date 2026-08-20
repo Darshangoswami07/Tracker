@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/useAppTheme';
@@ -9,7 +9,10 @@ import { ShimmerCard } from '../../components/ShimmerCard';
 import { EmptyState } from '../../components/EmptyState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { FilterChips } from '../../components/FilterChips';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { useAppNav } from '../../hooks/useAppNav';
+import { useUserStore } from '../../store/userStore';
+import { canDeleteGR as roleCanDeleteGR } from '../../constants/roles';
 import type { AppTheme } from '../../theme/types';
 
 /** GR/Shipment row shape returned by `GET /admin/orders` — matches
@@ -83,6 +86,46 @@ export const AdminGRShipmentsScreen = () => {
   const [hasMore, setHasMore] = useState(true);
   const [search, setSearch] = useState('');
   const [statusTab, setStatusTab] = useState('All');
+
+  const role = useUserStore((state) => state.user?.role);
+  const canDeleteGR = roleCanDeleteGR(role);
+
+  // The GR whose "⋮" per-card menu (View GR / Delete GR) is open, if any.
+  const [menuTarget, setMenuTarget] = useState<GRListItem | null>(null);
+  // The GR pending delete confirmation, if any — set once the Admin taps
+  // "Delete GR" in the menu above, cleared on Cancel or after the request
+  // settles (success or failure).
+  const [deleteTarget, setDeleteTarget] = useState<GRListItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  // Brief inline banner for the delete outcome — mirrors `errorText` banners
+  // used elsewhere in the app rather than `Alert.alert`, which is a no-op on
+  // web (react-native-web has no native alert/toast implementation).
+  const [actionMessage, setActionMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (!actionMessage) return;
+    const timer = setTimeout(() => setActionMessage(null), 4000);
+    return () => clearTimeout(timer);
+  }, [actionMessage]);
+
+  const confirmDeleteGR = async () => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    try {
+      await orderRepository.delete(deleteTarget.id);
+      setItems((prev) => prev.filter((gr) => gr.id !== deleteTarget.id));
+      setActionMessage({ kind: 'success', text: `GR ${deleteTarget.orderNumber} deleted successfully.` });
+      setDeleteTarget(null);
+    } catch (err: any) {
+      console.warn('[GR Delete] Failed:', err?.message ?? err);
+      setActionMessage({ kind: 'error', text: 'Unable to delete GR. Please try again.' });
+      // Deliberately do NOT remove the GR from `items` or close the dialog
+      // here — the Admin should see the failure and can retry, and the list
+      // must keep showing the GR since it was not actually deleted.
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   // Guards against overlapping fetches from mount/focus/debounce. When a
   // request is already in flight, a new trigger is ignored — the in-flight
@@ -212,6 +255,32 @@ export const AdminGRShipmentsScreen = () => {
         }}
         scrollEventThrottle={200}
       >
+        {actionMessage && (
+          <View
+            style={[
+              styles.actionBanner,
+              {
+                backgroundColor: actionMessage.kind === 'success' ? colors.successSoft : colors.errorSoft,
+                borderRadius: radii.lg,
+              },
+            ]}
+          >
+            <Ionicons
+              name={actionMessage.kind === 'success' ? 'checkmark-circle-outline' : 'alert-circle-outline'}
+              size={18}
+              color={actionMessage.kind === 'success' ? colors.success : colors.error}
+            />
+            <Text
+              style={[
+                styles.actionBannerText,
+                { color: actionMessage.kind === 'success' ? colors.success : colors.error },
+              ]}
+            >
+              {actionMessage.text}
+            </Text>
+          </View>
+        )}
+
         <View style={styles.searchBar}>
           <Ionicons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
           <TextInput
@@ -264,7 +333,19 @@ export const AdminGRShipmentsScreen = () => {
               >
                 <View style={styles.cardHeader}>
                   <Text style={[styles.grNo, { color: colors.textPrimary }]}>{gr.orderNumber}</Text>
-                  <StatusBadge status={gr.status} size="sm" />
+                  <View style={styles.cardHeaderRight}>
+                    <StatusBadge status={gr.status} size="sm" />
+                    {canDeleteGR && (
+                      <TouchableOpacity
+                        onPress={() => setMenuTarget(gr)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={styles.menuButton}
+                        accessibilityLabel={`More actions for GR ${gr.orderNumber}`}
+                      >
+                        <Ionicons name="ellipsis-vertical" size={16} color={colors.textMuted} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
                 <Text style={[styles.consignorLine, { color: colors.textSecondary }]}>
                   {gr.consignorName || '—'} <Text style={{ color: colors.textMuted }}>→</Text> {gr.consigneeName || '—'}
@@ -294,6 +375,53 @@ export const AdminGRShipmentsScreen = () => {
           </View>
         )}
       </ScrollView>
+
+      {/* Per-card "⋮" action menu (View GR / Delete GR) — only rendered for
+       * roles `canDeleteGR` allows (the "⋮" button itself is hidden for
+       * everyone else, so `menuTarget` can never be set by an unauthorized
+       * user). Uses a `Modal`, not `Alert.alert`, so it actually renders on
+       * web (see `ConfirmDialog`'s own doc comment for why). */}
+      <Modal visible={!!menuTarget} transparent animationType="fade" onRequestClose={() => setMenuTarget(null)}>
+        <Pressable style={[styles.menuBackdrop, { backgroundColor: colors.overlay }]} onPress={() => setMenuTarget(null)}>
+          <View style={[styles.menuCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.lg }]}>
+            <Text style={[styles.menuTitle, { color: colors.textMuted }]}>GR {menuTarget?.orderNumber}</Text>
+            <TouchableOpacity
+              style={styles.menuRow}
+              onPress={() => {
+                if (menuTarget) navigate('GRDetails', { orderId: menuTarget.id });
+                setMenuTarget(null);
+              }}
+            >
+              <Ionicons name="eye-outline" size={18} color={colors.textPrimary} />
+              <Text style={[styles.menuRowText, { color: colors.textPrimary }]}>View GR</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.menuRow}
+              onPress={() => {
+                setDeleteTarget(menuTarget);
+                setMenuTarget(null);
+              }}
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.error} />
+              <Text style={[styles.menuRowText, { color: colors.error }]}>Delete GR</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <ConfirmDialog
+        visible={!!deleteTarget}
+        title={`Delete GR ${deleteTarget?.orderNumber ?? ''}?`}
+        message="This GR will be deleted. This action cannot be undone."
+        confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+        cancelLabel="Cancel"
+        destructive
+        confirmDisabled={deleting}
+        onConfirm={confirmDeleteGR}
+        onCancel={() => {
+          if (!deleting) setDeleteTarget(null);
+        }}
+      />
     </SafeAreaView>
   );
 };
@@ -312,6 +440,8 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     cardShimmer: { marginBottom: theme.spacing.md, borderRadius: theme.radii.lg },
     card: { padding: 16, gap: 6 },
     cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    menuButton: { padding: 2 },
     grNo: { fontSize: theme.fonts.size.md, fontWeight: '800' },
     consignorLine: { fontSize: theme.fonts.size.sm, fontWeight: '600' },
     routeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
@@ -328,6 +458,19 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     slipInfo: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     slipText: { fontSize: theme.fonts.size.xs, fontWeight: '700' },
     dateText: { fontSize: theme.fonts.size.xs, fontWeight: '600' },
+    actionBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      padding: 12,
+      marginBottom: theme.spacing.md,
+    },
+    actionBannerText: { flex: 1, fontSize: theme.fonts.size.sm, fontWeight: '600' },
+    menuBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
+    menuCard: { width: '100%', maxWidth: 320, paddingVertical: 8 },
+    menuTitle: { fontSize: theme.fonts.size.xs, fontWeight: '700', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4 },
+    menuRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
+    menuRowText: { fontSize: theme.fonts.size.md, fontWeight: '600' },
   });
 
 export default AdminGRShipmentsScreen;

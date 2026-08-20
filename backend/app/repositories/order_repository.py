@@ -402,6 +402,22 @@ class OrderRepository(BaseRepository[Order]):
             await session.refresh(order)
             return order
 
+    async def soft_delete_order(self, order_id: UUID) -> Optional[Order]:
+        """Soft-deletes a GR: sets `deletedAt` (SoftDeleteMixin) and `isActive`
+        False so it disappears from `get_all_orders`/`get_recent` (which
+        already filter on `isActive == True`), without removing the row or
+        touching any related company/user/driver/vehicle record."""
+        async with session_scope() as session:
+            order = await session.get(Order, order_id)
+            if not order:
+                return None
+            order.soft_delete()
+            order.isActive = False
+            order.updatedAt = datetime.now(timezone.utc)
+            await session.flush()
+            await session.refresh(order)
+            return order
+
     async def assign_vehicle(self, order_id: UUID, vehicle_id: UUID) -> Optional[Order]:
         async with session_scope() as session:
             order = await session.get(Order, order_id)

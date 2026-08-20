@@ -8,6 +8,11 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
+  /** Disables the Confirm button (e.g. while a delete/mutation request is in
+   * flight) so it can't be tapped again mid-request. Cancel stays enabled
+   * unless the caller also guards it. Defaults to false — every existing
+   * caller is unaffected. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -23,6 +28,7 @@ export const ConfirmDialog = ({
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   destructive = false,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) => {
@@ -72,14 +78,17 @@ export const ConfirmDialog = ({
             </Pressable>
             <Pressable
               onPress={onConfirm}
+              disabled={confirmDisabled}
               style={({ pressed }) => [
                 styles.button,
                 styles.confirmButton,
                 { backgroundColor: destructive ? colors.error : colors.primary },
-                pressed && styles.pressed,
+                confirmDisabled && styles.disabled,
+                pressed && !confirmDisabled && styles.pressed,
               ]}
               accessibilityRole="button"
               accessibilityLabel={confirmLabel}
+              accessibilityState={{ disabled: confirmDisabled }}
             >
               <Text
                 style={[
@@ -133,4 +142,5 @@ const styles = StyleSheet.create({
   confirmButton: {},
   buttonLabel: { fontWeight: '700' },
   pressed: { opacity: 0.8 },
+  disabled: { opacity: 0.6 },
 });
