@@ -69,6 +69,11 @@ const DashboardTabStack = () => (
     <DashboardStack.Screen name="Analytics" component={AdminAnalyticsScreen} />
     <DashboardStack.Screen name="AuditLogs" component={AuditLogsScreen} />
     <DashboardStack.Screen name="SystemHealth" component={SystemHealthScreen} />
+    {/* Also registered here (in addition to ShipmentsTabStack below) so the
+     * Dashboard quick action pushes Create GR onto THIS stack — normal
+     * goBack() then returns to AdminDashboard, the screen the user actually
+     * came from, instead of jumping into the Shipments tab. See useAppNav.ts. */}
+    <DashboardStack.Screen name="CreateGR" component={AdminCreateGRScreen} />
   </DashboardStack.Navigator>
 );
 

@@ -9,6 +9,7 @@ import { orderRepository, type PickerRow } from '../../database/repositories/ord
 import { extractSlipDetails, isOcrError, type SlipExtractedFields } from '../../services/slipOcr';
 import { persistSlipImage, type PersistedSlip } from '../../services/slipStorage';
 import { Header } from '../../components/Header';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { useAppNav } from '../../hooks/useAppNav';
 import type { AppTheme } from '../../theme/types';
 
@@ -449,6 +450,13 @@ export const AdminCreateGRScreen = () => {
         slipData
     );
 
+  // Whether the "Leave Create GR?" discard-confirmation dialog is showing.
+  // Uses `ConfirmDialog` (a real `Modal`), not `Alert.alert` — react-native-web's
+  // `Alert.alert` is a no-op on web (see `react-native-web/dist/exports/Alert`),
+  // so using it here silently swallowed the confirmation and made the header/
+  // hardware Back button appear to do nothing whenever the form had progress.
+  const [showLeaveDialog, setShowLeaveDialog] = useState(false);
+
   /** Single back handler for every step of Create GR (header button and
    * Android hardware back alike): actually leaves the screen via the app's
    * normal navigation (`goBack` from `useAppNav` — pops this stack entry, or
@@ -458,14 +466,7 @@ export const AdminCreateGRScreen = () => {
    * Prompts for confirmation first only when there's something to lose. */
   const handleBack = () => {
     if (hasFormProgress()) {
-      Alert.alert(
-        'Leave Create GR?',
-        'Your entered details will be discarded if you leave this screen.',
-        [
-          { text: 'Continue Editing', style: 'cancel' },
-          { text: 'Discard', style: 'destructive', onPress: goBack },
-        ]
-      );
+      setShowLeaveDialog(true);
     } else {
       goBack();
     }
@@ -483,6 +484,22 @@ export const AdminCreateGRScreen = () => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
     return () => subscription.remove();
   }, [mode, form, slipImage, slipData]);
+
+  // Rendered at the end of every mode's returned JSX below.
+  const leaveDialog = (
+    <ConfirmDialog
+      visible={showLeaveDialog}
+      title="Leave Create GR?"
+      message="Your entered details will be discarded if you leave this screen."
+      confirmLabel="Discard"
+      destructive
+      onConfirm={() => {
+        setShowLeaveDialog(false);
+        goBack();
+      }}
+      onCancel={() => setShowLeaveDialog(false)}
+    />
+  );
 
   // ---------- Mode chooser ----------
   if (mode === 'choose') {
@@ -523,6 +540,7 @@ export const AdminCreateGRScreen = () => {
             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
           </TouchableOpacity>
         </ScrollView>
+        {leaveDialog}
       </SafeAreaView>
     );
   }
@@ -600,6 +618,7 @@ export const AdminCreateGRScreen = () => {
             </View>
           )}
         </ScrollView>
+        {leaveDialog}
       </SafeAreaView>
     );
   }
@@ -773,6 +792,7 @@ export const AdminCreateGRScreen = () => {
           {submitting ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={[styles.submitText, { color: colors.onPrimary }]}>Create GR</Text>}
         </TouchableOpacity>
       </ScrollView>
+      {leaveDialog}
     </SafeAreaView>
   );
 };

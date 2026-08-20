@@ -308,10 +308,21 @@ export const orderRepository = {
     };
   },
 
-  /** Creates a GR and appends its initial pending status history row. */
+  /** Creates a GR and appends its initial pending status history row.
+   * Checks for an existing GR number first so a duplicate surfaces as a
+   * clear "already exists" error rather than the raw SQLite UNIQUE
+   * constraint failure (which expo-sqlite's web driver reports as an opaque
+   * "Error finalizing statement", with no useful text for the user). */
   async create(input: GRCreateInput): Promise<LocalGRDetail> {
     await ensureDatabaseReady();
     const db = await getDatabase();
+    const duplicate = await db.getFirstAsync<{ id: string }>(
+      'SELECT id FROM orders WHERE orderNumber = ?',
+      input.grNumber
+    );
+    if (duplicate) {
+      throw new Error(`GR number "${input.grNumber}" already exists. Please use a different GR number.`);
+    }
     const id = uuid();
     const createdAt = nowIso();
     const extendedCols = EXTENDED_FIELD_KEYS.join(', ');

@@ -21,7 +21,12 @@ export type AuthStackParamList = {
   ResetPassword: { requestId: string };
 };
 
-/** Screens reached from the Dashboard tab (overview + super-admin drill-downs). */
+/** Screens reached from the Dashboard tab (overview + super-admin drill-downs).
+ * `CreateGR` is also registered here (in addition to `ShipmentsStackParamList`)
+ * so the Dashboard's own "Create GR / Shipment" quick action pushes it onto
+ * the Dashboard tab's own stack — keeping normal `goBack()` navigation
+ * returning to the screen the user actually came from, instead of jumping
+ * tabs into Shipments' stack. */
 export type DashboardStackParamList = {
   AdminDashboard: undefined;
   PendingApprovals: undefined;
@@ -29,6 +34,7 @@ export type DashboardStackParamList = {
   Analytics: undefined;
   AuditLogs: undefined;
   SystemHealth: undefined;
+  CreateGR: undefined;
 };
 
 /** Screens reached from the Shipments tab. */

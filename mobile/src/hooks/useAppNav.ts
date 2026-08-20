@@ -15,7 +15,13 @@ export const getHomeScreenForRole = (role?: string): string => {
   }
 };
 
-/** Which bottom tab owns each screen name, so cross-tab navigation resolves correctly. */
+/** Which bottom tab owns each screen name, so cross-tab navigation resolves correctly.
+ * `CreateGR` is deliberately NOT listed here: it's registered directly in
+ * every stack that can open it (Dashboard and Shipments — see AdminTabs.tsx),
+ * so `navigate('CreateGR')` below falls through to the generic branch and
+ * pushes it onto whichever stack the caller is actually in. That keeps
+ * `goBack()` returning to the real previous screen regardless of which tab
+ * opened it, instead of always jumping to one hardcoded owning tab. */
 const SCREEN_TO_TAB: Record<string, keyof AdminTabParamList> = {
   AdminDashboard: 'Dashboard',
   PendingApprovals: 'Dashboard',
@@ -25,7 +31,6 @@ const SCREEN_TO_TAB: Record<string, keyof AdminTabParamList> = {
   SystemHealth: 'Dashboard',
 
   GRShipments: 'Shipments',
-  CreateGR: 'Shipments',
   GRDetails: 'Shipments',
   EditGR: 'Shipments',
 
