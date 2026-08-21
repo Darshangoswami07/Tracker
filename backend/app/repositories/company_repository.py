@@ -5,6 +5,7 @@ from typing import Optional, Tuple, List
 from uuid import UUID
 
 from sqlalchemy import select, func, and_, or_, desc
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.db import session_scope
 from app.models.company import Company
@@ -14,8 +15,8 @@ from app.utils.company import normalize_company_name
 
 
 class CompanyRepository(BaseRepository[Company]):
-    def __init__(self) -> None:
-        super().__init__(Company)
+    def __init__(self, session: AsyncSession | None = None) -> None:
+        super().__init__(Company, session)
 
     def _eligible_filters(self):
         """Companies that users can register against."""
@@ -47,7 +48,7 @@ class CompanyRepository(BaseRepository[Company]):
 
     async def list_active_companies(self) -> List[Company]:
         """Companies eligible for staff/driver registration, alphabetical."""
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             query = (
                 select(Company)
                 .where(*self._eligible_filters())
@@ -63,7 +64,7 @@ class CompanyRepository(BaseRepository[Company]):
         status: Optional[str] = None,
         search: Optional[str] = None,
     ) -> Tuple[List[Company], int]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             query = select(Company).where(Company.deletedAt.is_(None))
 
             if status:
@@ -92,7 +93,7 @@ class CompanyRepository(BaseRepository[Company]):
             return list(companies), total
 
     async def create_company(self, **fields) -> Company:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             if "name" in fields:
                 fields["name"] = normalize_company_name(fields["name"])
             company = Company(**fields)
@@ -102,7 +103,7 @@ class CompanyRepository(BaseRepository[Company]):
             return company
 
     async def update_company(self, company_id: UUID, **fields) -> Optional[Company]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             company = await session.get(Company, company_id)
             if company is None:
                 return None
@@ -113,7 +114,7 @@ class CompanyRepository(BaseRepository[Company]):
             return company
 
     async def soft_delete_company(self, company_id: UUID) -> Optional[Company]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             company = await session.get(Company, company_id)
             if company is None:
                 return None

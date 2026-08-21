@@ -6,6 +6,7 @@ from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.db import session_scope
 from app.models.approval_log import ApprovalLog
@@ -13,14 +14,14 @@ from app.repositories.base import BaseRepository
 
 
 class ApprovalLogRepository(BaseRepository[ApprovalLog]):
-    def __init__(self) -> None:
-        super().__init__(ApprovalLog)
+    def __init__(self, session: AsyncSession | None = None) -> None:
+        super().__init__(ApprovalLog, session)
 
     async def find_by_registration_request(
         self,
         request_id: str,
     ) -> list[ApprovalLog]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = (
                 select(ApprovalLog)
                 .where(ApprovalLog.registrationRequestId == UUID(request_id))
@@ -35,7 +36,7 @@ class ApprovalLogRepository(BaseRepository[ApprovalLog]):
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[ApprovalLog], int]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = select(ApprovalLog).where(ApprovalLog.adminId == UUID(admin_id))
             total_stmt = select(func.count()).select_from(stmt.subquery())
             total = await session.scalar(total_stmt) or 0
@@ -53,7 +54,7 @@ class ApprovalLogRepository(BaseRepository[ApprovalLog]):
         action: str,
         reason: str | None = None,
     ) -> ApprovalLog:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             log = ApprovalLog(
                 registrationRequestId=UUID(registration_request_id),
                 adminId=UUID(admin_id),

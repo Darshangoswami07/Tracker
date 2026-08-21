@@ -1,12 +1,20 @@
-"""Dashboard endpoints."""
+"""Dashboard endpoints.
+
+Optimised for Phase 5: reduced from 14 queries to 7 by combining
+independent aggregations using PostgreSQL FILTER (WHERE …) and
+removing the redundant count_pending call (find_pending_requests
+already returns the total).
+"""
 from __future__ import annotations
 
 import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, require_roles
+from app.database.db import get_db_session
 from app.models.enums import UserRole
 from app.repositories.order_repository import OrderRepository
 from app.repositories.user_repository import UserRepository
@@ -24,70 +32,66 @@ AdminRequired = Depends(require_roles(UserRole.ADMIN, UserRole.DISPATCHER))
 @router.get("/stats")
 async def get_dashboard_stats(
     admin: Annotated[AdminUser, AdminRequired],
+    db: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    """Get dashboard statistics."""
-    order_repo = OrderRepository()
-    user_repo = UserRepository()
-    driver_repo = DriverRepository()
-    vehicle_repo = VehicleRepository()
-    company_repo = CompanyRepository()
-    reg_request_repo = RegistrationRequestRepository()
+    """Get dashboard statistics.
 
-    # All of these are independent queries against separate connections -
-    # run them concurrently instead of awaiting one-by-one, which was the
-    # cause of the endpoint blowing past Render's request timeout.
+    Phase 5 optimisation: 7 queries instead of 14.
+    All queries share the request-scoped AsyncSession (no new connections).
+    """
+    order_repo = OrderRepository(session=db)
+    user_repo = UserRepository(session=db)
+    driver_repo = DriverRepository(session=db)
+    vehicle_repo = VehicleRepository(session=db)
+    company_repo = CompanyRepository(session=db)
+    reg_request_repo = RegistrationRequestRepository(session=db)
+
+    # 7 concurrent queries (was 14 before Phase 5):
+    #   1) orders: total + delivered + pending + cancelled + revenue  (was 5 separate queries)
+    #   2) orders: today's deliveries                                 (unchanged)
+    #   3) drivers: active + online                                   (was 2 queries)
+    #   4) vehicles: total count                                      (unchanged)
+    #   5) companies: total count                                     (unchanged)
+    #   6) users: total + employees                                   (was 2 queries)
+    #   7) registration requests: count + pending list                (was 2 queries, count redundant)
     (
-        total_orders,
-        completed_orders,
-        pending_orders,
-        cancelled_orders,
+        order_stats,
         todays_deliveries,
-        active_drivers,
-        online_drivers,
+        driver_stats,
         vehicles,
         companies,
-        employees,
-        total_users,
-        pending_approvals,
-        (latest_pending, _),
-        revenue,
+        user_stats,
+        (latest_pending, pending_approvals),
     ) = await asyncio.gather(
-        order_repo.count(),
-        order_repo.count_by_status("delivered"),
-        order_repo.count_by_status("pending"),
-        order_repo.count_by_status("cancelled"),
+        order_repo.count_for_dashboard(),
         order_repo.count_todays_deliveries(),
-        driver_repo.count_active(),
-        driver_repo.count_online(),
+        driver_repo.count_for_dashboard(),
         vehicle_repo.count(),
         company_repo.count(),
-        user_repo.count_by_role("employee"),
-        user_repo.count(),
-        reg_request_repo.count_pending(),
+        user_repo.count_for_dashboard(),
         reg_request_repo.find_pending_requests(page=1, page_size=5),
-        order_repo.get_total_revenue(),
     )
     growth = 12.5
 
     return success({
-        "totalOrders": total_orders,
+        "totalOrders": order_stats["total"],
         "todaysDeliveries": todays_deliveries,
-        "pendingOrders": pending_orders,
-        "completedOrders": completed_orders,
-        "cancelledOrders": cancelled_orders,
-        "activeDrivers": active_drivers,
-        "onlineDrivers": online_drivers,
+        "pendingOrders": order_stats["pending"],
+        "completedOrders": order_stats["delivered"],
+        "cancelledOrders": order_stats["cancelled"],
+        "activeDrivers": driver_stats["active"],
+        "onlineDrivers": driver_stats["online"],
         "vehicles": vehicles,
         "companies": companies,
-        "employees": employees,
-        "revenue": revenue,
+        "employees": user_stats["employees"],
+        "revenue": order_stats["revenue"],
         "growth": growth,
         "pendingApprovals": pending_approvals,
-        "totalUsers": total_users,
+        "totalUsers": user_stats["total"],
         "totalCompanies": companies,
-        "totalDrivers": active_drivers,
+        "totalDrivers": driver_stats["active"],
         "totalVehicles": vehicles,
-        "onlineUsers": online_drivers,
+        "onlineUsers": driver_stats["online"],
         "systemHealth": "healthy",
         "latestPendingApprovals": [
             {
@@ -109,11 +113,12 @@ async def get_dashboard_stats(
 @router.get("/activity")
 async def get_recent_activity(
     admin: Annotated[AdminUser, AdminRequired],
+    db: AsyncSession = Depends(get_db_session),
     limit: Annotated[int, Query(le=50)] = 10,
 ) -> dict:
     """Get recent activity."""
     from app.repositories.audit_log_repository import AuditLogRepository
-    audit_repo = AuditLogRepository()
+    audit_repo = AuditLogRepository(session=db)
     logs, _ = await audit_repo.find_all(page=1, page_size=limit)
 
     activities = []
@@ -142,10 +147,11 @@ async def get_recent_activity(
 @router.get("/charts/orders")
 async def get_order_chart_data(
     admin: Annotated[AdminUser, AdminRequired],
+    db: AsyncSession = Depends(get_db_session),
     days: Annotated[int, Query(le=90)] = 30,
 ) -> dict:
     """Get order chart data."""
-    order_repo = OrderRepository()
+    order_repo = OrderRepository(session=db)
     data = await order_repo.get_order_chart_data(days)
 
     return success(data)

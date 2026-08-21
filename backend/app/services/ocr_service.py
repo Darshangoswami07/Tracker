@@ -15,8 +15,10 @@ built for this one request.
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
+from typing import Optional
 
 import httpx
 from PIL import Image, ImageOps
@@ -36,12 +38,61 @@ OCR_SPACE_UPLOAD_LIMIT_BYTES = 1024 * 1024
 _MIN_JPEG_QUALITY = 35
 _MIN_MAX_DIMENSION = 800
 
+# ---------------------------------------------------------------------------
+# Shared async HTTP client — one connection pool for the lifetime of the app.
+# ---------------------------------------------------------------------------
 
-def _optimize_image_for_ocr(image_bytes: bytes) -> bytes:
-    """Returns a JPEG copy of `image_bytes`, downscaled/recompressed until it
-    fits under `OCR_SPACE_UPLOAD_LIMIT_BYTES`, while keeping text legible.
-    Orientation (EXIF) is preserved. Raises `OCRServiceError` if the image
-    can't be decoded."""
+_client: Optional[httpx.AsyncClient] = None
+
+
+async def init_ocr_client() -> None:
+    """Create the shared AsyncClient. Call once at startup."""
+    global _client
+    if _client is not None:
+        return
+    _client = httpx.AsyncClient(
+        timeout=httpx.Timeout(
+            connect=10,
+            read=settings.OCR_TIMEOUT_SECONDS,
+            write=10,
+            pool=10,
+        ),
+        limits=httpx.Limits(
+            max_connections=settings.OCR_MAX_CONNECTIONS,
+            max_keepalive_connections=settings.OCR_MAX_KEEPALIVE_CONNECTIONS,
+            keepalive_expiry=30,
+        ),
+    )
+    logger.info(
+        "[OCR] AsyncClient initialised (pool=%d, keepalive=%d, timeout=%ds)",
+        settings.OCR_MAX_CONNECTIONS,
+        settings.OCR_MAX_KEEPALIVE_CONNECTIONS,
+        settings.OCR_TIMEOUT_SECONDS,
+    )
+
+
+async def close_ocr_client() -> None:
+    """Shut down the shared AsyncClient. Call once at shutdown."""
+    global _client
+    if _client is not None:
+        await _client.aclose()
+        _client = None
+        logger.info("[OCR] AsyncClient closed")
+
+
+def _get_client() -> httpx.AsyncClient:
+    if _client is None:
+        raise OCRServiceError("OCR client is not initialised.")
+    return _client
+
+
+# ---------------------------------------------------------------------------
+# Image preprocessing — CPU-bound Pillow work run in a thread executor.
+# ---------------------------------------------------------------------------
+
+
+def _optimize_image_for_ocr_sync(image_bytes: bytes) -> bytes:
+    """Synchronous Pillow preprocessing — must NOT run on the event loop."""
     try:
         image = Image.open(io.BytesIO(image_bytes))
         image = ImageOps.exif_transpose(image)
@@ -74,11 +125,23 @@ def _optimize_image_for_ocr(image_bytes: bytes) -> bytes:
             return data
 
 
+async def _optimize_image_for_ocr(image_bytes: bytes) -> bytes:
+    """Runs the synchronous Pillow work on the default thread executor so
+    the event loop stays responsive to other requests."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _optimize_image_for_ocr_sync, image_bytes)
+
+
+# ---------------------------------------------------------------------------
+# Upload preparation (thin async wrapper over sync helpers).
+# ---------------------------------------------------------------------------
+
+
 def _is_pdf(mime_type: str, filename: str) -> bool:
     return mime_type == "application/pdf" or filename.lower().endswith(".pdf")
 
 
-def _prepare_upload(file_bytes: bytes, mime_type: str, filename: str) -> tuple[bytes, str, str]:
+async def _prepare_upload(file_bytes: bytes, mime_type: str, filename: str) -> tuple[bytes, str, str]:
     """Builds the (bytes, upload_filename, upload_mime_type) triple actually
     sent to OCR.Space, optimizing images that exceed the provider's free-tier
     limit. PDFs are forwarded as-is (no page-stripping library is wired up),
@@ -90,8 +153,16 @@ def _prepare_upload(file_bytes: bytes, mime_type: str, filename: str) -> tuple[b
             )
         return file_bytes, filename or "slip.pdf", "application/pdf"
 
-    upload_bytes = file_bytes if len(file_bytes) <= OCR_SPACE_UPLOAD_LIMIT_BYTES else _optimize_image_for_ocr(file_bytes)
+    if len(file_bytes) <= OCR_SPACE_UPLOAD_LIMIT_BYTES:
+        upload_bytes = file_bytes
+    else:
+        upload_bytes = await _optimize_image_for_ocr(file_bytes)
     return upload_bytes, "slip.jpg", "image/jpeg"
+
+
+# ---------------------------------------------------------------------------
+# OCR.Space HTTP call via the shared client.
+# ---------------------------------------------------------------------------
 
 
 async def _call_ocr_space(upload_bytes: bytes, upload_filename: str, upload_mime_type: str) -> tuple[str, list[dict]]:
@@ -116,10 +187,10 @@ async def _call_ocr_space(upload_bytes: bytes, upload_filename: str, upload_mime
     }
     files = {"file": (upload_filename, upload_bytes, upload_mime_type)}
 
+    client = _get_client()
     logger.info("[OCR] OCR.Space request started")
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(url, data=data, files=files)
+        response = await client.post(url, data=data, files=files)
     except httpx.TimeoutException as exc:
         logger.warning("[OCR] OCR.Space request timed out")
         raise OCRServiceError("The OCR service took too long to respond. Please try again.") from exc
@@ -169,6 +240,11 @@ async def _call_ocr_space(upload_bytes: bytes, upload_filename: str, upload_mime
     return text, overlay_lines
 
 
+# ---------------------------------------------------------------------------
+# Public entry point.
+# ---------------------------------------------------------------------------
+
+
 async def extract_slip_fields(file_bytes: bytes, mime_type: str, filename: str = "slip") -> dict:
     """Sends the slip (image or PDF) to OCR.Space and returns the extracted
     GR field dictionary. Fields are parsed primarily from the raw OCR text
@@ -182,7 +258,7 @@ async def extract_slip_fields(file_bytes: bytes, mime_type: str, filename: str =
     if not settings.OCR_SPACE_API_KEY.strip():
         raise OCRServiceUnavailableError()
 
-    upload_bytes, upload_filename, upload_mime_type = _prepare_upload(file_bytes, mime_type, filename)
+    upload_bytes, upload_filename, upload_mime_type = await _prepare_upload(file_bytes, mime_type, filename)
     text, overlay_lines = await _call_ocr_space(upload_bytes, upload_filename, upload_mime_type)
     result = parse_slip_text(text)
 

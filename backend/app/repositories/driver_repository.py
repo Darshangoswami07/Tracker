@@ -14,11 +14,11 @@ from app.repositories.base import BaseRepository
 
 
 class DriverRepository(BaseRepository[Driver]):
-    def __init__(self) -> None:
-        super().__init__(Driver)
+    def __init__(self, session: AsyncSession | None = None) -> None:
+        super().__init__(Driver, session)
 
     async def find_by_user_id(self, user_id: str | UUID) -> Optional[Driver]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             result = await session.execute(
                 select(Driver).where(Driver.userId == str(user_id))
             )
@@ -31,7 +31,7 @@ class DriverRepository(BaseRepository[Driver]):
         return await self._count()
 
     async def count_active(self) -> int:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             result = await session.execute(
                 select(func.count(Driver.id)).where(
                     and_(Driver.isActive == True, Driver.status != DriverStatus.OFFLINE)
@@ -40,13 +40,28 @@ class DriverRepository(BaseRepository[Driver]):
             return result.scalar() or 0
 
     async def count_online(self) -> int:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             result = await session.execute(
                 select(func.count(Driver.id)).where(
                     and_(Driver.isActive == True, Driver.status == DriverStatus.ONLINE)
                 )
             )
             return result.scalar() or 0
+
+    async def count_for_dashboard(self) -> dict:
+        """Single-query replacement for count_active() + count_online()."""
+        async with session_scope(self._session) as session:
+            row = (await session.execute(
+                select(
+                    func.count(Driver.id).filter(
+                        and_(Driver.isActive == True, Driver.status != DriverStatus.OFFLINE)
+                    ).label("active"),
+                    func.count(Driver.id).filter(
+                        and_(Driver.isActive == True, Driver.status == DriverStatus.ONLINE)
+                    ).label("online"),
+                )
+            )).one()
+            return {"active": row.active, "online": row.online}
 
     async def get_all_drivers(
         self,
@@ -56,7 +71,7 @@ class DriverRepository(BaseRepository[Driver]):
         search: Optional[str] = None,
         company_id: Optional[UUID] = None,
     ) -> Tuple[List[Driver], int]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             query = select(Driver).where(Driver.isActive == True)
 
             if status:

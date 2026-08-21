@@ -5,6 +5,7 @@ from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import select, desc
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.db import session_scope
 from app.models.order_attachment import OrderAttachment
@@ -12,8 +13,8 @@ from app.repositories.base import BaseRepository
 
 
 class OrderAttachmentRepository(BaseRepository[OrderAttachment]):
-    def __init__(self) -> None:
-        super().__init__(OrderAttachment)
+    def __init__(self, session: AsyncSession | None = None) -> None:
+        super().__init__(OrderAttachment, session)
 
     async def create(
         self,
@@ -37,7 +38,7 @@ class OrderAttachmentRepository(BaseRepository[OrderAttachment]):
         return await self.save(attachment)
 
     async def find_by_order(self, order_id: UUID) -> list[OrderAttachment]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = (
                 select(OrderAttachment)
                 .where(OrderAttachment.orderId == order_id)
@@ -47,7 +48,7 @@ class OrderAttachmentRepository(BaseRepository[OrderAttachment]):
             return list(result.scalars().all())
 
     async def find_latest_by_kind(self, order_id: UUID, file_kind: str) -> Optional[OrderAttachment]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = (
                 select(OrderAttachment)
                 .where(OrderAttachment.orderId == order_id, OrderAttachment.fileKind == file_kind)

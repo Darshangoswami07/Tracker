@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.db import session_scope
 from app.models.enums import RefreshTokenStatus
@@ -18,11 +19,11 @@ def _utcnow() -> datetime:
 
 
 class TokenRepository(BaseRepository[RefreshToken]):
-    def __init__(self) -> None:
-        super().__init__(RefreshToken)
+    def __init__(self, session: AsyncSession | None = None) -> None:
+        super().__init__(RefreshToken, session)
 
     async def find_by_jti(self, jti: str) -> RefreshToken | None:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = select(RefreshToken).where(RefreshToken.jti == jti).limit(1)
             return await session.scalar(stmt)
 
@@ -33,7 +34,7 @@ class TokenRepository(BaseRepository[RefreshToken]):
         expires_at: datetime,
         user_agent: str | None = None,
     ) -> RefreshToken:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             token = RefreshToken(
                 jti=jti,
                 userId=to_uuid(user_id),
@@ -46,7 +47,7 @@ class TokenRepository(BaseRepository[RefreshToken]):
             return token
 
     async def revoke(self, token: RefreshToken) -> None:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             record = await session.get(RefreshToken, token.id)
             if record is not None:
                 record.status = RefreshTokenStatus.REVOKED
@@ -56,7 +57,7 @@ class TokenRepository(BaseRepository[RefreshToken]):
         user_key = to_uuid(user_id)
         if user_key is None:
             return 0
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             result = await session.execute(
                 update(RefreshToken)
                 .where(
@@ -69,16 +70,16 @@ class TokenRepository(BaseRepository[RefreshToken]):
 
 
 class PasswordResetRepository(BaseRepository[PasswordReset]):
-    def __init__(self) -> None:
-        super().__init__(PasswordReset)
+    def __init__(self, session: AsyncSession | None = None) -> None:
+        super().__init__(PasswordReset, session)
 
     async def find_by_hash(self, token_hash: str) -> PasswordReset | None:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = select(PasswordReset).where(PasswordReset.tokenHash == token_hash).limit(1)
             return await session.scalar(stmt)
 
     async def create(self, token_hash: str, user_id: str, expires_at: datetime) -> PasswordReset:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             record = PasswordReset(
                 tokenHash=token_hash,
                 userId=to_uuid(user_id),
@@ -90,7 +91,7 @@ class PasswordResetRepository(BaseRepository[PasswordReset]):
             return record
 
     async def mark_used(self, record: PasswordReset) -> None:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             row = await session.get(PasswordReset, record.id)
             if row is not None:
                 row.used = True
@@ -100,7 +101,7 @@ class PasswordResetRepository(BaseRepository[PasswordReset]):
         user_key = to_uuid(user_id)
         if user_key is None:
             return 0
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             result = await session.execute(
                 update(PasswordReset)
                 .where(PasswordReset.userId == user_key, PasswordReset.used.is_(False))

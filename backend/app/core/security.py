@@ -1,6 +1,7 @@
 """Password hashing and JWT helpers."""
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
@@ -41,6 +42,22 @@ def verify_password(plain_password: str, password_hash: str) -> bool:
         return bcrypt.checkpw(
             plain_password.encode("utf-8"),
             password_hash.encode("utf-8"),
+        )
+    except ValueError:
+        return False
+
+
+async def verify_password_async(plain_password: str, password_hash: str) -> bool:
+    """Async wrapper that offloads CPU-bound bcrypt to a thread pool.
+
+    This prevents bcrypt.checkpw (188ms at cost=12) from blocking the
+    asyncio event loop during login, keeping /health and other endpoints
+    responsive under authentication load.
+    """
+    loop = asyncio.get_running_loop()
+    try:
+        return await loop.run_in_executor(
+            None, verify_password, plain_password, password_hash
         )
     except ValueError:
         return False

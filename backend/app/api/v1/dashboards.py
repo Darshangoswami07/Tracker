@@ -20,10 +20,11 @@ import uuid as uuidlib
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, Path, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, require_roles
+from app.core.config import settings
 from app.core.exceptions import ForbiddenError, NotFoundError, ValidationBusinessError
 from app.core.rbac import is_admin
 from app.database.db import session_scope
@@ -33,7 +34,12 @@ from app.models.enums import FileKind, UserRole
 from app.repositories.driver_repository import DriverRepository
 from app.repositories.order_attachment_repository import OrderAttachmentRepository
 from app.repositories.order_repository import OrderRepository
-from app.services.storage_service import resolve_absolute_path, save_upload
+from app.services.storage_service import (
+    file_exists,
+    generate_download_url,
+    resolve_absolute_path,
+    save_upload,
+)
 from app.services.user_service import user_service
 from app.utils.pagination import clamp_page, pages_count
 from app.utils.responses import success
@@ -339,9 +345,14 @@ async def download_order_attachment(
     if attachment is None or attachment.orderId != parsed_order:
         raise NotFoundError("Attachment not found.")
 
-    absolute_path = resolve_absolute_path(attachment.storagePath)
-    if not absolute_path.exists():
+    if not file_exists(attachment.storagePath):
         raise NotFoundError("Stored file is missing.")
+
+    if settings.STORAGE_BACKEND == "s3":
+        presigned_url = generate_download_url(attachment.storagePath)
+        return RedirectResponse(url=presigned_url, status_code=302)
+
+    absolute_path = resolve_absolute_path(attachment.storagePath)
     return FileResponse(path=absolute_path, media_type=attachment.mimeType, filename=attachment.originalFilename)
 
 

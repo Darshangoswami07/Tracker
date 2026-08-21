@@ -154,7 +154,7 @@ export const StaffGRPanelScreen = () => {
       Alert.alert('Permission Required', 'Gallery permission is required to select a photo.');
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
     if (result.canceled) return;
 
     setUploadingId(entry.id);

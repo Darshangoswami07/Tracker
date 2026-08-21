@@ -12,7 +12,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, File, Form, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from app.api.deps import AdminUser, GRAccessUser
 from app.core.config import settings
@@ -32,7 +32,12 @@ from app.schemas.order import (
     OrderAttachmentOut,
 )
 from app.services.ocr_service import extract_slip_fields
-from app.services.storage_service import resolve_absolute_path, save_upload
+from app.services.storage_service import (
+    file_exists,
+    generate_download_url,
+    resolve_absolute_path,
+    save_upload,
+)
 from app.utils.responses import success
 
 router = APIRouter(prefix="/admin/orders", tags=["gr"])
@@ -403,9 +408,13 @@ async def list_attachments(order_id: UUID, admin: GRAccessUser) -> dict:
 
 
 @router.get("/{order_id}/attachments/{attachment_id}/file")
-async def download_attachment(order_id: UUID, attachment_id: UUID, admin: GRAccessUser) -> FileResponse:
+async def download_attachment(order_id: UUID, attachment_id: UUID, admin: GRAccessUser):
     """Streams a slip/photo file. Requires a valid bearer token (GRAccessUser) —
-    files are never served from an unauthenticated static directory."""
+    files are never served from an unauthenticated static directory.
+
+    For S3 storage: returns a short-lived presigned URL (301 redirect).
+    For local storage: streams the file directly via FileResponse.
+    """
     attachment = await attachment_repo.find_by_id(str(attachment_id))
     if attachment is None or attachment.orderId != order_id:
         raise NotFoundError("Attachment not found.")
@@ -413,9 +422,15 @@ async def download_attachment(order_id: UUID, attachment_id: UUID, admin: GRAcce
     if order is None:
         raise NotFoundError("GR not found.")
     await assert_same_company(admin, order.companyId)
-    absolute_path = resolve_absolute_path(attachment.storagePath)
-    if not absolute_path.exists():
+
+    if not file_exists(attachment.storagePath):
         raise NotFoundError("Stored file is missing.")
+
+    if settings.STORAGE_BACKEND == "s3":
+        presigned_url = generate_download_url(attachment.storagePath)
+        return RedirectResponse(url=presigned_url, status_code=302)
+
+    absolute_path = resolve_absolute_path(attachment.storagePath)
     return FileResponse(
         path=absolute_path,
         media_type=attachment.mimeType,

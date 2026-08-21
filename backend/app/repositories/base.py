@@ -5,6 +5,7 @@ import uuid
 from typing import Generic, TypeVar
 
 from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.base import Base
 from app.database.db import session_scope
@@ -23,35 +24,42 @@ def to_uuid(value: str | uuid.UUID) -> uuid.UUID | None:
 
 
 class BaseRepository(Generic[TModel]):
-    """Thin base class over SQLAlchemy models to keep data access centralised."""
+    """Thin base class over SQLAlchemy models to keep data access centralised.
 
-    def __init__(self, model: type[TModel]) -> None:
+    Accepts an optional ``session`` parameter. When provided, all queries
+    reuse that session (the caller owns commit/rollback). When omitted,
+    each method opens its own session via ``session_scope()`` — the legacy
+    behaviour that keeps Celery tasks and other non-request callers working.
+    """
+
+    def __init__(self, model: type[TModel], session: AsyncSession | None = None) -> None:
         self.model = model
+        self._session = session
 
     async def find_by_id(self, document_id: str | uuid.UUID) -> TModel | None:
         key = to_uuid(document_id)
         if key is None:
             return None
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             return await session.get(self.model, key)
 
     async def save(self, instance: TModel) -> TModel:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             session.add(instance)
             await session.flush()
             return instance
 
     async def delete(self, instance: TModel) -> None:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             await session.delete(instance)
 
     async def _scalar_first(self, *criteria) -> TModel | None:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = select(self.model).where(*criteria).limit(1)
             return await session.scalar(stmt)
 
     async def _count(self, *criteria) -> int:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = select(func.count(self.model.id))
             if criteria:
                 stmt = stmt.where(*criteria)

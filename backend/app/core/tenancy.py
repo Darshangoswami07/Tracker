@@ -15,8 +15,10 @@ company that way.
 from __future__ import annotations
 
 import uuid
+from typing import Optional
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ForbiddenError
 from app.core.rbac import is_admin
@@ -24,19 +26,19 @@ from app.database.db import session_scope
 from app.models.user import User
 
 
-async def _resolve_company_id(user: User) -> uuid.UUID | None:
+async def _resolve_company_id(user: User, session: Optional[AsyncSession] = None) -> uuid.UUID | None:
     if user.companyId is not None:
         return user.companyId
     from app.models.employee import Employee
 
-    async with session_scope() as session:
-        result = await session.execute(
+    async with session_scope(session) as sess:
+        result = await sess.execute(
             select(Employee.companyId).where(Employee.userId == str(user.id))
         )
         return result.scalar_one_or_none()
 
 
-async def effective_company_id(user: User) -> uuid.UUID | None:
+async def effective_company_id(user: User, session: Optional[AsyncSession] = None) -> uuid.UUID | None:
     """Returns the company id a request should be scoped to for ``user``.
 
     ``None`` means unscoped (platform-level access) — only true for
@@ -48,13 +50,13 @@ async def effective_company_id(user: User) -> uuid.UUID | None:
     """
     if is_admin(user.role):
         return None
-    company_id = await _resolve_company_id(user)
+    company_id = await _resolve_company_id(user, session)
     if company_id is None:
         raise ForbiddenError()
     return company_id
 
 
-async def assert_same_company(user: User, record_company_id: uuid.UUID | None) -> None:
+async def assert_same_company(user: User, record_company_id: uuid.UUID | None, session: Optional[AsyncSession] = None) -> None:
     """Raises ForbiddenError unless ``user`` may access a record belonging to
     ``record_company_id``.
 
@@ -64,7 +66,7 @@ async def assert_same_company(user: User, record_company_id: uuid.UUID | None) -
     """
     if is_admin(user.role):
         return
-    company_id = await _resolve_company_id(user)
+    company_id = await _resolve_company_id(user, session)
     if company_id is None or record_company_id is None:
         raise ForbiddenError()
     if company_id != record_company_id:

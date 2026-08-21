@@ -28,6 +28,8 @@ from app.repositories.registration_request_repository import RegistrationRequest
 from app.repositories.user_repository import UserRepository
 from app.services.email_service import email_service
 from app.utils.dates import utcnow
+from app.workers.dispatch import enqueue_email
+from app.workers.tasks import send_welcome_email
 
 logger = logging.getLogger(__name__)
 
@@ -294,8 +296,21 @@ class OTPService:
         # Mark the request completed
         await self.request_repo.activate_user(request_id)
 
-        # Send welcome email
-        await email_service.send_welcome_email(user.email, user.firstName, user.role.value)
+        # Send welcome email — enqueue on Celery when a broker is available.
+        # When the broker is unreachable: development/test fall back to an
+        # awaited inline send (previous behavior, keeps local flows working);
+        # production fails closed and drops the email with a logged error so a
+        # Redis outage never runs async work inside the API process.
+        if not enqueue_email(send_welcome_email, user.email, user.firstName, user.role.value):
+            if settings.celery_fallback_in_process:
+                await email_service.send_welcome_email(user.email, user.firstName, user.role.value)
+            else:
+                logger.error(
+                    "[OTP] Welcome email for %s dropped: broker unreachable and "
+                    "in-process fallback disabled (env=%s)",
+                    user.email,
+                    settings.ENV,
+                )
 
         # Surface in-app notifications for the newly activated account
         await self._notify_account_activated(user)

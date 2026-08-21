@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_user_agent
+from app.database.db import get_db_session
 from app.schemas.approval import (
     ForgotPasswordOTPRequest,
     OTPVerifyRequest,
@@ -81,6 +83,7 @@ async def request_password_reset_otp(
 @router.post("/resend-approval/{request_id}")
 async def resend_approval_otp(
     request_id: str,
+    db: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Resend approval OTP to the applicant's registered email.
 
@@ -93,7 +96,7 @@ async def resend_approval_otp(
     """
     from app.repositories.registration_request_repository import RegistrationRequestRepository
 
-    request_repo = RegistrationRequestRepository()
+    request_repo = RegistrationRequestRepository(session=db)
     request = await request_repo.find_by_id(request_id)
     if not request:
         from app.core.exceptions import NotFoundError

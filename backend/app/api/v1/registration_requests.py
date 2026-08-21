@@ -4,8 +4,10 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, get_user_agent, require_exact_roles
+from app.database.db import get_db_session
 from app.models.enums import UserRole
 from app.schemas.approval import (
     ApproveRequest,
@@ -18,6 +20,8 @@ from app.services.approval_service import approval_service
 from app.services.otp_service import otp_service
 from app.services.registration_service import registration_service
 from app.utils.responses import success
+from app.workers import tasks as email_tasks
+from app.workers.dispatch import dispatch_email
 
 router = APIRouter(prefix="/registration-requests", tags=["registration-requests"])
 
@@ -53,12 +57,12 @@ async def create_registration_request(
 
     # Email is a notification side effect: run it after the response is sent.
     if result.request is not None:
-        background_tasks.add_task(
-            registration_service.notify_admin_of_registration, result.request
+        dispatch_email(
+            background_tasks, email_tasks.notify_admin_of_registration, str(result.request.id)
         )
-    if result.otp:
-        background_tasks.add_task(
-            registration_service.send_user_otp_email, result.request, result.otp
+    if result.otp and result.request is not None:
+        dispatch_email(
+            background_tasks, email_tasks.send_user_otp_email, str(result.request.id), result.otp
         )
 
     # Return the registration request (PENDING / APPROVED_PENDING_OTP resume).
@@ -121,7 +125,10 @@ async def list_pending_requests(
 
 
 @router.get("/{request_id}")
-async def get_registration_request(request_id: str) -> dict:
+async def get_registration_request(
+    request_id: str,
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
     """Get a registration request by ID.
 
     Intentionally unauthenticated: the applicant polls their own submission's
@@ -132,7 +139,7 @@ async def get_registration_request(request_id: str) -> dict:
     already-known id, and have no legitimate unauthenticated caller).
     """
     from app.repositories.registration_request_repository import RegistrationRequestRepository
-    repo = RegistrationRequestRepository()
+    repo = RegistrationRequestRepository(session=db)
     request = await repo.find_by_id(request_id)
     if not request:
         from app.core.exceptions import NotFoundError
@@ -149,6 +156,7 @@ async def approve_registration_request(
     payload: ApproveRequest,
     admin: Annotated[AdminUser, AdminRequired],
     background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Approve a registration request and create an approval OTP for the user.
 
@@ -166,11 +174,11 @@ async def approve_registration_request(
         raise ValidationBusinessError(message)
 
     if otp:
-        background_tasks.add_task(approval_service.send_approval_otp_email, request_id, otp)
+        dispatch_email(background_tasks, email_tasks.send_approval_otp_email, request_id, otp)
 
     # Return the updated request
     from app.repositories.registration_request_repository import RegistrationRequestRepository
-    repo = RegistrationRequestRepository()
+    repo = RegistrationRequestRepository(session=db)
     request = await repo.find_by_id(request_id)
     return success(
         RegistrationRequestOut.model_validate(request).model_dump(mode="json"),
@@ -184,6 +192,7 @@ async def reject_registration_request(
     payload: RejectRequest,
     admin: Annotated[AdminUser, AdminRequired],
     background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Reject a registration request.
 
@@ -200,11 +209,11 @@ async def reject_registration_request(
         from app.core.exceptions import ValidationBusinessError
         raise ValidationBusinessError(message)
 
-    background_tasks.add_task(approval_service.send_rejection_email, request_id, payload.reason)
+    dispatch_email(background_tasks, email_tasks.send_rejection_email, request_id, payload.reason)
 
     # Return the updated request
     from app.repositories.registration_request_repository import RegistrationRequestRepository
-    repo = RegistrationRequestRepository()
+    repo = RegistrationRequestRepository(session=db)
     request = await repo.find_by_id(request_id)
     return success(
         RegistrationRequestOut.model_validate(request).model_dump(mode="json"),
@@ -216,6 +225,7 @@ async def reject_registration_request(
 async def resend_approval_otp_endpoint(
     request_id: str,
     admin: Annotated[AdminUser, AdminRequired],
+    db: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Resend approval OTP to user.
 
@@ -227,7 +237,7 @@ async def resend_approval_otp_endpoint(
     """
     from app.repositories.registration_request_repository import RegistrationRequestRepository
 
-    request_repo = RegistrationRequestRepository()
+    request_repo = RegistrationRequestRepository(session=db)
     request = await request_repo.find_by_id(request_id)
     if not request:
         from app.core.exceptions import NotFoundError

@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
+from app.database.db import get_db_session
 from app.models.enums import NotificationType
 from app.repositories.notification_repository import NotificationRepository
 from app.utils.pagination import clamp_page, pages_count
@@ -36,13 +38,14 @@ def _notification_dict(notification) -> dict:
 @router.get("")
 async def list_notifications(
     user: CurrentUser,
+    db: AsyncSession = Depends(get_db_session),
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     read: Annotated[Optional[bool], Query()] = None,
 ) -> dict:
     """Lists the authenticated user's notifications (newest first)."""
     n_page, n_size = clamp_page(page, page_size)
-    repo = NotificationRepository()
+    repo = NotificationRepository(session=db)
     notifications, total = await repo.list_for_user(str(user.id), n_page, n_size, read)
     return success(
         {
@@ -56,24 +59,34 @@ async def list_notifications(
 
 
 @router.get("/unread-count")
-async def unread_notification_count(user: CurrentUser) -> dict:
+async def unread_notification_count(
+    user: CurrentUser,
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
     """Returns the number of unread notifications for the authenticated user."""
-    repo = NotificationRepository()
+    repo = NotificationRepository(session=db)
     count = await repo.unread_count(str(user.id))
     return success({"unread": count})
 
 
 @router.post("/{notification_id}/read")
-async def mark_notification_read(user: CurrentUser, notification_id: str) -> dict:
+async def mark_notification_read(
+    user: CurrentUser,
+    notification_id: str,
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
     """Marks a single notification as read (only for its owner)."""
-    repo = NotificationRepository()
+    repo = NotificationRepository(session=db)
     notification = await repo.mark_read(notification_id, str(user.id))
     return success({"read": bool(notification)})
 
 
 @router.post("/read-all")
-async def mark_all_notifications_read(user: CurrentUser) -> dict:
+async def mark_all_notifications_read(
+    user: CurrentUser,
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
     """Marks every notification of the authenticated user as read."""
-    repo = NotificationRepository()
+    repo = NotificationRepository(session=db)
     updated = await repo.mark_all_read(str(user.id))
     return success({"updated": updated})

@@ -5,6 +5,7 @@ from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import select, desc
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.db import session_scope
 from app.models.report import Report
@@ -12,8 +13,8 @@ from app.repositories.base import BaseRepository
 
 
 class ReportRepository(BaseRepository[Report]):
-    def __init__(self) -> None:
-        super().__init__(Report)
+    def __init__(self, session: AsyncSession | None = None) -> None:
+        super().__init__(Report, session)
 
     async def create(
         self,
@@ -35,7 +36,7 @@ class ReportRepository(BaseRepository[Report]):
         return await self.save(report)
 
     async def find_recent(self, page: int = 1, page_size: int = 20) -> tuple[list[Report], int]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = select(Report).order_by(desc(Report.createdAt))
             from sqlalchemy import func
 

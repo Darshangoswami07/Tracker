@@ -1,0 +1,63 @@
+{
+  "timestamp": "2026-08-21T19:30:00Z",
+  "phase": "4",
+  "target": "http://127.0.0.1:8099 (local server with Phase 4 fix)",
+  "baseline": "25 concurrent logins -> 10-43 second latency / timeouts (bcrypt CPU contention)",
+
+  "bottleneck": {
+    "location": "user_service.py:76 -> security.py:41 -> bcrypt.checkpw()",
+    "cause": "Synchronous bcrypt.checkpw (cost=12, 188ms per call) running on asyncio event loop",
+    "impact": "25+ concurrent logins block event loop for 10-43s, starving all other endpoints"
+  },
+
+  "bcrypt_config": {
+    "cost": 12,
+    "single_call_ms": 188,
+    "security_note": "OWASP recommends cost >= 10; cost=12 is appropriate and not changed"
+  },
+
+  "changes": [
+    {
+      "file": "app/core/security.py",
+      "change": "Added verify_password_async() — async wrapper using loop.run_in_executor(None, verify_password, ...)",
+      "lines_added": 12
+    },
+    {
+      "file": "app/services/user_service.py",
+      "change": "Changed import from verify_password to verify_password_async; updated authenticate() to await verify_password_async()",
+      "lines_changed": 2
+    }
+  ],
+
+  "login_concurrency": {
+    "1":  {"wall_s": 1.13, "ok": 1, "err401": 0, "err429": 0},
+    "5":  {"wall_s": 1.73, "ok": 5, "err401": 0, "err429": 0},
+    "10": {"wall_s": 2.71, "ok": 10, "err401": 0, "err429": 0},
+    "25": {"wall_s": 5.83, "ok": 25, "err401": 0, "err429": 0},
+    "50": {"wall_s": 4.58, "ok": 19, "err401": 0, "err429": 31}
+  },
+
+  "health_during_login": {
+    "5_login":  {"health_p50_ms": 2.7,  "health_p95_ms": 4.3,  "health_p99_ms": 12,   "health_err": 0, "login_ok": "5/5"},
+    "10_login": {"health_p50_ms": 2.1,  "health_p95_ms": 5.9,  "health_p99_ms": 27,   "health_err": 0, "login_ok": "10/10"},
+    "25_login": {"health_p50_ms": 5.2,  "health_p95_ms": 23.0, "health_p99_ms": 44,   "health_err": 0, "login_ok": "25/25"},
+    "50_login": {"health_p50_ms": 6.6,  "health_p95_ms": 14.4, "health_p99_ms": 132,  "health_err": 0, "login_ok": "20/50"}
+  },
+
+  "error_paths": {
+    "valid_password":   200,
+    "invalid_password": 401,
+    "nonexistent_email": 401,
+    "empty_body":       422,
+    "jwt_valid":        200,
+    "jwt_invalid":      401,
+    "refresh_valid":    200,
+    "rbac_role":        "admin"
+  },
+
+  "baseline_comparison": {
+    "before": "25 concurrent logins -> 10-43s latency / timeouts, health endpoint starved",
+    "after":  "25 concurrent logins -> 5.83s wall, all succeed, health p99=44ms",
+    "improvement": "Event loop no longer blocked; health endpoint responsive during login load"
+  }
+}

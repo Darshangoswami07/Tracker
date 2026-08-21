@@ -1,0 +1,69 @@
+{
+  "target": "https://tracker-m0id.onrender.com",
+  "total_requests": 731,
+  "total_failures": 19,
+  "median_ms": 280,
+  "p95_ms": 4600,
+  "p99_ms": 15000,
+  "avg_ms": 1058.8001021887842,
+  "min_ms": 250.8058000003075,
+  "max_ms": 16008.881799999472,
+  "rps": 23.1,
+  "endpoints": {
+    "/health GET": {
+      "num_requests": 610,
+      "num_failures": 0,
+      "median_ms": 270,
+      "p95_ms": 1800,
+      "p99_ms": 6900,
+      "avg_ms": 496.128406557386,
+      "min_ms": 250.8058000003075,
+      "max_ms": 7051.7422000002625,
+      "rps": 19.2
+    },
+    "/api/v1/registration/companies GET": {
+      "num_requests": 76,
+      "num_failures": 19,
+      "median_ms": 2200,
+      "p95_ms": 15000,
+      "p99_ms": 15000,
+      "avg_ms": 3108.0659578947257,
+      "min_ms": 257.7258000001166,
+      "max_ms": 15486.177300000236,
+      "rps": 2.6
+    },
+    "/api/v1/admin/dashboard/stats GET": {
+      "num_requests": 16,
+      "num_failures": 0,
+      "median_ms": 3400,
+      "p95_ms": 11000,
+      "p99_ms": 11000,
+      "avg_ms": 3807.6788062498963,
+      "min_ms": 2563.779699999941,
+      "max_ms": 10777.85270000004,
+      "rps": 0.5
+    },
+    "/api/v1/admin/orders GET": {
+      "num_requests": 12,
+      "num_failures": 0,
+      "median_ms": 5400,
+      "p95_ms": 14000,
+      "p99_ms": 14000,
+      "avg_ms": 6382.7608499999915,
+      "min_ms": 4103.698199999599,
+      "max_ms": 13727.161100000558,
+      "rps": 0.3
+    },
+    "/api/v1/users/me GET": {
+      "num_requests": 10,
+      "num_failures": 0,
+      "median_ms": 1800,
+      "p95_ms": 2400,
+      "p99_ms": 2400,
+      "avg_ms": 1656.1974100000043,
+      "min_ms": 980.5650000007518,
+      "max_ms": 2387.385600000016,
+      "rps": 0.5
+    }
+  }
+}

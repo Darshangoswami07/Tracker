@@ -1,0 +1,43 @@
+{
+  "phase": 6,
+  "test": "per_path_rate_limit_validation",
+  "results": [
+    {
+      "test": "dashboard_fresh_c50",
+      "limit": 120,
+      "concurrency": 50,
+      "ok": 50,
+      "rate_limited": 0,
+      "errors": 0,
+      "pass": true
+    },
+    {
+      "test": "dashboard_push_limit_c130",
+      "limit": 120,
+      "concurrency": 130,
+      "ok": 120,
+      "rate_limited": 10,
+      "errors": 0,
+      "pass": true
+    },
+    {
+      "test": "login_strict_c15",
+      "limit": 10,
+      "concurrency": 15,
+      "auth_ok": 10,
+      "rate_limited": 5,
+      "errors": 0,
+      "pass": true
+    },
+    {
+      "test": "otp_ultrastrict_c10",
+      "limit": 5,
+      "concurrency": 10,
+      "ok": 5,
+      "rate_limited": 5,
+      "errors": 0,
+      "pass": true
+    }
+  ],
+  "all_pass": true
+}

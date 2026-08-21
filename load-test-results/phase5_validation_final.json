@@ -1,0 +1,200 @@
+{
+  "timestamp": "2026-08-21T09:29:00Z",
+  "target": "http://127.0.0.1:8099",
+  "health": true,
+  "version": {
+    "status_code": 200,
+    "latency_ms": 1955.3,
+    "has_all_fields": true,
+    "missing_fields": [],
+    "is_phase5": true
+  },
+  "contract": {
+    "all_passed": true,
+    "checks": [
+      [
+        "response has 'data' key",
+        true
+      ],
+      [
+        "field 'totalOrders' is int",
+        true
+      ],
+      [
+        "field 'todaysDeliveries' is int",
+        true
+      ],
+      [
+        "field 'pendingOrders' is int",
+        true
+      ],
+      [
+        "field 'completedOrders' is int",
+        true
+      ],
+      [
+        "field 'cancelledOrders' is int",
+        true
+      ],
+      [
+        "field 'activeDrivers' is int",
+        true
+      ],
+      [
+        "field 'onlineDrivers' is int",
+        true
+      ],
+      [
+        "field 'vehicles' is int",
+        true
+      ],
+      [
+        "field 'companies' is int",
+        true
+      ],
+      [
+        "field 'employees' is int",
+        true
+      ],
+      [
+        "field 'pendingApprovals' is int",
+        true
+      ],
+      [
+        "field 'totalUsers' is int",
+        true
+      ],
+      [
+        "field 'totalCompanies' is int",
+        true
+      ],
+      [
+        "field 'totalDrivers' is int",
+        true
+      ],
+      [
+        "field 'totalVehicles' is int",
+        true
+      ],
+      [
+        "field 'onlineUsers' is int",
+        true
+      ],
+      [
+        "field 'revenue' is numeric",
+        true
+      ],
+      [
+        "field 'growth' is numeric",
+        true
+      ],
+      [
+        "field 'systemHealth' is str",
+        true
+      ],
+      [
+        "field 'latestPendingApprovals' is list",
+        true
+      ]
+    ]
+  },
+  "rbac": {
+    "all_passed": true,
+    "results": [
+      [
+        "valid_token",
+        200,
+        200
+      ],
+      [
+        "invalid_token",
+        401,
+        401
+      ],
+      [
+        "no_token",
+        401,
+        401
+      ]
+    ]
+  },
+  "benchmarks": {
+    "c5": {
+      "concurrency": 5,
+      "total": 5,
+      "ok": 5,
+      "4xx": 0,
+      "5xx": 0,
+      "429": 0,
+      "timeouts": 0,
+      "errors_other": 0,
+      "rps": 2.28,
+      "p50": 1589.7,
+      "p95": 2196.0,
+      "p99": 2196.0,
+      "min": 1514.6,
+      "max": 2196.0,
+      "avg": 1722.8
+    },
+    "c10": {
+      "concurrency": 10,
+      "total": 10,
+      "ok": 10,
+      "4xx": 0,
+      "5xx": 0,
+      "429": 0,
+      "timeouts": 0,
+      "errors_other": 0,
+      "rps": 5.37,
+      "p50": 1633.3,
+      "p95": 1860.8,
+      "p99": 1860.8,
+      "min": 1509.6,
+      "max": 1860.8,
+      "avg": 1646.6
+    },
+    "c25": {
+      "concurrency": 25,
+      "total": 25,
+      "ok": 25,
+      "4xx": 0,
+      "5xx": 0,
+      "429": 0,
+      "timeouts": 0,
+      "errors_other": 0,
+      "rps": 5.92,
+      "p50": 2556.9,
+      "p95": 4109.4,
+      "p99": 4221.3,
+      "min": 1724.6,
+      "max": 4221.3,
+      "avg": 2899.5
+    },
+    "c50": {
+      "concurrency": 50,
+      "total": 50,
+      "ok": 13,
+      "4xx": 0,
+      "5xx": 0,
+      "429": 37,
+      "timeouts": 0,
+      "errors_other": 0,
+      "rps": 4.91,
+      "p50": 1757.6,
+      "p95": 2645.6,
+      "p99": 2645.6,
+      "min": 1579.0,
+      "max": 2645.6,
+      "avg": 1844.0
+    }
+  },
+  "extended_sequential": {
+    "ok": 10,
+    "total": 10,
+    "p50": 1572.9,
+    "p95": 2667.2,
+    "min": 1430.9,
+    "max": 2667.2,
+    "avg": 1839.7
+  }
+}

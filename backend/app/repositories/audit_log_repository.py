@@ -6,6 +6,7 @@ from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.db import session_scope
 from app.models.audit_log import AuditLog
@@ -13,8 +14,8 @@ from app.repositories.base import BaseRepository
 
 
 class AuditLogRepository(BaseRepository[AuditLog]):
-    def __init__(self) -> None:
-        super().__init__(AuditLog)
+    def __init__(self, session: AsyncSession | None = None) -> None:
+        super().__init__(AuditLog, session)
 
     async def find_by_user(
         self,
@@ -22,7 +23,7 @@ class AuditLogRepository(BaseRepository[AuditLog]):
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[AuditLog], int]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = select(AuditLog).where(AuditLog.userId == UUID(user_id))
             total_stmt = select(func.count()).select_from(stmt.subquery())
             total = await session.scalar(total_stmt) or 0
@@ -39,7 +40,7 @@ class AuditLogRepository(BaseRepository[AuditLog]):
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[AuditLog], int]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = select(AuditLog).where(AuditLog.adminId == UUID(admin_id))
             total_stmt = select(func.count()).select_from(stmt.subquery())
             total = await session.scalar(total_stmt) or 0
@@ -58,7 +59,7 @@ class AuditLogRepository(BaseRepository[AuditLog]):
         entity_type: str | None = None,
         entity_id: str | None = None,
     ) -> tuple[list[AuditLog], int]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = select(AuditLog)
             if action:
                 stmt = stmt.where(AuditLog.action == action)
@@ -87,7 +88,7 @@ class AuditLogRepository(BaseRepository[AuditLog]):
         ip_address: str | None = None,
         user_agent: str | None = None,
     ) -> AuditLog:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             log = AuditLog(
                 userId=UUID(user_id) if user_id else None,
                 adminId=UUID(admin_id) if admin_id else None,
