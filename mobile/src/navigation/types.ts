@@ -120,7 +120,10 @@ export type StaffDashboardStackParamList = {
  * already role-agnostic server-side and scope every GR they create/list to
  * the signed-in Staff member's own company). */
 export type StaffDeliveriesStackParamList = {
-  StaffDeliveries: undefined;
+  /** `statusFilter`/`title` let a caller (e.g. the Staff Dashboard's
+   * "Pending Slip"/"Delivered Slip" quick actions) pre-filter the list by
+   * GR status instead of always showing every GR ("My Slips"). */
+  StaffDeliveries: { statusFilter?: string; title?: string } | undefined;
   CreateGR: undefined;
   GRDetails: { orderId: string };
   EditGR: { orderId: string };

@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView,
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { useRoute } from '@react-navigation/native';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAppNav } from '../../hooks/useAppNav';
 import { orderRepository } from '../../database/repositories/orderRepository';
@@ -43,10 +44,22 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: 'Cancelled',
 };
 
+/** Optional params a caller can push this screen with to pre-filter by
+ * status (e.g. the Staff Dashboard's "Pending Slip"/"Delivered Slip" quick
+ * actions). Untyped across navigators since this screen is reused as-is
+ * inside several different stacks (Staff Deliveries, Admin's "GR Tracker
+ * Classic"), none of which pass params today except the Staff Dashboard. */
+interface StaffGRPanelParams {
+  statusFilter?: string;
+  title?: string;
+}
+
 export const StaffGRPanelScreen = () => {
   const theme = useAppTheme();
   const { colors, spacing, radii, shadows } = theme;
   const { navigate, goToNotifications } = useAppNav();
+  const route = useRoute();
+  const { statusFilter, title } = (route.params as StaffGRPanelParams | undefined) ?? {};
 
   const styles = createStyles(theme);
 
@@ -84,7 +97,12 @@ export const StaffGRPanelScreen = () => {
         // backend), so this reads the on-device SQLite database directly
         // instead of `GET /employee/orders`, which only knows about
         // backend-created orders.
-        const { items } = await orderRepository.list({ page: 1, pageSize: 50, search: search || undefined });
+        const { items } = await orderRepository.list({
+          page: 1,
+          pageSize: 50,
+          search: search || undefined,
+          status: statusFilter || undefined,
+        });
         setEntries(
           items.map((o) => ({
             id: o.id,
@@ -104,7 +122,7 @@ export const StaffGRPanelScreen = () => {
         setRefreshing(false);
       }
     },
-    [search]
+    [search, statusFilter]
   );
 
   useEffect(() => {
@@ -180,7 +198,7 @@ export const StaffGRPanelScreen = () => {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
-      <Header title="GR Tracker" rightAction={{ icon: 'notifications-outline', onPress: goToNotifications }} />
+      <Header title={title ?? 'GR Tracker'} rightAction={{ icon: 'notifications-outline', onPress: goToNotifications }} />
 
       <View style={styles.toolbar}>
         {actionMessage && (
@@ -232,7 +250,11 @@ export const StaffGRPanelScreen = () => {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} progressBackgroundColor={colors.surface} />}
         >
           {entries.length === 0 ? (
-            <EmptyState icon="document-text-outline" title="No GR entries" subtitle="Entries assigned to your company will appear here." />
+            <EmptyState
+              icon="document-text-outline"
+              title={statusFilter ? `No ${STATUS_LABELS[statusFilter] ?? statusFilter} slips` : 'No GR entries'}
+              subtitle="Entries assigned to your company will appear here."
+            />
           ) : (
             entries.map((entry) => (
               <TouchableOpacity

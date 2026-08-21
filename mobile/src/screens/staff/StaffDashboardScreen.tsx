@@ -97,18 +97,7 @@ export const StaffDashboardScreen = () => {
 
           <TouchableOpacity
             style={[styles.actionCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
-            onPress={() => navigate('StaffDeliveries')}
-            accessibilityRole="button"
-          >
-            <View style={[styles.actionIcon, { backgroundColor: `${colors.primary}18` }]}>
-              <Ionicons name="cloud-upload-outline" size={22} color={colors.primary} />
-            </View>
-            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>Upload Slip</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
-            onPress={() => navigate('StaffDeliveries')}
+            onPress={() => navigate('StaffDeliveries', { title: 'My Slips' })}
             accessibilityRole="button"
           >
             <View style={[styles.actionIcon, { backgroundColor: '#06B6D418' }]}>
@@ -119,13 +108,24 @@ export const StaffDashboardScreen = () => {
 
           <TouchableOpacity
             style={[styles.actionCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
-            onPress={() => navigate('StaffDeliveries')}
+            onPress={() => navigate('StaffDeliveries', { statusFilter: 'pending', title: 'Pending Slip' })}
             accessibilityRole="button"
           >
             <View style={[styles.actionIcon, { backgroundColor: '#F59E0B18' }]}>
               <Ionicons name="time-outline" size={22} color="#F59E0B" />
             </View>
-            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>Pending Deliveries</Text>
+            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>Pending Slip</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
+            onPress={() => navigate('StaffDeliveries', { statusFilter: 'delivered', title: 'Delivered Slip' })}
+            accessibilityRole="button"
+          >
+            <View style={[styles.actionIcon, { backgroundColor: '#10B98118' }]}>
+              <Ionicons name="checkmark-done-outline" size={22} color="#10B981" />
+            </View>
+            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>Delivered Slip</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
