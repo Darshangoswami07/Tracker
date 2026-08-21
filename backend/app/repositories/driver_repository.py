@@ -48,6 +48,21 @@ class DriverRepository(BaseRepository[Driver]):
             )
             return result.scalar() or 0
 
+    async def count_for_dashboard(self) -> dict:
+        """Single-query replacement for count_active() + count_online()."""
+        async with session_scope(self._session) as session:
+            row = (await session.execute(
+                select(
+                    func.count(Driver.id).filter(
+                        and_(Driver.isActive == True, Driver.status != DriverStatus.OFFLINE)
+                    ).label("active"),
+                    func.count(Driver.id).filter(
+                        and_(Driver.isActive == True, Driver.status == DriverStatus.ONLINE)
+                    ).label("online"),
+                )
+            )).one()
+            return {"active": row.active, "online": row.online}
+
     async def get_all_drivers(
         self,
         page: int = 1,

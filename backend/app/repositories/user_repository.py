@@ -141,6 +141,17 @@ class UserRepository(BaseRepository[User]):
     async def count(self) -> int:
         return await self._count()
 
+    async def count_for_dashboard(self) -> dict:
+        """Single-query replacement for count() + count_by_role('employee')."""
+        async with session_scope(self._session) as session:
+            row = (await session.execute(
+                select(
+                    sa.func.count(User.id).label("total"),
+                    sa.func.count(User.id).filter(User.role == "employee").label("employees"),
+                )
+            )).one()
+            return {"total": row.total, "employees": row.employees}
+
     async def count_by_role(self, role: str) -> int:
         async with session_scope(self._session) as session:
             return (

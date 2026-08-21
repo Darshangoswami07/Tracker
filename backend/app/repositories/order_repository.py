@@ -209,6 +209,35 @@ class OrderRepository(BaseRepository[Order]):
             )
             return float(result.scalar() or 0)
 
+    async def count_for_dashboard(self) -> dict:
+        """Single-query replacement for count() + count_by_status×3 + get_total_revenue().
+
+        Uses PostgreSQL FILTER (WHERE ...) for conditional aggregation so all
+        five metrics are computed in one table scan.
+        """
+        async with session_scope(self._session) as session:
+            row = (await session.execute(
+                select(
+                    func.count(Order.id).label("total"),
+                    func.count(Order.id).filter(Order.status == "delivered").label("delivered"),
+                    func.count(Order.id).filter(Order.status == "pending").label("pending"),
+                    func.count(Order.id).filter(Order.status == "cancelled").label("cancelled"),
+                    func.coalesce(
+                        func.sum(Order.paymentAmount).filter(
+                            and_(Order.paymentStatus == "paid", Order.status == "delivered")
+                        ),
+                        0,
+                    ).label("revenue"),
+                )
+            )).one()
+            return {
+                "total": row.total,
+                "delivered": row.delivered,
+                "pending": row.pending,
+                "cancelled": row.cancelled,
+                "revenue": float(row.revenue),
+            }
+
     async def get_order_chart_data(self, days: int = 30) -> list:
         async with session_scope(self._session) as session:
             end_date = date.today()

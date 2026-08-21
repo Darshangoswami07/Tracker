@@ -9,7 +9,7 @@ from app.core.exceptions import (
     UserNotApprovedError,
     UserNotVerifiedError,
 )
-from app.core.security import hash_password, verify_password
+from app.core.security import hash_password, verify_password_async
 from app.models.enums import RegistrationStatus, UserRole
 from app.models.registration_request import RegistrationRequest
 from app.models.user import User
@@ -73,7 +73,7 @@ class UserService:
     async def authenticate(self, email: str, password: str, role: UserRole | None = None) -> User:
         """Verifies credentials. Raises typed errors the caller can expose."""
         user = await self.repository.find_by_email(email, role)
-        if user is None or not verify_password(password, user.passwordHash):
+        if user is None or not await verify_password_async(password, user.passwordHash):
             raise InvalidCredentialsError()
 
         # Check user status

@@ -1,0 +1,104 @@
+{
+  "phase": 6,
+  "test": "dashboard_concurrency_with_per_path_limits",
+  "results": [
+    {
+      "label": "Dashboard c=10",
+      "concurrency": 10,
+      "ok": 10,
+      "rate_limited": 0,
+      "errors": 0,
+      "p50_ms": 916,
+      "p95_ms": 1420,
+      "wall_s": 1.42
+    },
+    {
+      "label": "Dashboard c=25",
+      "concurrency": 25,
+      "ok": 25,
+      "rate_limited": 0,
+      "errors": 0,
+      "p50_ms": 1435,
+      "p95_ms": 2022,
+      "wall_s": 2.03
+    },
+    {
+      "label": "Dashboard c=50",
+      "concurrency": 50,
+      "ok": 24,
+      "rate_limited": 26,
+      "errors": 0,
+      "p50_ms": 58,
+      "p95_ms": 2780,
+      "wall_s": 3.17
+    },
+    {
+      "label": "Dashboard c=100",
+      "concurrency": 100,
+      "ok": 0,
+      "rate_limited": 100,
+      "errors": 0,
+      "p50_ms": 66,
+      "p95_ms": 111,
+      "wall_s": 0.13
+    },
+    {
+      "label": "Login c=15",
+      "concurrency": 15,
+      "ok": 0,
+      "rate_limited": 0,
+      "errors": 15,
+      "p50_ms": 653,
+      "p95_ms": 2099,
+      "wall_s": 2.1
+    },
+    {
+      "label": "OTP c=10",
+      "concurrency": 10,
+      "ok": 10,
+      "rate_limited": 0,
+      "errors": 0,
+      "p50_ms": 422,
+      "p95_ms": 524,
+      "wall_s": 0.53
+    }
+  ],
+  "checks": [
+    {
+      "label": "Dashboard c=10: 10/10 ok",
+      "passed": true,
+      "detail": "10/10"
+    },
+    {
+      "label": "Dashboard c=25: >=20 ok",
+      "passed": true,
+      "detail": "25/25"
+    },
+    {
+      "label": "Dashboard c=50: >=40 ok",
+      "passed": false,
+      "detail": "24/50"
+    },
+    {
+      "label": "Dashboard c=100: >=80 ok",
+      "passed": false,
+      "detail": "0/100"
+    },
+    {
+      "label": "Auth c=15: rate-limited >=1",
+      "passed": false,
+      "detail": "0/15"
+    },
+    {
+      "label": "OTP c=10: rate-limited >=5",
+      "passed": false,
+      "detail": "0/10"
+    },
+    {
+      "label": "Zero unexpected errors",
+      "passed": false,
+      "detail": "total errors=15"
+    }
+  ],
+  "all_pass": false
+}

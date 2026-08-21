@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Alert, BackHandler, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, Image, Linking, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -349,21 +349,43 @@ export const AdminCreateGRScreen = () => {
     try {
       if (source === 'camera') {
         const cam = await ImagePicker.requestCameraPermissionsAsync();
-        if (cam.status !== 'granted') {
-          Alert.alert('Permission Required', 'Camera permission is required to photograph a slip.');
+        if (!cam.granted) {
+          if (cam.canAskAgain) {
+            Alert.alert('Permission Required', 'Camera permission is required to photograph a slip.');
+          } else {
+            Alert.alert(
+              'Permission Required',
+              'Camera permission has been denied. Please enable it in your device settings to use this feature.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Open Settings', onPress: () => Linking.openSettings() },
+              ],
+            );
+          }
           return;
         }
       } else {
         const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (lib.status !== 'granted') {
-          Alert.alert('Permission Required', 'Gallery permission is required to select a slip photo.');
+        if (!lib.granted) {
+          if (lib.canAskAgain) {
+            Alert.alert('Permission Required', 'Gallery permission is required to select a slip photo.');
+          } else {
+            Alert.alert(
+              'Permission Required',
+              'Gallery permission has been denied. Please enable it in your device settings to use this feature.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Open Settings', onPress: () => Linking.openSettings() },
+              ],
+            );
+          }
           return;
         }
       }
       const result =
         source === 'camera'
-          ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 })
-          : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+          ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 })
+          : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
       if (result.canceled) return;
       const asset = result.assets[0];
       if (asset.fileSize && asset.fileSize > MAX_SLIP_FILE_SIZE_BYTES) {

@@ -27,6 +27,13 @@
     },
     "plugins": [
       [
+        "expo-image-picker",
+        {
+          "cameraPermission": "DeliveryHub needs camera access to photograph transport slips for OCR processing.",
+          "photosPermission": "DeliveryHub needs access to your photos to select transport slip images."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#FFFFFF",

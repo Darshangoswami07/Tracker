@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     S3_REGION: str = ""
     S3_ACCESS_KEY: str = ""
     S3_SECRET_KEY: str = ""
+    # Optional custom S3 endpoint for non-AWS providers (MinIO, DigitalOcean
+    # Spaces, Cloudflare R2, etc.). Leave empty for standard AWS S3.
+    S3_ENDPOINT_URL: str = ""
+    # Presigned-URL lifetime in seconds for download links (default 5 min).
+    S3_PRESIGNED_URL_EXPIRY: int = 300
 
     # --- Security ----------------------------------------------------------
     # Must be set explicitly in production (>= 32 chars): leaving the dev
@@ -80,6 +85,23 @@ class Settings(BaseSettings):
     RATE_LIMIT_WINDOW_SECONDS: int = 60
     # Requests with these path prefixes bypass the limiter (e.g. docs/health).
     RATE_LIMIT_WHITELIST: str = "/health,/docs,/redoc,/openapi.json"
+
+    # Per-path rate limit overrides (Phase 6).
+    # Dashboard reads: higher limit — the frontend polls this on load.
+    RATE_LIMIT_DASHBOARD_MAX_REQUESTS: int = 120
+    RATE_LIMIT_DASHBOARD_WINDOW_SECONDS: int = 60
+    # Admin read/list operations: moderate limit — frequent but not polling.
+    RATE_LIMIT_ADMIN_READ_MAX_REQUESTS: int = 90
+    RATE_LIMIT_ADMIN_READ_WINDOW_SECONDS: int = 60
+    # Admin write/mutation operations: stricter — security-sensitive mutations.
+    RATE_LIMIT_ADMIN_WRITE_MAX_REQUESTS: int = 30
+    RATE_LIMIT_ADMIN_WRITE_WINDOW_SECONDS: int = 60
+    # Auth endpoints (login, register, password): very strict — brute-force protection.
+    RATE_LIMIT_AUTH_MAX_REQUESTS: int = 10
+    RATE_LIMIT_AUTH_WINDOW_SECONDS: int = 60
+    # OTP endpoints (verify, resend): ultra-strict — code-guessing protection.
+    RATE_LIMIT_OTP_MAX_REQUESTS: int = 5
+    RATE_LIMIT_OTP_WINDOW_SECONDS: int = 60
 
     # --- Redis / Celery ----------------------------------------------------
     # Canonical Redis connection string. Celery's broker and result backend
@@ -118,6 +140,9 @@ class Settings(BaseSettings):
     # entry keeps working regardless).
     OCR_SPACE_API_KEY: str = ""
     OCR_SPACE_API_URL: str = "https://api.ocr.space/parse/image"
+    OCR_TIMEOUT_SECONDS: int = 60
+    OCR_MAX_CONNECTIONS: int = 5
+    OCR_MAX_KEEPALIVE_CONNECTIONS: int = 2
 
     # --- Email / SMTP ------------------------------------------------------
     # Transactional email provider: "brevo" (Brevo REST API, production

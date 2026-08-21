@@ -137,6 +137,31 @@ class RateLimitMiddleware:
     Atomicity:  single EVAL command — no TOCTOU races across workers
     """
 
+    # Path-prefix → category mapping.
+    # Checked in order; first match wins.  Falls back to global defaults.
+    # Paths include the /api/v1/ prefix (set in main.py via API_V1_PREFIX).
+    _PATH_POLICIES: list[tuple[str, str]] = [
+        # OTP endpoints — ultra-strict (code-guessing protection)
+        ("/api/v1/otp/", "otp"),
+        # Auth endpoints — very strict (brute-force protection)
+        ("/api/v1/auth/login", "auth"),
+        ("/api/v1/auth/logout", "auth"),
+        ("/api/v1/auth/refresh", "auth"),
+        ("/api/v1/auth/register", "auth"),
+        ("/api/v1/auth/forgot-password", "auth"),
+        ("/api/v1/auth/reset-password", "auth"),
+        # Dashboard reads — higher limit (frontend polling)
+        ("/api/v1/admin/dashboard/", "dashboard"),
+        # Admin writes — stricter mutations (must come before broad /admin/)
+        ("/api/v1/admin/registration-requests/", "admin_write"),
+        ("/api/v1/admin/users/", "admin_write"),
+        ("/api/v1/admin/staff", "admin_write"),
+        ("/api/v1/admin/drivers", "admin_write"),
+        ("/api/v1/admin/companies", "admin_write"),
+        # Admin reads — moderate limit (list/get operations)
+        ("/api/v1/admin/", "admin_read"),
+    ]
+
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
         self._redis = None          # lazy-init async Redis client
@@ -144,6 +169,50 @@ class RateLimitMiddleware:
         self._lua_sha: str | None = None
         self._lua_script: str = _load_lua_script()
         self._memory_fallback: _InMemorySlidingWindow | None = None
+        # Pre-compute policy lookup from env vars (loaded once at startup).
+        self._policy_cache: dict[str, tuple[int, int]] = {}
+        self._build_policy_cache()
+
+    # --- Per-path policy resolution -----------------------------------------
+
+    def _build_policy_cache(self) -> None:
+        """Build the lookup dict from settings at startup (one-time)."""
+        self._policy_cache = {
+            "otp": (
+                settings.RATE_LIMIT_OTP_MAX_REQUESTS,
+                settings.RATE_LIMIT_OTP_WINDOW_SECONDS,
+            ),
+            "auth": (
+                settings.RATE_LIMIT_AUTH_MAX_REQUESTS,
+                settings.RATE_LIMIT_AUTH_WINDOW_SECONDS,
+            ),
+            "dashboard": (
+                settings.RATE_LIMIT_DASHBOARD_MAX_REQUESTS,
+                settings.RATE_LIMIT_DASHBOARD_WINDOW_SECONDS,
+            ),
+            "admin_write": (
+                settings.RATE_LIMIT_ADMIN_WRITE_MAX_REQUESTS,
+                settings.RATE_LIMIT_ADMIN_WRITE_WINDOW_SECONDS,
+            ),
+            "admin_read": (
+                settings.RATE_LIMIT_ADMIN_READ_MAX_REQUESTS,
+                settings.RATE_LIMIT_ADMIN_READ_WINDOW_SECONDS,
+            ),
+        }
+
+    def _get_policy(self, path: str) -> tuple[int, int]:
+        """Return (max_requests, window_seconds) for *path*.
+
+        Walks _PATH_POLICIES in order; first prefix match wins.
+        Falls back to the global RATE_LIMIT_MAX_REQUESTS / WINDOW.
+        """
+        for prefix, category in self._PATH_POLICIES:
+            if path.startswith(prefix):
+                return self._policy_cache.get(
+                    category,
+                    (settings.RATE_LIMIT_MAX_REQUESTS, settings.RATE_LIMIT_WINDOW_SECONDS),
+                )
+        return settings.RATE_LIMIT_MAX_REQUESTS, settings.RATE_LIMIT_WINDOW_SECONDS
 
     # --- Redis connection management (lazy, non-blocking) -------------------
 
@@ -154,7 +223,7 @@ class RateLimitMiddleware:
         if self._redis is not None:
             return self._redis
 
-        redis_url = os.environ.get("REDIS_URL", "").strip()
+        redis_url = (settings.REDIS_URL or "").strip()
         if not redis_url:
             logger.info("RATE_LIMIT: REDIS_URL not set — falling back to in-memory limiter")
             self._memory_fallback = _InMemorySlidingWindow(
@@ -240,6 +309,13 @@ class RateLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # CORS preflight (OPTIONS) must never be rate-limited — browsers
+        # send it before every cross-origin request and a 429 would break
+        # all authenticated API calls from the web app.
+        if scope.get("method") == "OPTIONS":
+            await self.app(scope, receive, send)
+            return
+
         if not settings.RATE_LIMIT_ENABLED:
             await self.app(scope, receive, send)
             return
@@ -259,8 +335,15 @@ class RateLimitMiddleware:
         path_hash = hashlib.md5(path.encode()).hexdigest()
         key = f"rl:{ip}:{path_hash}"
 
+        # --- Resolve per-path policy ----------------------------------------
+        max_requests, window_seconds = self._get_policy(path)
+
         # --- In-memory fallback (no Redis configured) -----------------------
         if self._memory_fallback is not None:
+            # Update fallback limits for this request (thread-safe enough
+            # for dev convenience — the in-memory path is not production).
+            self._memory_fallback.max_requests = max_requests
+            self._memory_fallback.window_seconds = window_seconds
             if not self._memory_fallback.allow(key):
                 await self._send_429(send)
             else:
@@ -280,8 +363,8 @@ class RateLimitMiddleware:
             allowed, _remaining = await self._eval_rate_limit(
                 redis_client,
                 key,
-                settings.RATE_LIMIT_MAX_REQUESTS,
-                settings.RATE_LIMIT_WINDOW_SECONDS,
+                max_requests,
+                window_seconds,
             )
             if not allowed:
                 await self._send_429(send)
