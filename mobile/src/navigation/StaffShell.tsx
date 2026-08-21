@@ -15,6 +15,13 @@ import { StaffDashboardScreen } from '../screens/staff/StaffDashboardScreen';
 // endpoints (`/admin/orders/*`), which now also admit the STAFF role (see
 // `backend/app/api/deps.py::_require_gr_access`).
 import { StaffGRPanelScreen } from '../screens/employee/StaffGRPanelScreen';
+// Reuses the existing Create GR / Shipment form unchanged — it already
+// creates under the signed-in user's own company for any non-Super-Admin-
+// tier role (see `AdminCreateGRScreen.tsx`'s `SUPER_ADMIN_TIER_ROLES`,
+// which does not include 'staff').
+import { AdminCreateGRScreen } from '../screens/admin/AdminCreateGRScreen';
+import { AdminGRDetailsScreen } from '../screens/admin/AdminGRDetailsScreen';
+import { AdminEditGRScreen } from '../screens/admin/AdminEditGRScreen';
 
 // The More tab reuses the exact same generic, drawerMenu-driven MoreScreen
 // the Admin shell uses — it already renders only the sections relevant to
@@ -46,12 +53,16 @@ const useStackScreenOptions = () => {
 const DashboardTabStack = () => (
   <DashboardStack.Navigator screenOptions={useStackScreenOptions()}>
     <DashboardStack.Screen name="StaffDashboard" component={StaffDashboardScreen} />
+    <DashboardStack.Screen name="CreateGR" component={AdminCreateGRScreen} />
   </DashboardStack.Navigator>
 );
 
 const DeliveriesTabStack = () => (
   <DeliveriesStack.Navigator screenOptions={useStackScreenOptions()}>
     <DeliveriesStack.Screen name="StaffDeliveries" component={StaffGRPanelScreen} />
+    <DeliveriesStack.Screen name="CreateGR" component={AdminCreateGRScreen} />
+    <DeliveriesStack.Screen name="GRDetails" component={AdminGRDetailsScreen} />
+    <DeliveriesStack.Screen name="EditGR" component={AdminEditGRScreen} />
   </DeliveriesStack.Navigator>
 );
 

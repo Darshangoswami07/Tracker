@@ -86,6 +86,17 @@ export const StaffDashboardScreen = () => {
         <View style={styles.actionsGrid}>
           <TouchableOpacity
             style={[styles.actionCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
+            onPress={() => navigate('CreateGR')}
+            accessibilityRole="button"
+          >
+            <View style={[styles.actionIcon, { backgroundColor: '#10B98118' }]}>
+              <Ionicons name="add-circle-outline" size={22} color="#10B981" />
+            </View>
+            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>Create GR / Shipment</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
             onPress={() => navigate('StaffDeliveries')}
             accessibilityRole="button"
           >

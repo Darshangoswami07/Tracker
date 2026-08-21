@@ -104,15 +104,26 @@ export type AdminTabParamList = {
   More: NavigatorScreenParams<MoreStackParamList> | undefined;
 };
 
-/** Screens reached from the Staff shell's Dashboard tab. */
+/** Screens reached from the Staff shell's Dashboard tab.
+ * `CreateGR` is also registered here (in addition to
+ * `StaffDeliveriesStackParamList`), same reasoning as the Admin shell's
+ * `DashboardStackParamList`: a quick action from the Dashboard pushes onto
+ * the Dashboard tab's own stack so `goBack()` returns to the screen the
+ * user actually came from, instead of jumping into the Deliveries tab. */
 export type StaffDashboardStackParamList = {
   StaffDashboard: undefined;
+  CreateGR: undefined;
 };
 
 /** Screens reached from the Staff shell's Deliveries tab (reuses the
- * existing `StaffGRPanelScreen` unchanged). */
+ * existing `StaffGRPanelScreen`/`AdminCreateGRScreen` unchanged — both are
+ * already role-agnostic server-side and scope every GR they create/list to
+ * the signed-in Staff member's own company). */
 export type StaffDeliveriesStackParamList = {
   StaffDeliveries: undefined;
+  CreateGR: undefined;
+  GRDetails: { orderId: string };
+  EditGR: { orderId: string };
 };
 
 /** Screens reached from the Staff shell's More tab — reuses the same common
