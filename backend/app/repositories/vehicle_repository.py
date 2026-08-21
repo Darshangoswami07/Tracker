@@ -14,13 +14,13 @@ from app.repositories.base import BaseRepository
 
 
 class VehicleRepository(BaseRepository[Vehicle]):
-    def __init__(self) -> None:
-        super().__init__(Vehicle)
+    def __init__(self, session: AsyncSession | None = None) -> None:
+        super().__init__(Vehicle, session)
 
     async def find_assigned_for_driver(self, driver_id: UUID) -> Vehicle | None:
         from app.models.vehicle_assignment import VehicleAssignment
 
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             result = await session.execute(
                 select(Vehicle)
                 .join(VehicleAssignment, VehicleAssignment.vehicleId == Vehicle.id)
@@ -46,7 +46,7 @@ class VehicleRepository(BaseRepository[Vehicle]):
         search: Optional[str] = None,
         company_id: Optional[UUID] = None,
     ) -> Tuple[List[Vehicle], int]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             query = select(Vehicle)
 
             if status:

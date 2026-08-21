@@ -33,6 +33,8 @@ def _get_engine() -> AsyncEngine:
             settings.DATABASE_URL,
             pool_pre_ping=True,
             pool_recycle=1800,
+            pool_size=10,
+            max_overflow=5,
         )
     return _engine
 
@@ -45,8 +47,27 @@ def get_session_maker() -> async_sessionmaker[AsyncSession]:
 
 
 @asynccontextmanager
-async def session_scope() -> AsyncIterator[AsyncSession]:
-    """Opens a session, commits on success and rolls back on failure."""
+async def session_scope(session: AsyncSession | None = None) -> AsyncIterator[AsyncSession]:
+    """Yields *session* if provided, otherwise opens a fresh one (legacy path).
+
+    Repositories call ``_session_scope`` which delegates here.  Celery tasks
+    and tenancy helpers that still import ``session_scope`` directly also
+    benefit: passing the request-scoped session reuses the same connection.
+    """
+    if session is not None:
+        yield session
+    else:
+        async with get_session_maker()() as s:
+            async with s.begin():
+                yield s
+
+
+async def get_db_session() -> AsyncIterator[AsyncSession]:
+    """FastAPI dependency that yields one session per request.
+
+    The session is auto-committed when the handler succeeds and rolled back
+    on exception. It is closed at the end of the request lifecycle.
+    """
     async with get_session_maker()() as session:
         async with session.begin():
             yield session

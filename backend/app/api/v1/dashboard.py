@@ -5,8 +5,10 @@ import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, require_roles
+from app.database.db import get_db_session
 from app.models.enums import UserRole
 from app.repositories.order_repository import OrderRepository
 from app.repositories.user_repository import UserRepository
@@ -24,14 +26,15 @@ AdminRequired = Depends(require_roles(UserRole.ADMIN, UserRole.DISPATCHER))
 @router.get("/stats")
 async def get_dashboard_stats(
     admin: Annotated[AdminUser, AdminRequired],
+    db: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Get dashboard statistics."""
-    order_repo = OrderRepository()
-    user_repo = UserRepository()
-    driver_repo = DriverRepository()
-    vehicle_repo = VehicleRepository()
-    company_repo = CompanyRepository()
-    reg_request_repo = RegistrationRequestRepository()
+    order_repo = OrderRepository(session=db)
+    user_repo = UserRepository(session=db)
+    driver_repo = DriverRepository(session=db)
+    vehicle_repo = VehicleRepository(session=db)
+    company_repo = CompanyRepository(session=db)
+    reg_request_repo = RegistrationRequestRepository(session=db)
 
     # All of these are independent queries against separate connections -
     # run them concurrently instead of awaiting one-by-one, which was the
@@ -109,11 +112,12 @@ async def get_dashboard_stats(
 @router.get("/activity")
 async def get_recent_activity(
     admin: Annotated[AdminUser, AdminRequired],
+    db: AsyncSession = Depends(get_db_session),
     limit: Annotated[int, Query(le=50)] = 10,
 ) -> dict:
     """Get recent activity."""
     from app.repositories.audit_log_repository import AuditLogRepository
-    audit_repo = AuditLogRepository()
+    audit_repo = AuditLogRepository(session=db)
     logs, _ = await audit_repo.find_all(page=1, page_size=limit)
 
     activities = []
@@ -142,10 +146,11 @@ async def get_recent_activity(
 @router.get("/charts/orders")
 async def get_order_chart_data(
     admin: Annotated[AdminUser, AdminRequired],
+    db: AsyncSession = Depends(get_db_session),
     days: Annotated[int, Query(le=90)] = 30,
 ) -> dict:
     """Get order chart data."""
-    order_repo = OrderRepository()
+    order_repo = OrderRepository(session=db)
     data = await order_repo.get_order_chart_data(days)
 
     return success(data)

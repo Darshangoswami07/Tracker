@@ -7,6 +7,7 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.db import session_scope
 from app.models.enums import UserRole
@@ -15,8 +16,8 @@ from app.repositories.base import BaseRepository
 
 
 class UserRepository(BaseRepository[User]):
-    def __init__(self) -> None:
-        super().__init__(User)
+    def __init__(self, session: AsyncSession | None = None) -> None:
+        super().__init__(User, session)
 
     async def find_by_email(self, email: str, role: UserRole | None = None) -> User | None:
         if role is not None:
@@ -47,7 +48,7 @@ class UserRepository(BaseRepository[User]):
         otp_verified: bool = False,
         company_id=None,
     ) -> User:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             user = User(
                 firstName=full_name.split()[0] if full_name else "",
                 lastName=" ".join(full_name.split()[1:]) if len(full_name.split()) > 1 else "",
@@ -67,7 +68,7 @@ class UserRepository(BaseRepository[User]):
             return user
 
     async def set_password(self, user: User, password_hash: str) -> None:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             record = await session.get(User, user.id)
             if record is not None:
                 record.passwordHash = password_hash
@@ -78,7 +79,7 @@ class UserRepository(BaseRepository[User]):
         Operates on a live session (``find_by_id`` returns a detached row, so
         mutating it would never reach the database).
         """
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             from app.repositories.base import to_uuid
 
             record = await session.get(User, to_uuid(user_id))
@@ -112,7 +113,7 @@ class UserRepository(BaseRepository[User]):
         role: str | None = None,
         company_id=None,
     ) -> tuple[list[User], int]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = select(User)
             if status:
                 stmt = stmt.where(User.status == status)
@@ -141,10 +142,24 @@ class UserRepository(BaseRepository[User]):
         return await self._count()
 
     async def count_by_role(self, role: str) -> int:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             return (
                 await session.scalar(
                     select(sa.func.count()).select_from(User).where(User.role == role)
                 )
                 or 0
             )
+
+    async def find_by_ids(self, ids: list[str]) -> list[User]:
+        """Batch-fetch users by a list of IDs to avoid N+1 queries."""
+        if not ids:
+            return []
+        from app.repositories.base import to_uuid
+        uuids = [to_uuid(i) for i in ids]
+        uuids = [u for u in uuids if u is not None]
+        if not uuids:
+            return []
+        async with session_scope(self._session) as session:
+            stmt = select(User).where(User.id.in_(uuids))
+            result = await session.execute(stmt)
+            return list(result.scalars().all())

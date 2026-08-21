@@ -15,8 +15,8 @@ from app.repositories.base import BaseRepository, to_uuid
 
 
 class NotificationRepository(BaseRepository[Notification]):
-    def __init__(self) -> None:
-        super().__init__(Notification)
+    def __init__(self, session: AsyncSession | None = None) -> None:
+        super().__init__(Notification, session)
 
     async def create(
         self,
@@ -29,7 +29,7 @@ class NotificationRepository(BaseRepository[Notification]):
         key = to_uuid(user_id)
         if key is None:
             raise ValueError("Invalid user id for notification")
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             notification = Notification(
                 userId=key,
                 title=title,
@@ -55,7 +55,7 @@ class NotificationRepository(BaseRepository[Notification]):
         page = max(1, page)
         page_size = min(max(1, page_size), 100)
 
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             query = select(Notification).where(Notification.userId == key)
             count_query = select(func.count(Notification.id)).where(Notification.userId == key)
 
@@ -84,7 +84,7 @@ class NotificationRepository(BaseRepository[Notification]):
         if nid is None or uid is None:
             return None
 
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             notification = await session.get(Notification, nid)
             if notification is None or notification.userId != uid:
                 return None
@@ -97,7 +97,7 @@ class NotificationRepository(BaseRepository[Notification]):
         uid = to_uuid(user_id)
         if uid is None:
             return 0
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             from sqlalchemy import update
             result = await session.execute(
                 update(Notification)

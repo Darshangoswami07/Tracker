@@ -1,0 +1,90 @@
+{
+  "post_phase1_results": {
+    "timestamp": "2026-08-21T11:31:55Z",
+    "test_type": "post-phase1-refactor",
+    "health_only": {
+      "10_users": {
+        "rps": 25.2,
+        "p50_ms": 270,
+        "p95_ms": 310,
+        "p99_ms": 760,
+        "errors": 0
+      },
+      "100_users": {
+        "rps": 244.7,
+        "p50_ms": 270,
+        "p95_ms": 320,
+        "p99_ms": 760,
+        "errors": 0
+      },
+      "200_users": {
+        "rps": 290.8,
+        "p50_ms": 530,
+        "p95_ms": 700,
+        "p99_ms": 2500,
+        "errors": 0
+      },
+      "500_users": {
+        "rps": 288.1,
+        "p50_ms": 1500,
+        "p95_ms": 2300,
+        "p99_ms": 8500,
+        "errors": 0
+      },
+      "1000_users": {
+        "rps": 308,
+        "p50_ms": 3300,
+        "p95_ms": 3900,
+        "p99_ms": 19000,
+        "errors": 0
+      }
+    },
+    "mixed_endpoints": {
+      "10_users": {
+        "rps": 8.7,
+        "p50_ms": 270,
+        "p95_ms": 3600,
+        "p99_ms": 6700,
+        "errors": 0,
+        "error_rate": "0%"
+      },
+      "25_users": {
+        "rps": 23.1,
+        "p50_ms": 280,
+        "p95_ms": 4600,
+        "p99_ms": 15000,
+        "errors": 19,
+        "error_rate": "2.6%"
+      }
+    },
+    "preauth_dashboard": {
+      "10_users": {
+        "rps": 1.90,
+        "dashboard_stats_p50_ms": 4000,
+        "dashboard_stats_p95_ms": 6000,
+        "dashboard_stats_errors": 0,
+        "admin_orders_p50_ms": 5900,
+        "users_me_p50_ms": 1900,
+        "total_errors": 0
+      },
+      "25_users": {
+        "rps": 2.70,
+        "dashboard_stats_p50_ms": 8900,
+        "dashboard_stats_p95_ms": 12000,
+        "dashboard_stats_errors": 0,
+        "admin_orders_p50_ms": 14000,
+        "users_me_p50_ms": 5000,
+        "total_errors": 0
+      }
+    },
+    "dashboard_stats_with_login": {
+      "10_users": {
+        "rps": 0.94,
+        "stats_p50_ms": 6500,
+        "stats_p95_ms": 15000,
+        "login_p50_ms": 22000,
+        "errors": 0
+      }
+    }
+  }
+}

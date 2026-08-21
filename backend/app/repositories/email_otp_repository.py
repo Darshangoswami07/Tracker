@@ -6,6 +6,7 @@ from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.db import session_scope
 from app.models.email_otp import EmailOTP
@@ -18,11 +19,11 @@ def _utcnow() -> datetime:
 
 
 class EmailOTPRepository(BaseRepository[EmailOTP]):
-    def __init__(self) -> None:
-        super().__init__(EmailOTP)
+    def __init__(self, session: AsyncSession | None = None) -> None:
+        super().__init__(EmailOTP, session)
 
     async def find_by_hash(self, otp_hash: str) -> Optional[EmailOTP]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = select(EmailOTP).where(EmailOTP.otpHash == otp_hash)
             return await session.scalar(stmt)
 
@@ -31,7 +32,7 @@ class EmailOTPRepository(BaseRepository[EmailOTP]):
         user_id: str,
         intent: OTPIntent,
     ) -> Optional[EmailOTP]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = (
                 select(EmailOTP)
                 .where(
@@ -52,7 +53,7 @@ class EmailOTPRepository(BaseRepository[EmailOTP]):
         """Return the most recently created OTP row for a user + intent
         regardless of used/expired state. Used to enforce the resend cooldown.
         """
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = (
                 select(EmailOTP)
                 .where(
@@ -72,7 +73,7 @@ class EmailOTPRepository(BaseRepository[EmailOTP]):
         expires_at: datetime,
         created_by: str | None = None,
     ) -> EmailOTP:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             otp = EmailOTP(
                 otpHash=otp_hash,
                 userId=UUID(user_id),
@@ -86,14 +87,14 @@ class EmailOTPRepository(BaseRepository[EmailOTP]):
             return otp
 
     async def mark_used(self, otp: EmailOTP) -> None:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             record = await session.get(EmailOTP, otp.id)
             if record is not None:
                 record.used = True
                 record.usedAt = _utcnow()
 
     async def increment_attempts(self, otp: EmailOTP) -> None:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             record = await session.get(EmailOTP, otp.id)
             if record is not None:
                 record.attempts += 1
@@ -103,7 +104,7 @@ class EmailOTPRepository(BaseRepository[EmailOTP]):
         user_id: str,
         intent: OTPIntent,
     ) -> int:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             result = await session.execute(
                 update(EmailOTP)
                 .where(
@@ -117,7 +118,7 @@ class EmailOTPRepository(BaseRepository[EmailOTP]):
 
     async def cleanup_expired_otps(self) -> int:
         """Clean up expired OTPs. Returns number of deleted records."""
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             result = await session.execute(
                 delete(EmailOTP).where(EmailOTP.expiresAt < _utcnow())
             )

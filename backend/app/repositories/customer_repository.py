@@ -5,6 +5,7 @@ from typing import List, Optional, Tuple
 from uuid import UUID
 
 from sqlalchemy import desc, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.db import session_scope
 from app.models.customer import Customer
@@ -13,8 +14,8 @@ from app.repositories.base import BaseRepository
 
 
 class CustomerRepository(BaseRepository[Customer]):
-    def __init__(self) -> None:
-        super().__init__(Customer)
+    def __init__(self, session: AsyncSession | None = None) -> None:
+        super().__init__(Customer, session)
 
     async def get_all_customers(
         self,
@@ -27,7 +28,7 @@ class CustomerRepository(BaseRepository[Customer]):
         """Lists customers, optionally scoped to those who have placed at
         least one order with ``company_id`` (Customer has no companyId of its
         own — a customer can order from more than one company)."""
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             query = select(Customer)
 
             if company_id:

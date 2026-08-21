@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, CompanyAdminUser, SuperAdminUser, require_roles
 from app.core.tenancy import assert_same_company, effective_company_id
+from app.database.db import get_db_session
 from app.models.enums import UserRole
 from app.schemas.approval import (
     AdminUserListOut,
@@ -33,6 +35,8 @@ from app.services.email_service import email_service
 from app.services.otp_service import otp_service
 from app.services.user_service import user_service
 from app.utils.responses import success
+from app.workers import tasks as email_tasks
+from app.workers.dispatch import dispatch_email
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -43,10 +47,10 @@ AdminRequired = Depends(require_roles(UserRole.ADMIN, UserRole.DISPATCHER))
 @router.get("/registration-requests/stats")
 async def get_registration_request_stats(
     admin: SuperAdminUser,
+    db: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Get stats for registration requests."""
-    from app.repositories.registration_request_repository import RegistrationRequestRepository
-    repo = RegistrationRequestRepository()
+    repo = RegistrationRequestRepository(session=db)
     stats = await repo.get_stats()
     return success(stats, message="Registration request stats retrieved successfully.")
 
@@ -104,7 +108,7 @@ async def approve_request(
     if not success_flag:
         raise ValidationBusinessError(message)
     if otp:
-        background_tasks.add_task(approval_service.send_approval_otp_email, request_id, otp)
+        dispatch_email(background_tasks, email_tasks.send_approval_otp_email, request_id, otp)
     return success(
         {"approved": success_flag},
         message="Request approved successfully. An OTP email is being sent to the user.",
@@ -131,7 +135,7 @@ async def reject_request(
     )
     if not success_flag:
         raise ValidationBusinessError(message)
-    background_tasks.add_task(approval_service.send_rejection_email, request_id, payload.reason)
+    dispatch_email(background_tasks, email_tasks.send_rejection_email, request_id, payload.reason)
     return success({"rejected": success_flag}, message=message)
 
 
@@ -139,6 +143,7 @@ async def reject_request(
 async def resend_approval_otp(
     request_id: str,
     admin: SuperAdminUser,
+    db: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Resend approval OTP to user.
 
@@ -151,7 +156,7 @@ async def resend_approval_otp(
     from app.services.otp_service import otp_service
     from app.repositories.registration_request_repository import RegistrationRequestRepository
 
-    request_repo = RegistrationRequestRepository()
+    request_repo = RegistrationRequestRepository(session=db)
     request = await request_repo.find_by_id(request_id)
     if not request:
         from app.core.exceptions import NotFoundError
@@ -188,6 +193,7 @@ async def get_approval_logs(
 @router.get("/users")
 async def list_users(
     admin: CompanyAdminUser,
+    db: AsyncSession = Depends(get_db_session),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: str | None = None,
@@ -197,9 +203,9 @@ async def list_users(
     """List users with pagination, optionally filtered by role/status. Super
     Admin sees every company; Company Admin sees only their own company's
     users."""
-    user_repo = UserRepository()
+    user_repo = UserRepository(session=db)
     users, total = await user_repo.get_all_users(
-        page, page_size, status, search, role, company_id=await effective_company_id(admin)
+        page, page_size, status, search, role, company_id=await effective_company_id(admin, db)
     )
     return success(
         {
@@ -319,6 +325,7 @@ async def resend_user_otp(
 @router.get("/drivers")
 async def list_drivers(
     admin: CompanyAdminUser,
+    db: AsyncSession = Depends(get_db_session),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: str | None = None,
@@ -328,15 +335,25 @@ async def list_drivers(
     (already existed, was never wired to an endpoint) and UserRepository.
     Super Admin sees every company; Company Admin sees only their own."""
     from app.repositories.driver_repository import DriverRepository
+    from app.models.user import User as UserModel
+    from sqlalchemy import select
 
-    driver_repo = DriverRepository()
+    driver_repo = DriverRepository(session=db)
     drivers, total = await driver_repo.get_all_drivers(
-        page, page_size, status=status, search=search, company_id=await effective_company_id(admin)
+        page, page_size, status=status, search=search, company_id=await effective_company_id(admin, db)
     )
+
+    # Batch-fetch linked users to avoid N+1 queries
+    user_ids = [str(d.userId) for d in drivers if d.userId]
+    user_map: dict[str, UserModel] = {}
+    if user_ids:
+        user_repo = UserRepository(session=db)
+        users = await user_repo.find_by_ids(user_ids)
+        user_map = {str(u.id): u for u in users}
 
     items = []
     for driver in drivers:
-        driver_user = await user_service.get_by_id(str(driver.userId)) if driver.userId else None
+        driver_user = user_map.get(str(driver.userId)) if driver.userId else None
         items.append(
             {
                 "id": str(driver.id),
@@ -416,6 +433,7 @@ async def create_driver(payload: CreateCompanyUserRequest, admin: CompanyAdminUs
 @router.get("/companies")
 async def list_companies(
     admin: AdminUser,
+    db: AsyncSession = Depends(get_db_session),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     search: str | None = None,
@@ -423,7 +441,7 @@ async def list_companies(
     """List companies. Reuses the existing CompanyRepository unchanged."""
     from app.repositories.company_repository import CompanyRepository
 
-    company_repo = CompanyRepository()
+    company_repo = CompanyRepository(session=db)
     companies, total = await company_repo.get_all_companies(page, page_size, search=search)
     return success(
         {
@@ -477,16 +495,16 @@ def _company_out(c) -> dict:
 
 
 @router.post("/companies", status_code=201)
-async def create_company(payload: CompanyCreateRequest, admin: AdminUser) -> dict:
+async def create_company(payload: CompanyCreateRequest, admin: AdminUser, db: AsyncSession = Depends(get_db_session)) -> dict:
     from app.repositories.company_repository import CompanyRepository
 
-    company_repo = CompanyRepository()
+    company_repo = CompanyRepository(session=db)
     company = await company_repo.create_company(**payload.model_dump(exclude_unset=True))
     return success(_company_out(company), message="Company created successfully.")
 
 
 @router.patch("/companies/{company_id}")
-async def update_company(company_id: str, payload: CompanyUpdateRequest, admin: AdminUser) -> dict:
+async def update_company(company_id: str, payload: CompanyUpdateRequest, admin: AdminUser, db: AsyncSession = Depends(get_db_session)) -> dict:
     from app.repositories.base import to_uuid
     from app.repositories.company_repository import CompanyRepository
 
@@ -494,7 +512,7 @@ async def update_company(company_id: str, payload: CompanyUpdateRequest, admin: 
     updates = payload.model_dump(exclude_unset=True)
     if key is None or not updates:
         raise NotFoundError("Company not found.")
-    company_repo = CompanyRepository()
+    company_repo = CompanyRepository(session=db)
     company = await company_repo.update_company(key, **updates)
     if company is None:
         raise NotFoundError("Company not found.")
@@ -502,14 +520,14 @@ async def update_company(company_id: str, payload: CompanyUpdateRequest, admin: 
 
 
 @router.delete("/companies/{company_id}")
-async def delete_company(company_id: str, admin: AdminUser) -> dict:
+async def delete_company(company_id: str, admin: AdminUser, db: AsyncSession = Depends(get_db_session)) -> dict:
     from app.repositories.base import to_uuid
     from app.repositories.company_repository import CompanyRepository
 
     key = to_uuid(company_id)
     if key is None:
         raise NotFoundError("Company not found.")
-    company_repo = CompanyRepository()
+    company_repo = CompanyRepository(session=db)
     company = await company_repo.soft_delete_company(key)
     if company is None:
         raise NotFoundError("Company not found.")
@@ -543,6 +561,7 @@ async def list_approval_logs(
 @router.get("/audit-logs")
 async def list_audit_logs(
     admin: AdminUser,
+    db: AsyncSession = Depends(get_db_session),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     action: str | None = None,
@@ -550,7 +569,7 @@ async def list_audit_logs(
     entity_id: str | None = None,
 ) -> dict:
     """List audit logs."""
-    audit_repo = AuditLogRepository()
+    audit_repo = AuditLogRepository(session=db)
     logs, total = await audit_repo.find_all(page, page_size, action, entity_type, entity_id)
     return success(
         {
@@ -568,9 +587,10 @@ async def list_audit_logs(
 async def get_audit_log(
     log_id: str,
     admin: AdminUser,
+    db: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Get an audit log by ID."""
-    audit_repo = AuditLogRepository()
+    audit_repo = AuditLogRepository(session=db)
     log = await audit_repo.find_by_id(log_id)
     if not log:
         from app.core.exceptions import NotFoundError
@@ -583,6 +603,7 @@ async def get_audit_log(
 @router.get("/vehicles")
 async def list_vehicles(
     admin: CompanyAdminUser,
+    db: AsyncSession = Depends(get_db_session),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: str | None = None,
@@ -593,13 +614,13 @@ async def list_vehicles(
     from app.repositories.vehicle_repository import VehicleRepository
     from app.api.v1.dashboards import _vehicle_dict
 
-    vehicle_repo = VehicleRepository()
+    vehicle_repo = VehicleRepository(session=db)
     vehicles, total = await vehicle_repo.get_all_vehicles(
         page=page,
         page_size=page_size,
         status=status,
         search=search,
-        company_id=await effective_company_id(admin),
+        company_id=await effective_company_id(admin, db),
     )
     items = [await _vehicle_dict(v) for v in vehicles]
     return success(
@@ -615,7 +636,7 @@ async def list_vehicles(
 
 
 @router.get("/vehicles/{vehicle_id}")
-async def get_vehicle(vehicle_id: str, admin: CompanyAdminUser) -> dict:
+async def get_vehicle(vehicle_id: str, admin: CompanyAdminUser, db: AsyncSession = Depends(get_db_session)) -> dict:
     """Get a vehicle by ID. Company Admin may only view vehicles in their own
     company."""
     from app.repositories.base import to_uuid
@@ -625,7 +646,7 @@ async def get_vehicle(vehicle_id: str, admin: CompanyAdminUser) -> dict:
     key = to_uuid(vehicle_id)
     if key is None:
         raise NotFoundError("Vehicle not found.")
-    vehicle_repo = VehicleRepository()
+    vehicle_repo = VehicleRepository(session=db)
     vehicle = await vehicle_repo.find_by_id(str(key))
     if vehicle is None:
         raise NotFoundError("Vehicle not found.")

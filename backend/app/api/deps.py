@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import Depends, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
     ForbiddenError,
@@ -15,15 +16,20 @@ from app.core.exceptions import (
 )
 from app.core.rbac import is_admin, is_super_admin, passes_role
 from app.core.security import decode_token
+from app.database.db import get_db_session
 from app.models.enums import RegistrationStatus, UserRole
 from app.models.user import User
+from app.repositories.user_repository import UserRepository
 from app.services.user_service import user_service
 from app.utils.pagination import PageParams, page_from_params
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
-async def _extract_user(request: Request) -> User:
+async def _extract_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),
+) -> User:
     credentials: HTTPAuthorizationCredentials | None = await _bearer_scheme(request)
     if credentials is None or not credentials.credentials:
         raise UnauthorizedError()
@@ -35,7 +41,8 @@ async def _extract_user(request: Request) -> User:
     except TokenInvalidError as exc:
         raise UnauthorizedError() from exc
 
-    user = await user_service.get_by_id(payload.subject)
+    repo = UserRepository(session=db)
+    user = await repo.find_by_id(payload.subject)
     if user is None:
         raise UnauthorizedError()
     # Authorization must use the same "active" condition as ``authenticate``

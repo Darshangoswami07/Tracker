@@ -20,7 +20,7 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.core.exceptions import AppError
 from app.database.db import close_database, init_database
-from app.middlewares.rate_limit import RateLimitMiddleware
+from app.middlewares.rate_limit import RateLimitMiddleware, close_rate_limiter
 from app.middlewares.security_headers import SecurityHeadersMiddleware
 from app.utils.responses import error
 
@@ -30,6 +30,7 @@ async def lifespan(_: FastAPI):
     logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
     await init_database()
     yield
+    await close_rate_limiter()
     await close_database()
 
 

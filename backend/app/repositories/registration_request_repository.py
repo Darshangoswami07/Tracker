@@ -6,6 +6,7 @@ from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database.db import session_scope
@@ -15,8 +16,8 @@ from app.repositories.base import BaseRepository
 
 
 class RegistrationRequestRepository(BaseRepository[RegistrationRequest]):
-    def __init__(self) -> None:
-        super().__init__(RegistrationRequest)
+    def __init__(self, session: AsyncSession | None = None) -> None:
+        super().__init__(RegistrationRequest, session)
 
     async def find_by_email(self, email: str) -> Optional[RegistrationRequest]:
         return await self._scalar_first(RegistrationRequest.email == email.lower())
@@ -34,7 +35,7 @@ class RegistrationRequestRepository(BaseRepository[RegistrationRequest]):
         search: Optional[str] = None,
         role: Optional[str] = None,
     ) -> tuple[list[RegistrationRequest], int]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = select(RegistrationRequest).where(
                 RegistrationRequest.status == "pending"
             )
@@ -60,13 +61,13 @@ class RegistrationRequestRepository(BaseRepository[RegistrationRequest]):
 
     async def count_pending(self) -> int:
         """Get total count of pending registration requests."""
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = select(func.count()).where(RegistrationRequest.status == "pending")
             return await session.scalar(stmt) or 0
 
     async def get_stats(self) -> dict:
         """Get aggregate statistics for registration requests."""
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             now = datetime.utcnow()
             start_of_today = datetime(now.year, now.month, now.day)
 
@@ -98,7 +99,7 @@ class RegistrationRequestRepository(BaseRepository[RegistrationRequest]):
         status: Optional[str] = None,
         search: Optional[str] = None,
     ) -> tuple[list[RegistrationRequest], int]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             stmt = select(RegistrationRequest)
             if status:
                 stmt = stmt.where(RegistrationRequest.status == status)
@@ -131,7 +132,7 @@ class RegistrationRequestRepository(BaseRepository[RegistrationRequest]):
         requested_role: str = "employee",
         company_id: Optional[UUID] = None,
     ) -> RegistrationRequest:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             request = RegistrationRequest(
                 firstName=first_name.strip(),
                 lastName=last_name.strip(),
@@ -163,7 +164,7 @@ class RegistrationRequestRepository(BaseRepository[RegistrationRequest]):
         Required because the email/phone columns are unique; inserting a fresh row
         would violate the constraint. Reusing the row keeps the audit history intact.
         """
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             request = await session.get(RegistrationRequest, request_id)
             if request is None:
                 return None
@@ -202,7 +203,7 @@ class RegistrationRequestRepository(BaseRepository[RegistrationRequest]):
         company_id: Optional[UUID] = None,
     ) -> Optional[RegistrationRequest]:
         """Update an existing PENDING registration request with new information."""
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             request = await session.get(RegistrationRequest, request_id)
             if request is None:
                 return None
@@ -227,7 +228,7 @@ class RegistrationRequestRepository(BaseRepository[RegistrationRequest]):
         rejected: bool = False,
         reason: str | None = None,
     ) -> Optional[RegistrationRequest]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             request = await session.get(RegistrationRequest, request_id)
             if request is None:
                 return None
@@ -253,7 +254,7 @@ class RegistrationRequestRepository(BaseRepository[RegistrationRequest]):
         request_id: UUID,
         admin_id: UUID,
     ) -> Optional[RegistrationRequest]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             request = await session.get(RegistrationRequest, request_id)
             if request is None:
                 return None
@@ -272,7 +273,7 @@ class RegistrationRequestRepository(BaseRepository[RegistrationRequest]):
         admin_id: UUID,
         reason: str,
     ) -> Optional[RegistrationRequest]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             request = await session.get(RegistrationRequest, request_id)
             if request is None:
                 return None
@@ -290,7 +291,7 @@ class RegistrationRequestRepository(BaseRepository[RegistrationRequest]):
         self,
         request_id: UUID,
     ) -> Optional[RegistrationRequest]:
-        async with session_scope() as session:
+        async with session_scope(self._session) as session:
             request = await session.get(RegistrationRequest, request_id)
             if request is None:
                 return None

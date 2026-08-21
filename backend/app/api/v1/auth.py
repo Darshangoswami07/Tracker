@@ -21,6 +21,8 @@ from app.schemas.auth import (
 from app.services.auth_service import auth_service
 from app.services.registration_service import registration_service
 from app.utils.responses import success
+from app.workers import tasks as email_tasks
+from app.workers.dispatch import dispatch_email
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -43,15 +45,17 @@ async def register(
         requested_role=UserRole(payload.requestedRole),
     )
 
-    # Email notifications are side effects — background them so SMTP (Gmail
-    # quota errors, timeouts) can never block a successful registration.
+    # Email notifications are side effects — dispatch them on the Celery worker
+    # when a broker is available, else fall back to an in-process background
+    # task, so SMTP (Gmail quota errors, timeouts) can never block a successful
+    # registration.
     if result.request is not None:
-        background_tasks.add_task(
-            registration_service.notify_admin_of_registration, result.request
+        dispatch_email(
+            background_tasks, email_tasks.notify_admin_of_registration, str(result.request.id)
         )
-    if result.otp:
-        background_tasks.add_task(
-            registration_service.send_user_otp_email, result.request, result.otp
+    if result.otp and result.request is not None:
+        dispatch_email(
+            background_tasks, email_tasks.send_user_otp_email, str(result.request.id), result.otp
         )
 
     if result.flow == "login":

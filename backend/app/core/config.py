@@ -5,7 +5,7 @@ import secrets
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 EnvName = Literal["development", "test", "production"]
@@ -49,8 +49,10 @@ class Settings(BaseSettings):
     S3_SECRET_KEY: str = ""
 
     # --- Security ----------------------------------------------------------
-    # Override in production. A per-process random key is generated when the
-    # value is the default, which invalidates tokens on restart.
+    # Must be set explicitly in production (>= 32 chars): leaving the dev
+    # default generates a per-process random key, which invalidates tokens on
+    # restart and rejects tokens signed by other API instances (see the
+    # SECRET_KEY validator below).
     SECRET_KEY: str = "insecure-development-secret-change-me"
     ALGORITHM: str = "HS256"
     JWT_ISSUER: str = "deliveryhub"
@@ -80,14 +82,24 @@ class Settings(BaseSettings):
     RATE_LIMIT_WHITELIST: str = "/health,/docs,/redoc,/openapi.json"
 
     # --- Redis / Celery ----------------------------------------------------
-    # Broker and result backend used by the Celery worker. In production point
-    # these at a managed Redis instance; a local `redis://localhost:6379/0` is
-    # the default for development.
+    # Canonical Redis connection string. Celery's broker and result backend
+    # default to it when not set explicitly (see _redis_defaults), so the
+    # managed Redis endpoint is configured in one place. Managed hosts require
+    # TLS, hence the rediss:// scheme (e.g.
+    # `rediss://default:<UPSTASH_TOKEN>@<host>.upstash.io:6379`). A local
+    # `redis://localhost:6379/0` is the default for development.
     REDIS_URL: str = "redis://localhost:6379/0"
-    CELERY_BROKER_URL: str = "redis://localhost:6379/1"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
+    CELERY_BROKER_URL: str = ""
+    CELERY_RESULT_BACKEND: str = ""
     CELERY_TASK_ALWAYS_EAGER: bool = False
     CELERY_TASK_DEFAULT_QUEUE: str = "deliveryhub"
+    # When the Celery broker is unreachable, may the API process fall back to
+    # running email side effects in-process instead of dropping them?
+    # * None (default) — development/test: fall back (Redis is optional locally,
+    #   flows must keep working); production: fail closed (expensive async work
+    #   must never silently run inside the API process because Redis is down).
+    # * True/False — explicit override for any environment.
+    CELERY_FALLBACK_IN_PROCESS: bool | None = None
 
     # --- WebSockets ---------------------------------------------------------
     # Backlog size for the per-user WebSocket notification queues before the
@@ -147,12 +159,38 @@ class Settings(BaseSettings):
 
     @field_validator("SECRET_KEY")
     @classmethod
-    def validate_secret_key(cls, value: str) -> str:
+    def validate_secret_key(cls, value: str, info: ValidationInfo) -> str:
         if value in {"insecure-development-secret-change-me", "change-me"}:
+            if info.data.get("ENV") == "production":
+                raise ValueError(
+                    "SECRET_KEY must be set explicitly in production. "
+                    "A per-process random key is only safe for local "
+                    "development: it would invalidate every token on restart "
+                    "and reject tokens signed by other API instances."
+                )
             return secrets.token_urlsafe(48)
         if len(value) < 32:
             raise ValueError("SECRET_KEY must be at least 32 characters long")
         return value
+
+    @model_validator(mode="after")
+    def _redis_defaults(self) -> "Settings":
+        # Celery broker/result backend default to the canonical REDIS_URL so a
+        # single variable configures Redis everywhere. Explicit overrides are
+        # still honoured when set.
+        if not self.CELERY_BROKER_URL:
+            self.CELERY_BROKER_URL = self.REDIS_URL
+        if not self.CELERY_RESULT_BACKEND:
+            self.CELERY_RESULT_BACKEND = self.REDIS_URL
+        # Celery requires an explicit ssl_cert_reqs on rediss:// URLs (its Redis
+        # backend raises otherwise). Upstash presents a valid certificate, so
+        # require verification rather than silently disabling it.
+        for attr in ("CELERY_BROKER_URL", "CELERY_RESULT_BACKEND"):
+            url = getattr(self, attr)
+            if "rediss://" in url and "ssl_cert_reqs=" not in url:
+                sep = "&" if "?" in url else "?"
+                setattr(self, attr, f"{url}{sep}ssl_cert_reqs=CERT_REQUIRED")
+        return self
 
     @property
     def cors_origins(self) -> list[str]:
@@ -182,6 +220,20 @@ class Settings(BaseSettings):
             for path in self.RATE_LIMIT_WHITELIST.split(",")
             if path.strip()
         ]
+
+    @property
+    def celery_fallback_in_process(self) -> bool:
+        """Whether email side effects may fall back to in-process execution.
+
+        Explicit ``CELERY_FALLBACK_IN_PROCESS`` wins; otherwise the default is
+        derived from the environment: local development/test may fall back so a
+        missing Redis never breaks a flow, while production fails closed so a
+        broker outage surfaces instead of quietly running async work inside the
+        API process.
+        """
+        if self.CELERY_FALLBACK_IN_PROCESS is not None:
+            return self.CELERY_FALLBACK_IN_PROCESS
+        return self.ENV != "production"
 
 
 @lru_cache

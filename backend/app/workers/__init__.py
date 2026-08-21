@@ -1,0 +1,1 @@
+"""Celery worker package for out-of-band side effects (email sends)."""
