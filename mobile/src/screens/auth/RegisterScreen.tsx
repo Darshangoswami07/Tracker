@@ -31,13 +31,19 @@ const ACCOUNT_TYPE_TO_ROLE: Record<'admin', RequestedRole> = {
   admin: 'admin',
 };
 
+const HEADING_FOR: Record<RegisterAccountType, string> = {
+  admin: STRINGS.createAccount,
+  staff: STRINGS.staffSignupTitle,
+};
+
 export const RegisterScreen = ({ navigation, route }: Props) => {
   const { colors, spacing } = useAppTheme();
-  const register = useAuth().register;
+  const { register, registerStaff } = useAuth();
   const saveRegistration = useRegistrationStore((state) => state.save);
 
   // The role is fixed by the role-selection screen; the form must never re-ask.
   const accountType: RegisterAccountType = route.params?.accountType ?? 'admin';
+  const isStaff = accountType === 'staff';
 
   const { control, handleSubmit } = useForm<RegisterValues>({
     resolver: zodResolver(registerSchemaFor(accountType)),
@@ -53,11 +59,30 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
     },
   });
 
-  const activeError = register.error;
-  const submitting = register.isPending;
+  const activeError = isStaff ? registerStaff.error : register.error;
+  const submitting = isStaff ? registerStaff.isPending : register.isPending;
 
   const onSubmit = (values: RegisterValues) => {
-    const role = ACCOUNT_TYPE_TO_ROLE[accountType];
+    if (isStaff) {
+      // Self-service Staff signup — no company, no OTP/email. PENDING until
+      // an Admin approves it from the Staff Approvals screen.
+      registerStaff.mutate(
+        {
+          fullName: `${values.firstName.trim()} ${values.lastName.trim()}`.trim(),
+          email: values.email.trim().toLowerCase(),
+          phone: values.phone.trim(),
+          password: values.password,
+        },
+        {
+          onSuccess: () => {
+            navigation.replace('StaffApprovalPending');
+          },
+        }
+      );
+      return;
+    }
+
+    const role = ACCOUNT_TYPE_TO_ROLE.admin;
     const payload: RegisterPayload = {
       firstName: values.firstName.trim(),
       lastName: values.lastName.trim(),
@@ -86,7 +111,7 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
 
       <View style={{ height: spacing.xl }} />
 
-      <ScreenHeading title={STRINGS.createAccount} align="center" />
+      <ScreenHeading title={HEADING_FOR[accountType]} align="center" />
 
       <View style={{ height: spacing.xxl - 4 }} />
 
@@ -113,16 +138,18 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
           textContentType="familyName"
           returnKeyType="next"
         />
-        <FormTextBox
-          control={control}
-          name="companyName"
-          label={STRINGS.companyName}
-          icon="business-outline"
-          placeholder={STRINGS.companyNamePlaceholder}
-          autoCapitalize="words"
-          textContentType="organizationName"
-          returnKeyType="next"
-        />
+        {!isStaff && (
+          <FormTextBox
+            control={control}
+            name="companyName"
+            label={STRINGS.companyName}
+            icon="business-outline"
+            placeholder={STRINGS.companyNamePlaceholder}
+            autoCapitalize="words"
+            textContentType="organizationName"
+            returnKeyType="next"
+          />
+        )}
         <FormTextBox
           control={control}
           name="email"

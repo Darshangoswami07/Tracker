@@ -144,12 +144,13 @@ CompanyAdminUser = Annotated[User, Depends(_require_company_admin)]
 
 def _require_gr_access(user: CurrentUser) -> User:
     """Roles permitted to use GR Shipment / Customer Tracking / GR Tracker
-    Classic: Super Admin (global), Company Admin, Staff, Driver — each scoped
-    to their own company by the caller via ``app.core.tenancy``."""
+    Classic: Super Admin (global), Company Admin, Staff (EMPLOYEE and the
+    self-service STAFF portal role), Driver — each scoped to their own
+    company by the caller via ``app.core.tenancy``."""
     if (
         is_admin(user.role)
         or passes_role(user.role, UserRole.BUSINESS, UserRole.BUSINESS_OWNER)
-        or user.role in (UserRole.EMPLOYEE, UserRole.DRIVER)
+        or user.role in (UserRole.EMPLOYEE, UserRole.STAFF, UserRole.DRIVER)
     ):
         return user
     raise ForbiddenError()

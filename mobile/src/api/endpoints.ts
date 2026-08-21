@@ -4,6 +4,11 @@ export const ENDPOINTS = {
     login: '/auth/login',
     logout: '/auth/logout',
     refresh: '/auth/refresh',
+    /** Separate Staff/Admin self-service portals — each only ever
+     * authenticates its own role server-side (see `backend/app/api/v1/staff.py`). */
+    staffRegister: '/auth/staff/register',
+    staffLogin: '/auth/staff/login',
+    adminLogin: '/auth/admin/login',
   },
   registrationRequests: {
     create: '/registration-requests',
@@ -22,6 +27,14 @@ export const ENDPOINTS = {
     userStatus: (id: string) => `/admin/users/${id}/status`,
     resendUserOTP: (id: string) => `/admin/users/${id}/resend-otp`,
     approvalLogs: '/admin/approval-logs',
+    /** Staff Approvals — separate from `pendingRequests` above (the
+     * OTP/registration-request queue): the self-service Staff portal, no
+     * OTP/email, available to a plain Admin (not Super-Admin-only). */
+    staffApprovals: {
+      list: '/admin/staff-approvals',
+      approve: (id: string) => `/admin/staff-approvals/${id}/approve`,
+      reject: (id: string) => `/admin/staff-approvals/${id}/reject`,
+    },
     auditLogs: '/admin/audit-logs',
     /** Driver picker for GR assignment — `/admin/users?role=employee` (Staff
      * picker) reuses the existing `users` entry above with a `role` param. */

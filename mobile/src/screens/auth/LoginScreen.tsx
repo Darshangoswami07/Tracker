@@ -23,9 +23,13 @@ import type { AuthStackParamList } from '../../navigation/types';
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
 /** Cosmetic-only heading per account type; the login form/logic is identical
- *  for every role — the backend, not this selection, decides who the user is. */
-const LOGIN_HEADINGS: Record<'admin', string> = {
-  admin: 'Admin Login',
+ *  for every role — the backend, not this selection, decides who the user is.
+ *  Each account type still hits its own dedicated portal endpoint
+ *  (`/auth/staff/login` vs `/auth/admin/login`), so the separation is
+ *  backend-enforced, not just a label swap. */
+const LOGIN_HEADINGS: Record<'admin' | 'staff', string> = {
+  admin: STRINGS.adminLoginTitle,
+  staff: STRINGS.staffLoginTitle,
 };
 
 export const LoginScreen = ({ navigation, route }: Props) => {
@@ -48,12 +52,14 @@ export const LoginScreen = ({ navigation, route }: Props) => {
 
   const onSubmit = (values: LoginValues) => {
     setRememberMe(values.rememberMe, values.email);
-    login.mutate({ email: values.email.trim().toLowerCase(), password: values.password });
+    login.mutate({ email: values.email.trim().toLowerCase(), password: values.password, accountType });
   };
 
   // Handle different error codes for account status
   const errorCode = login.error?.code;
+  const isStaffPortal = accountType === 'staff';
   const showPendingMessage = errorCode === 'user_inactive';
+  const showRejectedMessage = isStaffPortal && errorCode === 'user_not_approved';
   const showApprovedMessage = errorCode === 'user_not_verified';
 
   // Auto-navigate to OTP verification if account is approved but not verified
@@ -63,7 +69,7 @@ export const LoginScreen = ({ navigation, route }: Props) => {
   return (
     <AuthScaffold hero={<HeroBanner />}>
 
-      <AnimatedHeader onBack={() => navigation.navigate('Welcome')} />
+      <AnimatedHeader onBack={() => navigation.navigate(accountType ? 'RoleSelection' : 'Welcome')} />
 
       <View style={[styles.center, { marginTop: 24 }]}>
         <Logo />
@@ -79,7 +85,11 @@ export const LoginScreen = ({ navigation, route }: Props) => {
         <FormNotice error={login.error} />
 
         {showPendingMessage && (
-          <FormNotice message={STRINGS.accountPending} />
+          <FormNotice message={isStaffPortal ? STRINGS.staffAccountPending : STRINGS.accountPending} />
+        )}
+
+        {showRejectedMessage && (
+          <FormNotice message={STRINGS.staffAccountRejected} />
         )}
 
         {showApprovedMessage && (
@@ -100,7 +110,16 @@ export const LoginScreen = ({ navigation, route }: Props) => {
         {showPendingMessage && (
           <PrimaryButton
             label="View Status"
-            onPress={() => navigation.navigate('ApprovalPending')}
+            onPress={() =>
+              navigation.navigate(isStaffPortal ? 'StaffApprovalPending' : 'ApprovalPending')
+            }
+          />
+        )}
+
+        {showRejectedMessage && (
+          <PrimaryButton
+            label="View Details"
+            onPress={() => navigation.navigate('StaffRejected', { reason: login.error?.message })}
           />
         )}
 
@@ -146,8 +165,10 @@ export const LoginScreen = ({ navigation, route }: Props) => {
       />
 
       <View style={[styles.footerRow, { marginTop: spacing.xxl }]}>
-        <Text style={[styles.footerText, { color: colors.textSecondary }]}>{STRINGS.noAccount} </Text>
-        <TextLink label="Create one" onPress={() => navigation.navigate('Register', { accountType })} />
+        <Text style={[styles.footerText, { color: colors.textSecondary }]}>
+          {isStaffPortal ? STRINGS.noStaffAccount : accountType === 'admin' ? STRINGS.noAdminAccount : STRINGS.noAccount}{' '}
+        </Text>
+        <TextLink label="Sign Up" onPress={() => navigation.navigate('Register', { accountType })} />
       </View>
     </AuthScaffold>
   );

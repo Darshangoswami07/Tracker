@@ -5,6 +5,7 @@ import {
   login as loginApi,
   logout as logoutApi,
   register as registerApi,
+  registerStaff as registerStaffApi,
   verifyOTP as verifyOTPApi,
   verifyPasswordResetOTP as verifyPasswordResetOTPApi,
 } from '../features/auth/api/authApi';
@@ -13,6 +14,7 @@ import type {
   LoginPayload,
   OTPVerificationPayload,
   RegisterPayload,
+  StaffRegisterPayload,
   VerifyPasswordResetOTPPayload,
 } from '../features/auth/types';
 import { useAuthStore } from '../store/authStore';
@@ -45,6 +47,12 @@ export const useAuth = () => {
       // For registration requests, we don't set session immediately
       // The user must wait for admin approval and OTP verification
     },
+  });
+
+  const registerStaffMutation = useMutation({
+    mutationFn: (payload: StaffRegisterPayload) => registerStaffApi(payload),
+    // No session set here either — Staff waits for Admin approval, same as
+    // the Admin registration flow above.
   });
 
   const verifyOTPMutation = useMutation({
@@ -82,6 +90,10 @@ export const useAuth = () => {
     register: {
       ...registerMutation,
       error: registerMutation.error ? toAppError(registerMutation.error) : null,
+    },
+    registerStaff: {
+      ...registerStaffMutation,
+      error: registerStaffMutation.error ? toAppError(registerStaffMutation.error) : null,
     },
     verifyOTP: {
       ...verifyOTPMutation,

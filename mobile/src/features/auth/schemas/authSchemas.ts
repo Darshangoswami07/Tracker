@@ -25,10 +25,10 @@ export const loginSchema = z.object({
   rememberMe: z.boolean(),
 });
 
-/** Which account a user picked on the role-selection screen (Admin only). */
+/** Which account a user picked on the role-selection screen. */
 export type { RegisterAccountType };
 
-export const requestedRole = z.enum(['admin']);
+export const requestedRole = z.enum(['admin', 'staff']);
 
 const registerBaseSchema = z
   .object({
@@ -58,9 +58,11 @@ const registerBaseSchema = z
 
 /** Register form schema for a specific account type (the role is fixed by the
  * route, so the form never re-asks the user to pick one). */
-export const registerSchemaFor = (_accountType: RegisterAccountType) =>
+export const registerSchemaFor = (accountType: RegisterAccountType) =>
   registerBaseSchema.superRefine((values, ctx) => {
-    // Admin types their own company (the backend creates/finds it).
+    // Admin types their own company (the backend creates/finds it). Staff
+    // has no company field — they're assigned one by the approving Admin.
+    if (accountType !== 'admin') return;
     if (!values.companyName || values.companyName.trim().length === 0) {
       ctx.addIssue({
         path: ['companyName'],

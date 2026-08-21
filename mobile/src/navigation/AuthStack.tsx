@@ -11,6 +11,9 @@ import { RegistrationPendingScreen } from '../screens/auth/RegistrationPendingSc
 import { RegistrationRejectedScreen } from '../screens/auth/RegistrationRejectedScreen';
 import { RegistrationSuccessScreen } from '../screens/auth/RegistrationSuccessScreen';
 import { ResetPasswordScreen } from '../screens/auth/ResetPasswordScreen';
+import { RoleSelectionScreen } from '../screens/auth/RoleSelectionScreen';
+import { StaffApprovalPendingScreen } from '../screens/auth/StaffApprovalPendingScreen';
+import { StaffRejectedScreen } from '../screens/auth/StaffRejectedScreen';
 import { TermsScreen } from '../screens/auth/TermsScreen';
 import { PrivacyScreen } from '../screens/auth/PrivacyScreen';
 import { WelcomeScreen } from '../screens/auth/WelcomeScreen';
@@ -37,6 +40,7 @@ export const AuthStack = () => {
       }}
     >
       <Stack.Screen name="Welcome" component={WelcomeScreen} />
+      <Stack.Screen name="RoleSelection" component={RoleSelectionScreen} />
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />
       <Stack.Screen name="Terms" component={TermsScreen} />
@@ -48,6 +52,8 @@ export const AuthStack = () => {
       <Stack.Screen name="RegistrationRejected" component={RegistrationRejectedScreen} />
       <Stack.Screen name="RegistrationSuccess" component={RegistrationSuccessScreen} />
       <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+      <Stack.Screen name="StaffApprovalPending" component={StaffApprovalPendingScreen} />
+      <Stack.Screen name="StaffRejected" component={StaffRejectedScreen} />
     </Stack.Navigator>
   );
 };

@@ -97,6 +97,26 @@ class UserRepository(BaseRepository[User]):
                 record.isApproved = False
             return True
 
+    async def approve_staff(self, user_id: str, company_id) -> bool:
+        """Activates a self-service Staff (STAFF role) account, assigning it
+        to the approving Admin's company in the same transaction.
+
+        Skips the OTP intermediate state used by the registration_requests
+        flow entirely — Staff goes straight from ``pending`` to ``active``.
+        """
+        async with session_scope(self._session) as session:
+            from app.repositories.base import to_uuid
+
+            record = await session.get(User, to_uuid(user_id))
+            if record is None:
+                return False
+            record.status = "active"
+            record.isActive = True
+            record.isApproved = True
+            record.isVerified = True
+            record.companyId = company_id
+            return True
+
     async def delete_by_id(self, user_id: str) -> bool:
         record = await self.find_by_id(user_id)
         if record is None:

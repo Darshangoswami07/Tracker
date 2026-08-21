@@ -17,6 +17,7 @@ from app.models.enums import UserRole
 # Maps each role to its rank. Higher rank = higher privilege.
 ROLE_RANK: dict[UserRole, int] = {
     UserRole.CUSTOMER: 0,
+    UserRole.STAFF: 5,
     UserRole.EMPLOYEE: 10,
     UserRole.DRIVER: 20,
     UserRole.DISPATCHER: 30,

@@ -12,13 +12,31 @@ import type {
   RefreshPayload,
   RegistrationRequestPayload,
   RegistrationRequestResult,
+  StaffRegisterPayload,
+  StaffRegisterResult,
   VerifyPasswordResetOTPPayload,
 } from '../types';
 
+/** Picks the right portal endpoint for `accountType` — Staff and Admin each
+ * authenticate through their own, separate, backend-enforced endpoint.
+ * Omitting `accountType` falls back to the original generic `/auth/login`. */
+const LOGIN_ENDPOINT_FOR: Record<'admin' | 'staff', string> = {
+  admin: ENDPOINTS.auth.adminLogin,
+  staff: ENDPOINTS.auth.staffLogin,
+};
+
 /** Performs a login request and stores the session tokens + user. */
-export const login = async (payload: LoginPayload): Promise<AuthResult> => {
-  const response = await apiClient.post<unknown>(ENDPOINTS.auth.login, payload);
+export const login = async ({ accountType, ...payload }: LoginPayload): Promise<AuthResult> => {
+  const endpoint = accountType ? LOGIN_ENDPOINT_FOR[accountType] : ENDPOINTS.auth.login;
+  const response = await apiClient.post<unknown>(endpoint, payload);
   return unwrap<AuthResult>(response);
+};
+
+/** Submits a self-service Staff signup — no OTP/email, PENDING until an
+ * Admin approves it from the Staff Approvals screen. */
+export const registerStaff = async (payload: StaffRegisterPayload): Promise<StaffRegisterResult> => {
+  const response = await apiClient.post<unknown>(ENDPOINTS.auth.staffRegister, payload);
+  return unwrap<StaffRegisterResult>(response);
 };
 
 /** Submits a registration request pending admin approval. */

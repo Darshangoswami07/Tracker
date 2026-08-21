@@ -61,11 +61,20 @@ export const getDrawerMenu = (role: Role): DrawerMenuSection[] => {
   const actions: DrawerMenuItem[] = [HELP, LOGOUT];
 
   switch (role) {
+    case ROLES.STAFF:
+      main.push(
+        { key: 'dashboard', label: 'Dashboard', icon: 'grid-outline', screen: 'StaffDashboard' },
+        { key: 'deliveries', label: 'Deliveries', icon: 'reader-outline', screen: 'StaffDeliveries' },
+      );
+      secondary.push(NOTIFICATIONS, PROFILE, SETTINGS);
+      break;
+
     case ROLES.SUPER_ADMIN:
       main.push(
         { key: 'dashboard', label: 'Dashboard', icon: 'grid-outline', screen: 'AdminDashboard' },
         { key: 'pending-approvals', label: 'Pending Approvals', icon: 'time-outline', screen: 'PendingApprovals' },
         { key: 'staff-management', label: 'Staff Management', icon: 'people-circle-outline', screen: 'StaffManagement' },
+        { key: 'staff-approvals', label: 'Staff Approvals', icon: 'checkmark-done-circle-outline', screen: 'StaffApprovals' },
         { key: 'gr-shipments', label: 'GR / Shipments', icon: 'reader-outline', screen: 'GRShipments' },
         { key: 'customer-tracking', label: 'Customer Tracking', icon: 'search-outline', screen: 'CustomerTracking' },
         { key: 'gr-tracker-classic', label: 'GR Tracker (Classic)', icon: 'time-outline', screen: 'GRTrackerClassic' },
@@ -75,10 +84,13 @@ export const getDrawerMenu = (role: Role): DrawerMenuSection[] => {
 
     case ROLES.ADMIN:
     default:
-      // Pending Approvals and Staff Management are Super Admin-only — a plain
-      // Admin's backing endpoints for the former are also locked server-side.
+      // Pending Approvals and Staff Management (the OTP/registration-request
+      // flow) are Super Admin-only — a plain Admin's backing endpoints for
+      // those stay locked server-side. Staff Approvals (the separate
+      // self-service Staff portal's queue) is available to a plain Admin too.
       main.push(
         { key: 'dashboard', label: 'Dashboard', icon: 'grid-outline', screen: 'AdminDashboard' },
+        { key: 'staff-approvals', label: 'Staff Approvals', icon: 'checkmark-done-circle-outline', screen: 'StaffApprovals' },
         { key: 'gr-shipments', label: 'GR / Shipments', icon: 'reader-outline', screen: 'GRShipments' },
         { key: 'customer-tracking', label: 'Customer Tracking', icon: 'search-outline', screen: 'CustomerTracking' },
         { key: 'gr-tracker-classic', label: 'GR Tracker (Classic)', icon: 'time-outline', screen: 'GRTrackerClassic' },

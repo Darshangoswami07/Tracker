@@ -63,6 +63,44 @@ class LoginRequest(BaseModel):
     role: UserRole | None = None
 
 
+class StaffRegisterRequest(BaseModel):
+    """Self-service Staff signup — no company, no OTP/email approval."""
+
+    fullName: str = Field(min_length=2, max_length=120)
+    email: EmailStr
+    phone: str = Field(min_length=10, max_length=15)
+    password: str = Field(min_length=PASSWORD_MIN, max_length=PASSWORD_MAX)
+
+    @field_validator("fullName")
+    @classmethod
+    def full_name_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Full name cannot be blank")
+        return value.strip()
+
+    @field_validator("phone", mode="before")
+    @classmethod
+    def normalize_phone(cls, value: str) -> str:
+        value = value.strip()
+        digits = [ch for ch in value if ch.isdigit() or ch == "+"]
+        normalized = "".join(digits)
+        if not normalized.lstrip("+").isdigit():
+            raise ValueError("Phone must contain only digits and an optional leading +")
+        if not 10 <= len(normalized.lstrip("+")) <= 15:
+            raise ValueError("Phone number must be between 10 and 15 digits")
+        return normalized
+
+
+class StaffLoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1)
+
+
+class AdminLoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1)
+
+
 class RefreshRequest(BaseModel):
     refreshToken: str = Field(min_length=1)
 

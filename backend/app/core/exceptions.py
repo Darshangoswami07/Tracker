@@ -26,6 +26,12 @@ class InvalidCredentialsError(AppError):
     default_message = "Invalid email or password."
 
 
+class WrongPortalError(AppError):
+    status_code = 403
+    code = "wrong_portal"
+    default_message = "This account is registered under a different portal."
+
+
 class UserNotFoundError(AppError):
     status_code = 404
     code = "user_not_found"

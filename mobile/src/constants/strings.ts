@@ -52,6 +52,25 @@ export const STRINGS = {
   accountApprovedOTP: 'Your account has been approved. Please enter the OTP sent to your email to activate your account.',
   accountActive: 'Welcome back!',
 
+  // Role selection
+  chooseRoleTitle: 'Choose how you want to use',
+  chooseRoleBrand: 'DeliveryHub',
+  staffRoleTitle: 'Staff',
+  staffRoleSubtitle: 'Manage deliveries, assignments and fleet',
+  adminRoleTitle: 'Admin',
+  adminRoleSubtitle: 'Administration access',
+
+  // Staff portal
+  staffLoginTitle: 'Staff Login',
+  staffSignupTitle: 'Staff Signup',
+  adminLoginTitle: 'Admin Login',
+  adminSignupTitle: 'Admin Signup',
+  staffAccountPending:
+    'Your Staff account is waiting for Admin approval. Please try again after your account has been approved.',
+  staffAccountRejected: 'Your Staff account has been rejected. Please contact the administrator.',
+  noStaffAccount: "Don't have a Staff account?",
+  noAdminAccount: "Don't have an Admin account?",
+
   firstNamePlaceholder: 'Enter your first name',
   lastNamePlaceholder: 'Enter your last name',
   companyNamePlaceholder: 'Enter your company name',

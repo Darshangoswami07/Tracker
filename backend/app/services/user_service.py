@@ -8,6 +8,7 @@ from app.core.exceptions import (
     UserInactiveError,
     UserNotApprovedError,
     UserNotVerifiedError,
+    WrongPortalError,
 )
 from app.core.security import hash_password, verify_password_async
 from app.models.enums import RegistrationStatus, UserRole
@@ -86,6 +87,94 @@ class UserService:
             raise UserNotVerifiedError("Your account has been approved. Please verify the OTP sent to your email.")
         elif user.status != "active":
             raise UserInactiveError("Your account is not active.")
+
+        return user
+
+    # --- Staff/Admin portal (separate self-service auth surfaces) ----------
+
+    _PORTAL_LABELS: dict[UserRole, str] = {
+        UserRole.STAFF: "Staff",
+        UserRole.ADMIN: "Admin",
+        UserRole.SUPER_ADMIN: "Admin",
+    }
+
+    async def register_staff(
+        self, full_name: str, email: str, phone: str, password: str
+    ) -> User:
+        """Self-service Staff signup. Creates the user directly on the
+        ``users`` table — no ``RegistrationRequest`` row, no OTP, no email —
+        as ``PENDING`` until an Admin approves it (see ``approve_staff``)."""
+        if await self.repository.find_by_email(email, UserRole.STAFF) is not None:
+            raise EmailAlreadyRegisteredError(
+                "This email is already registered as Staff. Please sign in."
+            )
+        password_hash = hash_password(password)
+        return await self.repository.create(
+            full_name=full_name,
+            email=email,
+            phone=phone,
+            password_hash=password_hash,
+            role=UserRole.STAFF,
+            status="pending",
+            is_active=False,
+            is_approved=False,
+            is_verified=False,
+            otp_verified=False,
+            company_id=None,
+        )
+
+    async def authenticate_portal(
+        self, email: str, password: str, portal_roles: UserRole | tuple[UserRole, ...]
+    ) -> User:
+        """Verifies credentials for a role-scoped auth portal (Staff or
+        Admin). The account's real role must be one of ``portal_roles`` — a
+        correct password for an account registered under a different role
+        is rejected with a message naming the right portal, never silently
+        authenticated. Never reveals whether an account exists on a wrong
+        password (only checked once the password itself has verified).
+
+        ``portal_roles`` accepts more than one role so the Admin portal can
+        admit both ``ADMIN`` and ``SUPER_ADMIN`` accounts.
+        """
+        roles = (portal_roles,) if isinstance(portal_roles, UserRole) else tuple(portal_roles)
+        user: User | None = None
+        for role in roles:
+            user = await self.repository.find_by_email(email, role)
+            if user is not None:
+                break
+
+        if user is None:
+            other = await self.repository.find_by_email(email)
+            if other is not None and await verify_password_async(password, other.passwordHash):
+                label = self._PORTAL_LABELS.get(other.role, other.role.value.title())
+                raise WrongPortalError(
+                    f"This account is registered as {label}. Please use {label} Login."
+                )
+            raise InvalidCredentialsError()
+
+        if not await verify_password_async(password, user.passwordHash):
+            raise InvalidCredentialsError()
+
+        portal_label = self._PORTAL_LABELS.get(user.role, user.role.value.title())
+        if user.status == RegistrationStatus.PENDING:
+            if user.role == UserRole.STAFF:
+                raise UserInactiveError(
+                    "Your Staff account is waiting for Admin approval. "
+                    "Please try again after your account has been approved."
+                )
+            raise UserInactiveError("Your account is waiting for administrator approval.")
+        if user.status == RegistrationStatus.REJECTED:
+            if user.role == UserRole.STAFF:
+                raise UserNotApprovedError(
+                    "Your Staff account has been rejected. Please contact the administrator."
+                )
+            raise UserNotApprovedError("Your account has been rejected.")
+        if user.status == RegistrationStatus.APPROVED_PENDING_OTP and not user.otpVerified:
+            raise UserNotVerifiedError(
+                "Your account has been approved. Please verify the OTP sent to your email."
+            )
+        if user.status != RegistrationStatus.ACTIVE:
+            raise UserInactiveError(f"Your {portal_label} account is not active.")
 
         return user
 

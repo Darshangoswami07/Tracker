@@ -7,6 +7,7 @@ from enum import Enum
 class UserRole(str, Enum):
     CUSTOMER = "customer"
     EMPLOYEE = "employee"
+    STAFF = "staff"
     DRIVER = "driver"
     DISPATCHER = "dispatcher"
     BUSINESS = "business"

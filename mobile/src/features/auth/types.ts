@@ -4,21 +4,40 @@ import type { AuthResponse, TokenPair } from '../../types/token';
 export interface LoginPayload {
   email: string;
   password: string;
+  /** Which portal to authenticate against — picks `/auth/staff/login` vs
+   *  `/auth/admin/login`. Omitted defaults to the legacy `/auth/login`. */
+  accountType?: RegisterAccountType;
 }
 
-export type RequestedRole = 'admin';
+export type RequestedRole = 'admin' | 'staff';
 
-/** Which account a user picked on the role-selection screen (Admin only). */
-export type RegisterAccountType = 'admin';
+/** Which account a user picked on the role-selection screen. */
+export type RegisterAccountType = 'admin' | 'staff';
 
 /** Maps a backend requestedRole back to the UI account type used on auth screens. */
 export const ROLE_TO_ACCOUNT_TYPE: Record<RequestedRole, RegisterAccountType> = {
   admin: 'admin',
+  staff: 'staff',
 };
 
 /** Safe lookup for the UI account type; falls back to admin. */
 export const roleToAccountType = (role: RequestedRole | string): RegisterAccountType =>
   ROLE_TO_ACCOUNT_TYPE[role as RequestedRole] ?? 'admin';
+
+/** Payload for the self-service Staff signup (`POST /auth/staff/register`).
+ * No company field — Staff is assigned to the approving Admin's company at
+ * approval time, not at signup. */
+export interface StaffRegisterPayload {
+  fullName: string;
+  email: string;
+  phone: string;
+  password: string;
+}
+
+export interface StaffRegisterResult {
+  id: string;
+  status: 'pending';
+}
 
 export interface RegistrationRequestPayload {
   firstName: string;

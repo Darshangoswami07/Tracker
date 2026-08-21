@@ -2,6 +2,7 @@
 export const ROLES = {
   CUSTOMER: 'customer',
   EMPLOYEE: 'employee',
+  STAFF: 'staff',
   DRIVER: 'driver',
   DISPATCHER: 'dispatcher',
   BUSINESS: 'business',

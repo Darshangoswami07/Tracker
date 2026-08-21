@@ -3,8 +3,9 @@ import type { RegisterAccountType, RegistrationRequestResult } from '../features
 
 export type AuthStackParamList = {
   Welcome: undefined;
-  Login: { accountType?: 'admin' } | undefined;
-  Register: { accountType?: 'admin' } | undefined;
+  RoleSelection: undefined;
+  Login: { accountType?: RegisterAccountType } | undefined;
+  Register: { accountType?: RegisterAccountType } | undefined;
   Terms: undefined;
   Privacy: undefined;
   ForgotPassword: undefined;
@@ -19,6 +20,12 @@ export type AuthStackParamList = {
   RegistrationRejected: { requestId: string; reason: string; accountType?: RegisterAccountType };
   RegistrationSuccess: undefined;
   ResetPassword: { requestId: string };
+  /** Shown right after Staff signup, and when a PENDING Staff account tries
+   * to log in. No requestId — the self-service Staff flow doesn't use the
+   * `registration_requests` table at all. */
+  StaffApprovalPending: undefined;
+  /** Shown when a REJECTED Staff account tries to log in. */
+  StaffRejected: { reason?: string };
 };
 
 /** Screens reached from the Dashboard tab (overview + super-admin drill-downs).
@@ -31,6 +38,10 @@ export type DashboardStackParamList = {
   AdminDashboard: undefined;
   PendingApprovals: undefined;
   StaffManagement: undefined;
+  /** Separate from PendingApprovals/StaffManagement (the existing
+   * OTP/registration-request queue, Super-Admin-only) — the self-service
+   * Staff portal's approval queue, available to a plain Admin too. */
+  StaffApprovals: undefined;
   Analytics: undefined;
   AuditLogs: undefined;
   SystemHealth: undefined;
@@ -88,6 +99,38 @@ export type AdminTabParamList = {
   Tracking: NavigatorScreenParams<TrackingStackParamList> | undefined;
   GRTracker: NavigatorScreenParams<GRTrackerStackParamList> | undefined;
   More: NavigatorScreenParams<MoreStackParamList> | undefined;
+};
+
+/** Screens reached from the Staff shell's Dashboard tab. */
+export type StaffDashboardStackParamList = {
+  StaffDashboard: undefined;
+};
+
+/** Screens reached from the Staff shell's Deliveries tab (reuses the
+ * existing `StaffGRPanelScreen` unchanged). */
+export type StaffDeliveriesStackParamList = {
+  StaffDeliveries: undefined;
+};
+
+/** Screens reached from the Staff shell's More tab — reuses the same common
+ * screens the Admin shell uses, minus every Admin-only management screen. */
+export type StaffMoreStackParamList = {
+  StaffMore: undefined;
+  Notifications: undefined;
+  Profile: undefined;
+  EditProfile: undefined;
+  Settings: undefined;
+  ChangePassword: undefined;
+  HelpSupport: undefined;
+  About: undefined;
+};
+
+/** The Staff role's own small bottom-tab shell — deliberately smaller than
+ * `AdminTabParamList` and containing no Admin-only screens. */
+export type StaffTabParamList = {
+  StaffDashboardTab: NavigatorScreenParams<StaffDashboardStackParamList> | undefined;
+  StaffDeliveriesTab: NavigatorScreenParams<StaffDeliveriesStackParamList> | undefined;
+  StaffMoreTab: NavigatorScreenParams<StaffMoreStackParamList> | undefined;
 };
 
 export type RootStackParamList = {

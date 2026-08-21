@@ -10,6 +10,7 @@ export const ErrorCodes = {
   USER_INACTIVE: 'user_inactive',
   USER_NOT_APPROVED: 'user_not_approved',
   USER_NOT_VERIFIED: 'user_not_verified',
+  WRONG_PORTAL: 'wrong_portal',
   TOKEN_EXPIRED: 'token_expired',
   TOKEN_INVALID: 'token_invalid',
   RESET_TOKEN_INVALID: 'reset_token_invalid',

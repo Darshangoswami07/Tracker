@@ -1,6 +1,6 @@
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import { useUserStore } from '../store/userStore';
-import type { AdminTabParamList } from '../navigation/types';
+import type { AdminTabParamList, StaffTabParamList } from '../navigation/types';
 
 /**
  * Maps a role to the authenticated home screen. Used as the fallback target
@@ -8,6 +8,8 @@ import type { AdminTabParamList } from '../navigation/types';
  */
 export const getHomeScreenForRole = (role?: string): string => {
   switch (role) {
+    case 'staff':
+      return 'StaffDashboard';
     case 'admin':
     case 'super_admin':
     default:
@@ -22,10 +24,11 @@ export const getHomeScreenForRole = (role?: string): string => {
  * pushes it onto whichever stack the caller is actually in. That keeps
  * `goBack()` returning to the real previous screen regardless of which tab
  * opened it, instead of always jumping to one hardcoded owning tab. */
-const SCREEN_TO_TAB: Record<string, keyof AdminTabParamList> = {
+const ADMIN_SCREEN_TO_TAB: Record<string, keyof AdminTabParamList> = {
   AdminDashboard: 'Dashboard',
   PendingApprovals: 'Dashboard',
   StaffManagement: 'Dashboard',
+  StaffApprovals: 'Dashboard',
   Analytics: 'Dashboard',
   AuditLogs: 'Dashboard',
   SystemHealth: 'Dashboard',
@@ -53,6 +56,22 @@ const SCREEN_TO_TAB: Record<string, keyof AdminTabParamList> = {
   OrderDetails: 'More',
 };
 
+/** Same idea as `ADMIN_SCREEN_TO_TAB`, for the much smaller Staff shell
+ * (`StaffShell.tsx`) — kept as a separate map since Staff's tabs are named
+ * differently and don't include any Admin-only screen. */
+const STAFF_SCREEN_TO_TAB: Record<string, keyof StaffTabParamList> = {
+  StaffDashboard: 'StaffDashboardTab',
+  StaffDeliveries: 'StaffDeliveriesTab',
+  StaffMore: 'StaffMoreTab',
+  Notifications: 'StaffMoreTab',
+  Profile: 'StaffMoreTab',
+  EditProfile: 'StaffMoreTab',
+  Settings: 'StaffMoreTab',
+  ChangePassword: 'StaffMoreTab',
+  HelpSupport: 'StaffMoreTab',
+  About: 'StaffMoreTab',
+};
+
 /**
  * Navigation helpers used by screens inside the role-aware bottom-tab shell.
  * Dashboards render these from the tab shell, so screens dispatch tab
@@ -61,9 +80,10 @@ const SCREEN_TO_TAB: Record<string, keyof AdminTabParamList> = {
 export const useAppNav = () => {
   const navigation = useNavigation();
   const role = useUserStore((state) => state.user?.role);
+  const screenToTab = role === 'staff' ? STAFF_SCREEN_TO_TAB : ADMIN_SCREEN_TO_TAB;
 
   /** Opens the More tab — the mobile replacement for the old slide-out drawer menu. */
-  const openDrawer = () => navigation.navigate('More' as never);
+  const openDrawer = () => navigation.navigate((role === 'staff' ? 'StaffMoreTab' : 'More') as never);
   /** No-op: there is no slide-out panel to close in the tab-based shell. Kept for API compatibility. */
   const closeDrawer = () => {};
   const goToNotifications = () =>
@@ -75,7 +95,7 @@ export const useAppNav = () => {
    * current tab or a different one.
    */
   const navigate = (screen: string, params?: Record<string, unknown> | undefined) => {
-    const tab = SCREEN_TO_TAB[screen];
+    const tab = screenToTab[screen];
     if (!tab) {
       navigation.dispatch(CommonActions.navigate(screen, params as unknown as object | undefined));
       return;
