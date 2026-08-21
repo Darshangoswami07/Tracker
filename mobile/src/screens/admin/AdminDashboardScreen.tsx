@@ -306,6 +306,22 @@ export const AdminDashboardScreen = () => {
                 <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
               </TouchableOpacity>
             )}
+
+            {/* Staff Approvals — the separate self-service Staff portal's own
+             * queue (no OTP/email), available to every Admin, not just
+             * Super Admin (unlike "Pending Approvals" above, which is the
+             * existing OTP/registration-request flow). */}
+            <TouchableOpacity
+              style={[styles.secondaryAction, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
+              onPress={() => navigate('StaffApprovals')}
+              activeOpacity={0.85}
+            >
+              <View style={[styles.secondaryActionIcon, { backgroundColor: '#06B6D415', borderRadius: radii.md }]}>
+                <Ionicons name="checkmark-done-circle-outline" size={20} color="#06B6D4" />
+              </View>
+              <Text style={[styles.secondaryActionLabel, { color: colors.textPrimary }]}>Staff Approvals</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
           </View>
 
           <View style={styles.sectionHeader}>
