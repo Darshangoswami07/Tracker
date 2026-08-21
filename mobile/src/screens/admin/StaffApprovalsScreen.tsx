@@ -62,6 +62,8 @@ export const StaffApprovalsScreen = () => {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
+  const [pendingTotal, setPendingTotal] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState(false);
 
   const fetchStaff = useCallback(
     async (isRefresh = false) => {
@@ -72,8 +74,11 @@ export const StaffApprovalsScreen = () => {
           params: { page: 1, pageSize: 50, status: 'pending', search: search || undefined },
         });
         setStaff(res.data.data.items || []);
+        setPendingTotal(res.data.data.total ?? null);
+        setLoadError(false);
       } catch (error) {
         console.error('Failed to fetch pending Staff:', error);
+        setLoadError(true);
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -156,6 +161,7 @@ export const StaffApprovalsScreen = () => {
           <Header title="Staff Approvals" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
         </View>
         <ScrollView contentContainerStyle={styles.scrollContent}>
+          <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading staff requests…</Text>
           {[1, 2, 3, 4].map((i) => (
             <ShimmerCard key={i} style={styles.cardShimmer} height={150} />
           ))}
@@ -177,6 +183,13 @@ export const StaffApprovalsScreen = () => {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {pendingTotal !== null && !loadError && (
+          <View style={[styles.countCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+            <Text style={[styles.countLabel, { color: colors.textSecondary }]}>Pending Staff</Text>
+            <Text style={[styles.countValue, { color: colors.primary }]}>{pendingTotal}</Text>
+          </View>
+        )}
+
         <View style={styles.searchBar}>
           <TextInput
             placeholder="Search by name, email, phone…"
@@ -187,8 +200,16 @@ export const StaffApprovalsScreen = () => {
           />
         </View>
 
-        {staff.length === 0 ? (
-          <EmptyState icon="checkmark-done-circle-outline" title="All caught up" subtitle="No pending Staff applications" />
+        {loadError ? (
+          <EmptyState
+            icon="alert-circle-outline"
+            title="Unable to load Staff requests"
+            subtitle="Try again"
+            actionLabel="Retry"
+            onActionPress={() => fetchStaff()}
+          />
+        ) : staff.length === 0 ? (
+          <EmptyState icon="checkmark-done-circle-outline" title="All caught up" subtitle="No pending Staff approval requests" />
         ) : (
           <View style={styles.list}>
             {staff.map((member) => {
@@ -285,6 +306,17 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     safe: { flex: 1 },
     header: { paddingTop: 8 },
     scrollContent: { paddingBottom: 40, paddingHorizontal: theme.spacing.lg },
+    loadingText: { textAlign: 'center', fontWeight: '600', marginBottom: theme.spacing.md },
+    countCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      marginBottom: theme.spacing.lg,
+    },
+    countLabel: { fontSize: theme.fonts.size.md, fontWeight: '700' },
+    countValue: { fontSize: theme.fonts.size.xl, fontWeight: '900' },
     searchBar: { marginBottom: theme.spacing.lg },
     searchInput: { borderRadius: theme.radii.lg, paddingHorizontal: 16, paddingVertical: 12, fontSize: theme.fonts.size.md },
     cardShimmer: { marginBottom: theme.spacing.md, borderRadius: theme.radii.lg },
