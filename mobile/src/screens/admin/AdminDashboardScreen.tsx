@@ -322,6 +322,21 @@ export const AdminDashboardScreen = () => {
               <Text style={[styles.secondaryActionLabel, { color: colors.textPrimary }]}>Staff Approvals</Text>
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </TouchableOpacity>
+
+            {/* All Staff — every self-service Staff account, any status.
+             * "Remove" suspends (never deletes) an account so it can no
+             * longer sign in; "Reactivate" restores access. */}
+            <TouchableOpacity
+              style={[styles.secondaryAction, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
+              onPress={() => navigate('AllStaff')}
+              activeOpacity={0.85}
+            >
+              <View style={[styles.secondaryActionIcon, { backgroundColor: '#635BFF15', borderRadius: radii.md }]}>
+                <Ionicons name="people-outline" size={20} color="#635BFF" />
+              </View>
+              <Text style={[styles.secondaryActionLabel, { color: colors.textPrimary }]}>All Staff</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
           </View>
 
           <View style={styles.sectionHeader}>

@@ -42,6 +42,9 @@ export type DashboardStackParamList = {
    * OTP/registration-request queue, Super-Admin-only) — the self-service
    * Staff portal's approval queue, available to a plain Admin too. */
   StaffApprovals: undefined;
+  /** Every self-service Staff account (any status), with a Remove
+   * (suspend, not delete) / Reactivate toggle. Available to a plain Admin. */
+  AllStaff: undefined;
   Analytics: undefined;
   AuditLogs: undefined;
   SystemHealth: undefined;

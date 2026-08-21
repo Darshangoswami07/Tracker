@@ -29,6 +29,7 @@ const ADMIN_SCREEN_TO_TAB: Record<string, keyof AdminTabParamList> = {
   PendingApprovals: 'Dashboard',
   StaffManagement: 'Dashboard',
   StaffApprovals: 'Dashboard',
+  AllStaff: 'Dashboard',
   Analytics: 'Dashboard',
   AuditLogs: 'Dashboard',
   SystemHealth: 'Dashboard',

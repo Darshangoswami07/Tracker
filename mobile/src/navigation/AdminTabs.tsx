@@ -15,6 +15,7 @@ import { AdminDashboardScreen } from '../screens/admin/AdminDashboardScreen';
 import { PendingApprovalsScreen } from '../screens/admin/PendingApprovalsScreen';
 import { StaffManagementScreen } from '../screens/admin/StaffManagementScreen';
 import { StaffApprovalsScreen } from '../screens/admin/StaffApprovalsScreen';
+import { AllStaffScreen } from '../screens/admin/AllStaffScreen';
 import { AdminAnalyticsScreen } from '../screens/admin/AdminAnalyticsScreen';
 import { AuditLogsScreen } from '../screens/admin/AuditLogsScreen';
 import { SystemHealthScreen } from '../screens/admin/SystemHealthScreen';
@@ -68,6 +69,7 @@ const DashboardTabStack = () => (
     <DashboardStack.Screen name="PendingApprovals" component={PendingApprovalsScreen} />
     <DashboardStack.Screen name="StaffManagement" component={StaffManagementScreen} />
     <DashboardStack.Screen name="StaffApprovals" component={StaffApprovalsScreen} />
+    <DashboardStack.Screen name="AllStaff" component={AllStaffScreen} />
     <DashboardStack.Screen name="Analytics" component={AdminAnalyticsScreen} />
     <DashboardStack.Screen name="AuditLogs" component={AuditLogsScreen} />
     <DashboardStack.Screen name="SystemHealth" component={SystemHealthScreen} />
