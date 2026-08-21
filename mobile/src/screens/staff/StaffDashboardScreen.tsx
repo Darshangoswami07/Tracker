@@ -32,16 +32,20 @@ export const StaffDashboardScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
 
   const loadOverview = useCallback(async () => {
-    const [pending, completed, ...assignedLists] = await Promise.all([
-      orderRepository.list({ status: 'pending', pageSize: 1 }),
-      orderRepository.list({ status: 'delivered', pageSize: 1 }),
-      ...ASSIGNED_STATUSES.map((status) => orderRepository.list({ status, pageSize: 1 })),
-    ]);
-    setOverview({
-      pending: pending.total,
-      completed: completed.total,
-      assigned: assignedLists.reduce((sum, r) => sum + r.total, 0),
-    });
+    try {
+      const [pending, completed, ...assignedLists] = await Promise.all([
+        orderRepository.list({ status: 'pending', pageSize: 1 }),
+        orderRepository.list({ status: 'delivered', pageSize: 1 }),
+        ...ASSIGNED_STATUSES.map((status) => orderRepository.list({ status, pageSize: 1 })),
+      ]);
+      setOverview({
+        pending: pending.total,
+        completed: completed.total,
+        assigned: assignedLists.reduce((sum, r) => sum + r.total, 0),
+      });
+    } catch (error) {
+      console.error('Failed to load Staff dashboard overview:', error);
+    }
   }, []);
 
   useEffect(() => {

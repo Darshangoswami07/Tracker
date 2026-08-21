@@ -69,7 +69,19 @@ export const LoginScreen = ({ navigation, route }: Props) => {
   return (
     <AuthScaffold hero={<HeroBanner />}>
 
-      <AnimatedHeader onBack={() => navigation.navigate(accountType ? 'RoleSelection' : 'Welcome')} />
+      <AnimatedHeader
+        onBack={() => {
+          // Respect real navigation history first (e.g. Register -> Login
+          // returns to Register). Only fall back to a fixed screen when
+          // there's no history to pop -- e.g. Login is the Auth stack's
+          // initial route after an explicit sign-out.
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          } else {
+            navigation.navigate(accountType ? 'RoleSelection' : 'Welcome');
+          }
+        }}
+      />
 
       <View style={[styles.center, { marginTop: 24 }]}>
         <Logo />

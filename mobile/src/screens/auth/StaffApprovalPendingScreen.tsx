@@ -49,7 +49,12 @@ export const StaffApprovalPendingScreen = ({ navigation }: Props) => {
 
       <PrimaryButton
         label="Try Signing In"
-        onPress={() => navigation.replace('Login', { accountType: 'staff' })}
+        // `navigate`, not `replace`: when this screen was reached from
+        // Staff Signup (`RegisterScreen.replace('StaffApprovalPending')`),
+        // a Login screen already exists earlier in the stack. `navigate`
+        // pops back to that existing instance instead of pushing/replacing
+        // with a second, duplicate Login entry.
+        onPress={() => navigation.navigate('Login', { accountType: 'staff' })}
         showArrow
       />
 

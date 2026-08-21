@@ -103,7 +103,10 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
 
   return (
     <AuthScaffold>
-      <AnimatedHeader onBack={() => navigation.goBack()} />
+      {/* No custom onBack: AnimatedHeader's default (goBack when there's
+       * history) is correct here -- Register is always reached with a
+       * real predecessor (Login or RoleSelection) already on the stack. */}
+      <AnimatedHeader />
 
       <View style={[styles.center, { marginTop: spacing.xxl - 4 }]}>
         <Logo />
