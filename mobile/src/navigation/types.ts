@@ -78,7 +78,13 @@ export type GRTrackerStackParamList = {
 
 /** Screens reached from the More tab (account, settings, remaining admin tools). */
 export type MoreStackParamList = {
-  More: undefined;
+  /** Named distinctly from the `More` tab itself (see `AdminTabParamList`) —
+   * React Navigation logs "Found screens with the same name nested inside
+   * one another" when a tab and its first nested screen share a name, which
+   * makes `navigate('More', { screen: X })` dispatches from this stack
+   * resolve ambiguously and silently no-op. Mirrors the Staff shell's
+   * `StaffMoreTab` / `StaffMore` naming, which doesn't hit this. */
+  MoreHome: undefined;
   Notifications: undefined;
   Profile: undefined;
   EditProfile: undefined;

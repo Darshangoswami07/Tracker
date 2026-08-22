@@ -111,7 +111,7 @@ const GRTrackerTabStack = () => (
 
 const MoreTabStack = () => (
   <MoreStack.Navigator screenOptions={useStackScreenOptions()}>
-    <MoreStack.Screen name="More" component={MoreScreen} />
+    <MoreStack.Screen name="MoreHome" component={MoreScreen} />
     <MoreStack.Screen name="Notifications" component={NotificationsScreen} />
     <MoreStack.Screen name="Profile" component={ProfileScreen} />
     <MoreStack.Screen name="EditProfile" component={EditProfileScreen} />

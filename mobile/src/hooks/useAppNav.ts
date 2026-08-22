@@ -42,7 +42,7 @@ const ADMIN_SCREEN_TO_TAB: Record<string, keyof AdminTabParamList> = {
 
   GRTrackerClassic: 'GRTracker',
 
-  More: 'More',
+  MoreHome: 'More',
   Notifications: 'More',
   Profile: 'More',
   EditProfile: 'More',
