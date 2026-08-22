@@ -153,6 +153,20 @@ CREATE TABLE IF NOT EXISTS sync_meta (
   key   TEXT PRIMARY KEY NOT NULL,
   value TEXT
 );
+
+-- Excel bulk-import run log (added in v6 via migration for installs that
+-- predate it; fresh databases get it inline here so a version-0 install
+-- doesn't skip straight to SCHEMA_VERSION without ever creating it).
+CREATE TABLE IF NOT EXISTS import_history (
+  id              TEXT PRIMARY KEY NOT NULL,
+  fileName        TEXT NOT NULL,
+  importedAt      TEXT NOT NULL,
+  importedByName  TEXT,
+  totalRows       INTEGER NOT NULL DEFAULT 0,
+  importedRows    INTEGER NOT NULL DEFAULT 0,
+  duplicateRows   INTEGER NOT NULL DEFAULT 0,
+  failedRows      INTEGER NOT NULL DEFAULT 0
+);
 `;
 
 export const DROP_SCHEMA_SQL = `

@@ -167,6 +167,26 @@ export const runMigrations = async (db: SQLiteDatabase): Promise<void> => {
     version = 7;
   }
 
+  // Unconditional final self-heal, independent of `version`. A version-0
+  // install that ran `CREATE_SCHEMA_SQL` (which, before this table was added
+  // to it, jumped straight from 0 to SCHEMA_VERSION) never passed through
+  // the `version === 5`/`=== 6` branches above, so it could reach version 7
+  // — the terminal state, never re-entering this function's branches again
+  // — without `import_history` ever having been created. Runs on every call
+  // but is a no-op once the table exists (`IF NOT EXISTS`).
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS import_history (
+      id              TEXT PRIMARY KEY NOT NULL,
+      fileName        TEXT NOT NULL,
+      importedAt      TEXT NOT NULL,
+      importedByName  TEXT,
+      totalRows       INTEGER NOT NULL DEFAULT 0,
+      importedRows    INTEGER NOT NULL DEFAULT 0,
+      duplicateRows   INTEGER NOT NULL DEFAULT 0,
+      failedRows      INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
   await db.execAsync(`PRAGMA user_version = ${version}`);
 };
 
