@@ -12,7 +12,7 @@ import { FilterChips } from '../../components/FilterChips';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { useAppNav } from '../../hooks/useAppNav';
 import { useUserStore } from '../../store/userStore';
-import { canDeleteGR as roleCanDeleteGR } from '../../constants/roles';
+import { canDeleteGR as roleCanDeleteGR, canImportExcel as roleCanImportExcel } from '../../constants/roles';
 import type { AppTheme } from '../../theme/types';
 
 /** GR/Shipment row shape returned by `GET /admin/orders` — matches
@@ -29,6 +29,8 @@ interface GRListItem {
   status: string;
   createdAt: string;
   hasSlip: boolean;
+  /** 'manual' | 'slip' | 'excel' — drives the subtle origin indicator below. */
+  source: string;
 }
 
 const PAGE_SIZE = 20;
@@ -89,6 +91,12 @@ export const AdminGRShipmentsScreen = () => {
 
   const role = useUserStore((state) => state.user?.role);
   const canDeleteGR = roleCanDeleteGR(role);
+  const canImportExcel = roleCanImportExcel(role);
+
+  // "+" header button: opens a small action sheet (Create GR / Import from
+  // Excel) for Admin, or goes straight to Create GR for roles that can't
+  // import (matches the button's previous single-purpose behavior for them).
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
 
   // The GR whose "⋮" per-card menu (View GR / Delete GR) is open, if any.
   const [menuTarget, setMenuTarget] = useState<GRListItem | null>(null);
@@ -204,6 +212,14 @@ export const AdminGRShipmentsScreen = () => {
     fetchGRs(1, 'refresh');
   };
 
+  const onAddPress = () => {
+    if (canImportExcel) {
+      setAddMenuOpen(true);
+    } else {
+      navigate('CreateGR');
+    }
+  };
+
   const loadMore = () => {
     if (!inFlightRef.current && !loadingMore && hasMore) {
       fetchGRs(page + 1, 'more');
@@ -219,7 +235,7 @@ export const AdminGRShipmentsScreen = () => {
         <Header
           title="GR / Shipments"
           leftAction={{ icon: 'chevron-back', onPress: goBack }}
-          rightAction={{ icon: 'add', onPress: () => navigate('CreateGR'), accessibilityLabel: 'Create GR' }}
+          rightAction={{ icon: 'add', onPress: onAddPress, accessibilityLabel: 'Create GR' }}
         />
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <ShimmerCard style={styles.searchShimmer} height={44} />
@@ -237,7 +253,7 @@ export const AdminGRShipmentsScreen = () => {
       <Header
         title="GR / Shipments"
         leftAction={{ icon: 'chevron-back', onPress: goBack }}
-        rightAction={{ icon: 'add', onPress: () => navigate('CreateGR'), accessibilityLabel: 'Create GR' }}
+        rightAction={{ icon: 'add', onPress: onAddPress, accessibilityLabel: 'Create GR' }}
       />
 
       <ScrollView
@@ -359,12 +375,17 @@ export const AdminGRShipmentsScreen = () => {
                 <View style={styles.cardFooter}>
                   <View style={styles.slipInfo}>
                     <Ionicons
-                      name={gr.hasSlip ? 'document-attach' : 'document-outline'}
+                      name={gr.source === 'excel' ? 'grid-outline' : gr.hasSlip ? 'document-attach' : 'document-outline'}
                       size={14}
-                      color={gr.hasSlip ? '#10B981' : colors.textMuted}
+                      color={gr.source === 'excel' ? '#635BFF' : gr.hasSlip ? '#10B981' : colors.textMuted}
                     />
-                    <Text style={[styles.slipText, { color: gr.hasSlip ? '#10B981' : colors.textMuted }]}>
-                      {gr.hasSlip ? 'Slip uploaded' : 'No slip'}
+                    <Text
+                      style={[
+                        styles.slipText,
+                        { color: gr.source === 'excel' ? '#635BFF' : gr.hasSlip ? '#10B981' : colors.textMuted },
+                      ]}
+                    >
+                      {gr.source === 'excel' ? 'Excel imported' : gr.hasSlip ? 'Slip uploaded' : 'No slip'}
                     </Text>
                   </View>
                   <Text style={[styles.dateText, { color: colors.textMuted }]}>{formatDate(gr.createdAt)}</Text>
@@ -404,6 +425,37 @@ export const AdminGRShipmentsScreen = () => {
             >
               <Ionicons name="trash-outline" size={18} color={colors.error} />
               <Text style={[styles.menuRowText, { color: colors.error }]}>Delete GR</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* "+" header action sheet — Create GR vs Import from Excel. Only
+       * opened for `canImportExcel` roles (`onAddPress` above); everyone
+       * else's "+" still goes straight to Create GR, unchanged. */}
+      <Modal visible={addMenuOpen} transparent animationType="fade" onRequestClose={() => setAddMenuOpen(false)}>
+        <Pressable style={[styles.menuBackdrop, { backgroundColor: colors.overlay }]} onPress={() => setAddMenuOpen(false)}>
+          <View style={[styles.menuCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.lg }]}>
+            <Text style={[styles.menuTitle, { color: colors.textMuted }]}>GR / Shipments</Text>
+            <TouchableOpacity
+              style={styles.menuRow}
+              onPress={() => {
+                setAddMenuOpen(false);
+                navigate('CreateGR');
+              }}
+            >
+              <Ionicons name="add-circle-outline" size={18} color={colors.textPrimary} />
+              <Text style={[styles.menuRowText, { color: colors.textPrimary }]}>Create GR</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.menuRow}
+              onPress={() => {
+                setAddMenuOpen(false);
+                navigate('ExcelImport');
+              }}
+            >
+              <Ionicons name="cloud-upload-outline" size={18} color={colors.textPrimary} />
+              <Text style={[styles.menuRowText, { color: colors.textPrimary }]}>Import from Excel</Text>
             </TouchableOpacity>
           </View>
         </Pressable>

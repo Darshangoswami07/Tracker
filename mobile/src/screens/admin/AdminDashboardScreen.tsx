@@ -288,6 +288,20 @@ export const AdminDashboardScreen = () => {
               <Ionicons name="chevron-forward" size={20} color={colors.onPrimary} />
             </TouchableOpacity>
 
+            {/* Excel bulk import — Admin-tier only (any Admin, not just Super
+             * Admin), same reasoning as Staff Approvals/All Staff below. */}
+            <TouchableOpacity
+              style={[styles.secondaryAction, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
+              onPress={() => navigate('ExcelImport')}
+              activeOpacity={0.85}
+            >
+              <View style={[styles.secondaryActionIcon, { backgroundColor: '#635BFF15', borderRadius: radii.md }]}>
+                <Ionicons name="cloud-upload-outline" size={20} color="#635BFF" />
+              </View>
+              <Text style={[styles.secondaryActionLabel, { color: colors.textPrimary }]}>Import GRs from Excel</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+
             {isSuperAdmin && (
               <TouchableOpacity
                 style={[styles.secondaryAction, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}

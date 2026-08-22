@@ -9,7 +9,7 @@
  * Column names mirror `backend/app/models/order.py` so that a future online
  * sync can map rows 1:1 without transformation.
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 7;
 
 /**
  * DDL executed against a fresh database (user_version == 0). Kept as a plain
@@ -82,6 +82,16 @@ CREATE TABLE IF NOT EXISTS orders (
   consignorPhone         TEXT,
   consigneeGstin         TEXT,
   consigneePhone         TEXT,
+  -- Excel bulk-import fields (added in v6 via migration for installs that
+  -- predate it; fresh databases get them inline below). source tracks how
+  -- a GR was created (manual / slip / excel) so the GR list/detail
+  -- screens can show a subtle origin indicator.
+  source                  TEXT NOT NULL DEFAULT 'manual',
+  chalaanNo               TEXT,
+  chalaanDate             TEXT,
+  transportGrn            TEXT,
+  paymentMode             TEXT,
+  grSourceLabel           TEXT,
   createdAt          TEXT NOT NULL,
   updatedAt          TEXT NOT NULL,
   isDeleted          INTEGER NOT NULL DEFAULT 0
@@ -146,6 +156,7 @@ CREATE TABLE IF NOT EXISTS sync_meta (
 `;
 
 export const DROP_SCHEMA_SQL = `
+DROP TABLE IF EXISTS import_history;
 DROP TABLE IF EXISTS order_attachments;
 DROP TABLE IF EXISTS order_status_history;
 DROP TABLE IF EXISTS employees;

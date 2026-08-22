@@ -24,6 +24,8 @@ import { AdminGRShipmentsScreen } from '../screens/admin/AdminGRShipmentsScreen'
 import { AdminCreateGRScreen } from '../screens/admin/AdminCreateGRScreen';
 import { AdminGRDetailsScreen } from '../screens/admin/AdminGRDetailsScreen';
 import { AdminEditGRScreen } from '../screens/admin/AdminEditGRScreen';
+import { AdminExcelImportScreen } from '../screens/admin/AdminExcelImportScreen';
+import { ExcelImportHistoryScreen } from '../screens/admin/ExcelImportHistoryScreen';
 
 // Customer Tracking and GR Tracker (Classic) reuse the exact same components
 // already used by the Customer/Employee stacks for these roles — the GR
@@ -78,6 +80,8 @@ const DashboardTabStack = () => (
      * goBack() then returns to AdminDashboard, the screen the user actually
      * came from, instead of jumping into the Shipments tab. See useAppNav.ts. */}
     <DashboardStack.Screen name="CreateGR" component={AdminCreateGRScreen} />
+    <DashboardStack.Screen name="ExcelImport" component={AdminExcelImportScreen} />
+    <DashboardStack.Screen name="ExcelImportHistory" component={ExcelImportHistoryScreen} />
   </DashboardStack.Navigator>
 );
 
@@ -87,6 +91,8 @@ const ShipmentsTabStack = () => (
     <ShipmentsStack.Screen name="CreateGR" component={AdminCreateGRScreen} />
     <ShipmentsStack.Screen name="GRDetails" component={AdminGRDetailsScreen} />
     <ShipmentsStack.Screen name="EditGR" component={AdminEditGRScreen} />
+    <ShipmentsStack.Screen name="ExcelImport" component={AdminExcelImportScreen} />
+    <ShipmentsStack.Screen name="ExcelImportHistory" component={ExcelImportHistoryScreen} />
   </ShipmentsStack.Navigator>
 );
 

@@ -53,6 +53,11 @@ interface GRExtendedDetail {
   consignorPhone?: string;
   consigneeGstin?: string;
   consigneePhone?: string;
+  chalaanNo?: string;
+  chalaanDate?: string;
+  transportGrn?: string;
+  paymentMode?: string;
+  grSourceLabel?: string;
 }
 
 /** Full GR record from `GET /admin/orders/{id}` — matches `admin/src/types/gr.ts` `GR` on the web reference. */
@@ -73,7 +78,16 @@ interface GRDetail extends GRExtendedDetail {
   assignedStaffId: string | null;
   createdAt: string;
   attachments: GRAttachment[];
+  paymentAmount?: number | null;
+  /** 'manual' | 'slip' | 'excel'. */
+  source: string;
 }
+
+const SOURCE_LABELS: Record<string, string> = {
+  manual: 'Manual Entry',
+  slip: 'Slip Upload',
+  excel: 'Excel Import',
+};
 
 interface PickerOption {
   id: string;
@@ -342,7 +356,15 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
           </View>
         )}
 
-        {(gr.grDate || gr.transportCompanyName || gr.ewbNumber || gr.billType || gr.packageType) && (
+        <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>GR INFORMATION</Text>
+          <View style={styles.grid}>
+            <Field label="Source" value={SOURCE_LABELS[gr.source] ?? gr.source ?? '—'} />
+            {gr.grSourceLabel && <Field label="GR Source (Excel)" value={gr.grSourceLabel} />}
+          </View>
+        </View>
+
+        {(gr.grDate || gr.transportCompanyName || gr.ewbNumber || gr.billType || gr.packageType || gr.chalaanNo || gr.chalaanDate || gr.transportGrn) && (
           <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
             <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>SLIP DETAILS</Text>
             <View style={styles.grid}>
@@ -351,6 +373,9 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
               {gr.billType && <Field label="Bill Type" value={gr.billType} />}
               {gr.ewbNumber && <Field label="EWB Number" value={gr.ewbNumber} />}
               {gr.packageType && <Field label="Package Type" value={gr.packageType} />}
+              {gr.chalaanNo && <Field label="Chalaan Number" value={gr.chalaanNo} />}
+              {gr.chalaanDate && <Field label="Chalaan Date" value={formatDate(gr.chalaanDate)} />}
+              {gr.transportGrn && <Field label="Transport GRN" value={gr.transportGrn} />}
             </View>
           </View>
         )}
@@ -365,10 +390,11 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
           </View>
         )}
 
-        {(gr.rate != null || gr.goodsValue != null || gr.grCharge != null || gr.freight != null || gr.labour != null || gr.pf != null || gr.doorDelivery != null || gr.taxGst != null || gr.netAmount != null || gr.toPay != null) && (
+        {(gr.rate != null || gr.goodsValue != null || gr.grCharge != null || gr.freight != null || gr.labour != null || gr.pf != null || gr.doorDelivery != null || gr.taxGst != null || gr.netAmount != null || gr.toPay != null || gr.paymentAmount != null || gr.paymentMode) && (
           <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
             <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>CHARGES</Text>
             <View style={styles.grid}>
+              {gr.paymentMode && <Field label="Payment Mode" value={gr.paymentMode} />}
               {gr.rate != null && <Field label="Rate" value={String(gr.rate)} />}
               {gr.goodsValue != null && <Field label="Goods Value" value={String(gr.goodsValue)} />}
               {gr.grCharge != null && <Field label="GR Charge" value={String(gr.grCharge)} />}
@@ -378,6 +404,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
               {gr.doorDelivery != null && <Field label="Door Delivery" value={String(gr.doorDelivery)} />}
               {gr.taxGst != null && <Field label="Tax (GST)" value={String(gr.taxGst)} />}
               {gr.netAmount != null && <Field label="Net Amount" value={String(gr.netAmount)} />}
+              {gr.paymentAmount != null && <Field label="Paid Amount" value={String(gr.paymentAmount)} />}
               {gr.toPay != null && <Field label="To Pay" value={String(gr.toPay)} />}
             </View>
           </View>

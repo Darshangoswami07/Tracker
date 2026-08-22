@@ -76,6 +76,97 @@ export const runMigrations = async (db: SQLiteDatabase): Promise<void> => {
     version = 5;
   }
 
+  // v5 -> v6: Excel bulk-import support. Adds `source` (defaults existing
+  // rows to 'manual' — never touches their actual data) plus the GR fields
+  // the Excel format carries that had no existing column, and a new
+  // `import_history` table for the Excel Import History screen. Additive
+  // only: no existing row in any table is modified or removed.
+  //
+  // Written to be safely re-runnable: if a prior attempt at this step got
+  // interrupted partway (e.g. by the web build's OPFS single-writer-lock
+  // self-heal in `database.ts`, which can reload the page mid-migration),
+  // `PRAGMA user_version` never advanced past 5, so the app retries this
+  // exact step on every subsequent load. A plain multi-statement
+  // `ALTER TABLE ... ADD COLUMN` batch would then throw "duplicate column
+  // name" on the columns that already got added, aborting before
+  // `import_history` (later in that same batch) ever got created —
+  // permanently stuck. Creating the table first (unconditionally safe via
+  // `IF NOT EXISTS`) and checking `PRAGMA table_info` before each column add
+  // makes every part of this step idempotent, so it always completes and
+  // advances the version regardless of how far a previous attempt got.
+  if (version === 5) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS import_history (
+        id              TEXT PRIMARY KEY NOT NULL,
+        fileName        TEXT NOT NULL,
+        importedAt      TEXT NOT NULL,
+        importedByName  TEXT,
+        totalRows       INTEGER NOT NULL DEFAULT 0,
+        importedRows    INTEGER NOT NULL DEFAULT 0,
+        duplicateRows   INTEGER NOT NULL DEFAULT 0,
+        failedRows      INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+
+    const existingColumns = new Set(
+      (await db.getAllAsync<{ name: string }>('PRAGMA table_info(orders)')).map((c) => c.name)
+    );
+    const addColumnIfMissing = async (name: string, ddl: string) => {
+      if (existingColumns.has(name)) return;
+      await db.execAsync(`ALTER TABLE orders ADD COLUMN ${ddl}`);
+    };
+    await addColumnIfMissing('source', "source TEXT NOT NULL DEFAULT 'manual'");
+    await addColumnIfMissing('chalaanNo', 'chalaanNo TEXT');
+    await addColumnIfMissing('chalaanDate', 'chalaanDate TEXT');
+    await addColumnIfMissing('transportGrn', 'transportGrn TEXT');
+    await addColumnIfMissing('paymentMode', 'paymentMode TEXT');
+    await addColumnIfMissing('grSourceLabel', 'grSourceLabel TEXT');
+
+    version = 6;
+  }
+
+  // v6 -> v7: unconditional self-heal, independent of exactly what v5 -> v6
+  // above managed to do. An earlier build of that step ran every statement
+  // (columns + `import_history`) as one multi-statement `execAsync` call; on
+  // the web/OPFS backend that could silently stop partway through without
+  // throwing, so some installs ended up with `PRAGMA user_version` already
+  // at 6 — permanently skipping the `version === 5` branch above forever —
+  // while `import_history` was never actually created (surfaced as
+  // "no such table: import_history" the next time anything touched it).
+  // This step re-verifies the same idempotent way (`IF NOT EXISTS` /
+  // `PRAGMA table_info` checks) regardless of whether v5 -> v6 already
+  // "completed", so any install stuck in that state gets healed here.
+  if (version === 6) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS import_history (
+        id              TEXT PRIMARY KEY NOT NULL,
+        fileName        TEXT NOT NULL,
+        importedAt      TEXT NOT NULL,
+        importedByName  TEXT,
+        totalRows       INTEGER NOT NULL DEFAULT 0,
+        importedRows    INTEGER NOT NULL DEFAULT 0,
+        duplicateRows   INTEGER NOT NULL DEFAULT 0,
+        failedRows      INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+
+    const existingColumns = new Set(
+      (await db.getAllAsync<{ name: string }>('PRAGMA table_info(orders)')).map((c) => c.name)
+    );
+    const addColumnIfMissing = async (name: string, ddl: string) => {
+      if (existingColumns.has(name)) return;
+      await db.execAsync(`ALTER TABLE orders ADD COLUMN ${ddl}`);
+    };
+    await addColumnIfMissing('source', "source TEXT NOT NULL DEFAULT 'manual'");
+    await addColumnIfMissing('chalaanNo', 'chalaanNo TEXT');
+    await addColumnIfMissing('chalaanDate', 'chalaanDate TEXT');
+    await addColumnIfMissing('transportGrn', 'transportGrn TEXT');
+    await addColumnIfMissing('paymentMode', 'paymentMode TEXT');
+    await addColumnIfMissing('grSourceLabel', 'grSourceLabel TEXT');
+
+    version = 7;
+  }
+
   await db.execAsync(`PRAGMA user_version = ${version}`);
 };
 

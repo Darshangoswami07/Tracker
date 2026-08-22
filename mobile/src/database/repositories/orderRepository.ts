@@ -14,6 +14,9 @@ export interface LocalGRListItem {
   status: string;
   createdAt: string;
   hasSlip: boolean;
+  /** How this GR was created: 'manual' | 'slip' | 'excel'. Drives the GR
+   * list's subtle origin indicator ("Excel imported" vs "Slip uploaded"). */
+  source: string;
 }
 
 /** Mirrors `GRAttachment` in `AdminGRDetailsScreen`. */
@@ -64,6 +67,14 @@ export interface GRExtendedFields {
   consignorPhone?: string;
   consigneeGstin?: string;
   consigneePhone?: string;
+  /** Excel bulk-import fields — mirrors the same additions in `schema.ts`'s
+   * v6 migration. All optional: only present on Excel-imported GRs (or a
+   * manually-entered GR where the Admin fills them in). */
+  chalaanNo?: string;
+  chalaanDate?: string;
+  transportGrn?: string;
+  paymentMode?: string;
+  grSourceLabel?: string;
 }
 
 const EXTENDED_FIELD_KEYS: (keyof GRExtendedFields)[] = [
@@ -72,6 +83,7 @@ const EXTENDED_FIELD_KEYS: (keyof GRExtendedFields)[] = [
   'goodsValue', 'grCharge', 'freight', 'labour', 'pf', 'doorDelivery',
   'taxGst', 'netAmount', 'toPay', 'proprietorName', 'proprietorPhone', 'packageType',
   'consignorGstin', 'consignorPhone', 'consigneeGstin', 'consigneePhone',
+  'chalaanNo', 'chalaanDate', 'transportGrn', 'paymentMode', 'grSourceLabel',
 ];
 
 /** Mirrors `GRDetail` in `AdminGRDetailsScreen` / web `admin/src/types/gr.ts`. */
@@ -91,9 +103,13 @@ export interface LocalGRDetail extends GRExtendedFields {
   driverId: string | null;
   assignedStaffId: string | null;
   createdAt: string;
+  /** Paid amount (`paymentAmount` column — pre-existing, previously unexposed
+   * here). Excel's `Paid_Amt` maps onto this same column. */
+  paymentAmount: number | null;
   slipData: Record<string, unknown> | null;
   attachments: LocalAttachment[];
   timeline: LocalTimelineEvent[];
+  source: string;
 }
 
 export interface GRCreateInput extends GRExtendedFields {
@@ -111,6 +127,9 @@ export interface GRCreateInput extends GRExtendedFields {
   notes?: string;
   /** OCR-extracted slip snapshot (JSON string) persisted alongside the GR. */
   slipData?: string;
+  /** 'manual' | 'slip' | 'excel'. Defaults to 'manual' when omitted (the
+   * existing Create GR / OCR-review flows never pass this explicitly). */
+  source?: string;
 }
 
 export interface GRUpdateInput extends GRExtendedFields {
@@ -170,6 +189,7 @@ const rowToListItem = (row: any): LocalGRListItem => ({
   status: row.status,
   createdAt: row.createdAt,
   hasSlip: Boolean(row.hasSlip),
+  source: row.source ?? 'manual',
 });
 
 /** Picks the extended-field columns off a raw SQLite row, converting `null`
@@ -200,9 +220,11 @@ const rowToDetail = (row: any): LocalGRDetail => ({
   driverId: row.driverId ?? null,
   assignedStaffId: row.assignedStaffId ?? null,
   createdAt: row.createdAt,
+  paymentAmount: row.paymentAmount ?? null,
   slipData: parseSlipData(row.slipData),
   attachments: [],
   timeline: [],
+  source: row.source ?? 'manual',
   ...rowToExtendedFields(row),
 });
 
@@ -332,9 +354,9 @@ export const orderRepository = {
       `INSERT INTO orders (
         id, orderNumber, companyId, consignorName, consigneeName, particulars,
         packageCount, pickupAddress, deliveryAddress, pickupTime, weight,
-        priority, status, trackingCode, notes, hasSlip, slipData, ${extendedCols},
+        priority, status, trackingCode, notes, hasSlip, slipData, source, ${extendedCols},
         createdAt, updatedAt, isDeleted
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${extendedPlaceholders}, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${extendedPlaceholders}, ?, ?, ?)`,
       [
         id,
         input.grNumber,
@@ -353,6 +375,7 @@ export const orderRepository = {
         input.notes ?? null,
         0,
         input.slipData ?? null,
+        input.source ?? 'manual',
         ...extendedValues,
         createdAt,
         createdAt,

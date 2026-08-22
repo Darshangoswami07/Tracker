@@ -49,6 +49,11 @@ export type DashboardStackParamList = {
   AuditLogs: undefined;
   SystemHealth: undefined;
   CreateGR: undefined;
+  /** Also registered here (in addition to `ShipmentsStackParamList`) so the
+   * Dashboard's "Import GRs from Excel" quick action pushes onto THIS
+   * stack — same dual-registration reasoning as `CreateGR` above. */
+  ExcelImport: undefined;
+  ExcelImportHistory: undefined;
 };
 
 /** Screens reached from the Shipments tab. */
@@ -57,6 +62,8 @@ export type ShipmentsStackParamList = {
   CreateGR: undefined;
   GRDetails: { orderId: string };
   EditGR: { orderId: string };
+  ExcelImport: undefined;
+  ExcelImportHistory: undefined;
 };
 
 /** Screens reached from the Tracking tab. */

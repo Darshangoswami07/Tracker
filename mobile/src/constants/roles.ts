@@ -21,3 +21,11 @@ export type Role = (typeof ROLES)[keyof typeof ROLES];
  * only needs to be maintained in one place. */
 export const canDeleteGR = (role?: string | null): boolean =>
   role === ROLES.ADMIN || role === ROLES.SUPER_ADMIN;
+
+/** Roles allowed to bulk-import GRs from Excel — Admin-tier only, same
+ * reasoning/shape as [[canDeleteGR]]. Staff/Dispatcher/Driver never see the
+ * Excel Import entry points (Dashboard quick action, Shipments "+" menu),
+ * and the screens themselves are only registered in the Admin tab
+ * navigator (`AdminTabs.tsx`), not the Staff shell. */
+export const canImportExcel = (role?: string | null): boolean =>
+  role === ROLES.ADMIN || role === ROLES.SUPER_ADMIN;
