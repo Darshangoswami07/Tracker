@@ -142,6 +142,9 @@ export interface GRUpdateInput extends GRExtendedFields {
   packageCount?: number;
   weight?: number;
   notes?: string;
+  /** Paid amount (`paymentAmount` column) — pre-existing column, previously
+   * not editable anywhere. Excel's `Paid_Amt` maps onto this same column. */
+  paymentAmount?: number;
 }
 
 export interface GRListParams {
@@ -414,6 +417,7 @@ export const orderRepository = {
     setIf('packageCount', 'packageCount');
     setIf('weight', 'weight');
     setIf('notes', 'notes');
+    setIf('paymentAmount', 'paymentAmount');
     for (const key of EXTENDED_FIELD_KEYS) setIf(key, key);
 
     if (fields.length === 0) return this.getById(id);
