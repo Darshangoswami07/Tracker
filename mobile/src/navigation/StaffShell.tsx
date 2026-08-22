@@ -1,6 +1,7 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppTheme } from '../theme/useAppTheme';
 import type {
   StaffTabParamList,
@@ -99,6 +100,7 @@ const TAB_LABELS: Record<keyof StaffTabParamList, string> = {
  */
 export const StaffShell = () => {
   const { colors, fonts } = useAppTheme();
+  const insets = useSafeAreaInsets();
 
   return (
     <Tab.Navigator
@@ -110,8 +112,8 @@ export const StaffShell = () => {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
           borderTopWidth: 1,
-          height: 60,
-          paddingBottom: 8,
+          height: 60 + insets.bottom,
+          paddingBottom: Math.max(insets.bottom, 8),
           paddingTop: 6,
         },
         tabBarLabelStyle: { fontSize: fonts.size.xxs, fontWeight: '700' },
