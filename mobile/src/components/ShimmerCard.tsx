@@ -1,6 +1,8 @@
-import { Animated, StyleSheet, View, Platform } from 'react-native';
+import { Animated, StyleSheet, View, Platform, Dimensions } from 'react-native';
 import { useAppTheme } from '../theme/useAppTheme';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+
+const { width } = Dimensions.get('window');
 
 interface ShimmerCardProps {
   style?: any;
@@ -34,17 +36,16 @@ export const ShimmerCard = ({ style, height = 100, borderRadius = 16 }: ShimmerC
         style={[
           styles.shimmer,
           {
-            left: anim.interpolate({ inputRange: [0, 1], outputRange: [-width, width] }),
+            transform: [
+              { translateX: anim.interpolate({ inputRange: [0, 1], outputRange: [-width, width] }) },
+              { skewX: '-15deg' },
+            ],
           },
         ]}
       />
     </Animated.View>
   );
 };
-
-import { useState } from 'react';
-import { Dimensions } from 'react-native';
-const { width } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   card: { overflow: 'hidden', position: 'relative' },
@@ -55,7 +56,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: 'rgba(255,255,255,0.3)',
-    transform: [{ skewX: '-15deg' }],
     width: 100,
   },
 });

@@ -31,10 +31,16 @@ const nowIso = (): string => new Date().toISOString();
  * initial status-history row" invariant, extended with the Excel-only
  * fields (`chalaanNo`, `paymentMode`, ...) and `source = 'excel'`.
  *
+ * Duplicate-handling rules (must be consistent with `orderRepository.create`):
+ * - Active GR (`isDeleted = 0`) with same orderNumber → "Already Existing",
+ *   skip the row.
+ * - Soft-deleted GR (`isDeleted = 1`) with same orderNumber → physically
+ *   delete the stale row (CASCADE cleans up status history + attachments),
+ *   then INSERT the fresh GR. This allows re-importing a GR that was
+ *   previously deleted via the UI.
+ * - No existing row → INSERT as new.
+ *
  * Safety:
- * - An existing GR number is NEVER overwritten/updated/deleted — it's
- *   simply skipped and counted as a duplicate, exactly like
- *   `orderRepository.create`'s own duplicate check.
  * - Each row's GR insert + its status-history insert happen together; if a
  *   single row throws unexpectedly it's counted as "failed" and the loop
  *   continues, so one bad record never blocks or corrupts the rest of the
@@ -46,20 +52,51 @@ export const importRepository = {
     await ensureDatabaseReady();
     const db = await getDatabase();
 
-    const existing = await db.getAllAsync<{ orderNumber: string }>('SELECT orderNumber FROM orders');
-    const existingNumbers = new Set(existing.map((r) => r.orderNumber));
+    // Ensure foreign keys (including ON DELETE CASCADE) are enforced on
+    // this connection.  `PRAGMA foreign_keys = ON` in CREATE_SCHEMA_SQL only
+    // applies to the connection that ran it (fresh installs); existing
+    // databases never re-run that pragma.
+    await db.runAsync('PRAGMA foreign_keys = ON');
+
+    // Fetch ALL existing order numbers — both active and soft-deleted — so
+    // the import can correctly classify each row.
+    const allExisting = await db.getAllAsync<{ orderNumber: string; isDeleted: number; id: string }>(
+      'SELECT orderNumber, isDeleted, id FROM orders'
+    );
+
+    const activeNumbers = new Set(
+      allExisting.filter((r) => r.isDeleted === 0).map((r) => r.orderNumber),
+    );
+    // Map from orderNumber → row id for soft-deleted rows, so we can
+    // physically delete them before re-inserting.
+    const deletedRowIds = new Map(
+      allExisting.filter((r) => r.isDeleted === 1).map((r) => [r.orderNumber, r.id]),
+    );
 
     let importedRows = 0;
     let failedRows = 0;
     const duplicateGRNumbers: string[] = [];
 
     for (const row of rows) {
-      if (existingNumbers.has(row.grNumber)) {
+      // Scenario B — active GR already exists: skip (count as duplicate).
+      if (activeNumbers.has(row.grNumber)) {
         duplicateGRNumbers.push(row.grNumber);
         continue;
       }
 
       try {
+        // Scenario C — soft-deleted GR exists: physically remove the stale
+        // row so the UNIQUE constraint on `orderNumber` is freed.  Because
+        // `PRAGMA foreign_keys = ON` and the child tables declare
+        // `ON DELETE CASCADE`, `order_status_history` and
+        // `order_attachments` rows for this order are cleaned up
+        // automatically.
+        if (deletedRowIds.has(row.grNumber)) {
+          const staleId = deletedRowIds.get(row.grNumber)!;
+          await db.runAsync('DELETE FROM orders WHERE id = ?', [staleId]);
+          deletedRowIds.delete(row.grNumber);
+        }
+
         const id = uuid();
         const createdAt = nowIso();
         const fallbackAddress = '—';
@@ -114,7 +151,7 @@ export const importRepository = {
         // with `orderRepository.create`'s statement shape for readability.
         await db.runAsync('UPDATE orders SET paymentAmount = ? WHERE id = ?', [row.paymentAmount, id]);
 
-        existingNumbers.add(row.grNumber);
+        activeNumbers.add(row.grNumber);
         importedRows += 1;
       } catch (err) {
         console.warn('[Excel Import] Failed to import row', row.rowNumber, err);

@@ -337,16 +337,35 @@ export const orderRepository = {
    * Checks for an existing GR number first so a duplicate surfaces as a
    * clear "already exists" error rather than the raw SQLite UNIQUE
    * constraint failure (which expo-sqlite's web driver reports as an opaque
-   * "Error finalizing statement", with no useful text for the user). */
+   * "Error finalizing statement", with no useful text for the user).
+   *
+   * If a soft-deleted GR with the same number exists (`isDeleted = 1`),
+   * the stale row is physically removed (CASCADE cleans up children) so
+   * the new GR can be inserted — matching the Excel import's behaviour. */
   async create(input: GRCreateInput): Promise<LocalGRDetail> {
     await ensureDatabaseReady();
     const db = await getDatabase();
-    const duplicate = await db.getFirstAsync<{ id: string }>(
-      'SELECT id FROM orders WHERE orderNumber = ?',
+
+    // Ensure foreign keys (including ON DELETE CASCADE) are enforced.
+    await db.runAsync('PRAGMA foreign_keys = ON');
+
+    // Check for an *active* GR with this number.
+    const activeDuplicate = await db.getFirstAsync<{ id: string }>(
+      'SELECT id FROM orders WHERE orderNumber = ? AND isDeleted = 0',
       input.grNumber
     );
-    if (duplicate) {
+    if (activeDuplicate) {
       throw new Error(`GR number "${input.grNumber}" already exists. Please use a different GR number.`);
+    }
+
+    // If a soft-deleted GR exists, physically remove it so the UNIQUE
+    // constraint on `orderNumber` is freed.
+    const staleRow = await db.getFirstAsync<{ id: string }>(
+      'SELECT id FROM orders WHERE orderNumber = ? AND isDeleted = 1',
+      input.grNumber
+    );
+    if (staleRow) {
+      await db.runAsync('DELETE FROM orders WHERE id = ?', [staleRow.id]);
     }
     const id = uuid();
     const createdAt = nowIso();
