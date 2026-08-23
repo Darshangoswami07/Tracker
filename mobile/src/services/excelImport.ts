@@ -124,38 +124,119 @@ const grNumberToText = (value: unknown): string | null => {
 
 const EXCEL_EPOCH_UTC = Date.UTC(1899, 11, 30);
 
+/** Valid month abbreviations (case-insensitive) for DD-Mon-YY parsing. */
+const MONTH_ABBREVS: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
+/** Attempts to build a valid UTC Date from explicit numeric components.
+ * Returns null if the date is out of a sane range or invalid. */
+const buildUtcDate = (year: number, month: number, day: number): string | null => {
+  if (year < 1900 || year > 2100) return null;
+  if (month < 0 || month > 11) return null;
+  if (day < 1 || day > 31) return null;
+  const date = new Date(Date.UTC(year, month, day));
+  // Guard against overflow (e.g. Feb 30 → rolls into March)
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month || date.getUTCDate() !== day) return null;
+  return date.toISOString();
+};
+
+/** Normalizes a 2- or 4-digit year. Two-digit years ≥ 0 are interpreted as
+ * 2000+ (business data is modern — we never need 1900s). */
+const normalizeYear = (raw: string): number => {
+  const n = Number(raw);
+  return raw.length <= 2 ? 2000 + n : n;
+};
+
 /** Converts an Excel date cell (JS `Date` when `cellDates: true`, a raw
  * serial number, or a text date like `19-Aug-26`) to an ISO 8601 string.
- * Returns null when the value can't be parsed as a date. */
+ * Returns null when the value can't be parsed as a date.
+ *
+ * Supported text formats (case-insensitive, month name or numeric):
+ *   DD-Mon-YY, DD-Mon-YYYY, DD/Mon/YY, DD/Mon/YYYY  (e.g. 19-Aug-26)
+ *   DD/MM/YYYY, DD-MM-YYYY                            (e.g. 19/08/2026)
+ *   DD/MM/YY,   DD-MM/YY                              (e.g. 19/08/26)
+ *   YYYY-MM-DD, YYYY/MM/DD                            (e.g. 2026-08-19)
+ */
 export const excelDateToIso = (value: unknown): string | null => {
   if (value === null || value === undefined || value === '') return null;
+
+  // --- JS Date object (SheetJS cellDates: true) ---
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : value.toISOString();
   }
+
+  // --- Numeric: Excel serial date number ---
   if (typeof value === 'number') {
-    const ms = EXCEL_EPOCH_UTC + value * 86400000;
+    // Reject nonsensical serials (Excel dates are ~40000 range for modern dates)
+    if (value < 1 || value > 200000) return null;
+    const ms = EXCEL_EPOCH_UTC + Math.round(value) * 86400000;
     const date = new Date(ms);
     return Number.isNaN(date.getTime()) ? null : date.toISOString();
   }
+
+  // --- String dates ---
   if (typeof value === 'string') {
     const trimmed = value.trim();
     if (!trimmed) return null;
-    const parsed = new Date(trimmed);
-    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
-    // Fallback for "DD-Mon-YY" / "DD-Mon-YYYY" (e.g. "19-Aug-26"), which
-    // some JS engines' Date constructor doesn't accept directly.
-    const match = trimmed.match(/^(\d{1,2})[-/]([A-Za-z]{3,})[-/](\d{2,4})$/);
-    if (match) {
-      const [, day, monthName, yearRaw] = match;
-      const monthIndex = new Date(`${monthName} 1, 2000`).getMonth();
-      if (!Number.isNaN(monthIndex)) {
-        const year = yearRaw.length === 2 ? 2000 + Number(yearRaw) : Number(yearRaw);
-        const date = new Date(Date.UTC(year, monthIndex, Number(day)));
-        if (!Number.isNaN(date.getTime())) return date.toISOString();
+
+    // 1) "DD-Mon-YY" or "DD-Mon-YYYY" (e.g. "19-Aug-26", "19/Aug/2026")
+    //    Month can be 3+ letters, separator can be - or /
+    const monMatch = trimmed.match(/^(\d{1,2})[-\/]([A-Za-z]{3,})[-\/](\d{2,4})$/);
+    if (monMatch) {
+      const [, dayStr, monthName, yearRaw] = monMatch;
+      const monthKey = monthName.toLowerCase().slice(0, 3);
+      const monthIndex = MONTH_ABBREVS[monthKey];
+      if (monthIndex !== undefined) {
+        const result = buildUtcDate(normalizeYear(yearRaw), monthIndex, Number(dayStr));
+        if (result) return result;
       }
     }
+
+    // 2) Numeric separators: DD/MM/YYYY, DD-MM-YYYY, DD/MM/YY, DD-MM-YY,
+    //    YYYY-MM-DD, YYYY/MM/DD
+    const numMatch = trimmed.match(/^(\d{1,4})[-\/](\d{1,2})[-\/](\d{1,4})$/);
+    if (numMatch) {
+      const [, partA, partB, partC] = numMatch;
+      const a = Number(partA), b = Number(partB), c = Number(partC);
+
+      // YYYY-MM-DD or YYYY/MM/DD
+      if (partA.length === 4 && a >= 1900 && a <= 2100) {
+        const result = buildUtcDate(a, b - 1, c);
+        if (result) return result;
+      }
+
+      // DD/MM/YYYY or DD-MM-YYYY (Indian convention: day first)
+      if (partC.length === 4 && c >= 1900 && c <= 2100) {
+        const result = buildUtcDate(c, b - 1, a);
+        if (result) return result;
+      }
+
+      // DD/MM/YY or DD-MM/YY
+      if (partC.length <= 2) {
+        const result = buildUtcDate(normalizeYear(partC), b - 1, a);
+        if (result) return result;
+      }
+    }
+
+    // 3) Last resort: native Date constructor for ISO-like strings only
+    //    (e.g. "2026-08-19", "2026-08-19T10:30:00Z"). We restrict to
+    //    year-first patterns to avoid V8 leniently parsing nonsense like
+    //    "32-Aug-26" as year 32. Also skip if the string was already matched
+    //    by an explicit date regex above (meaning it's a recognized format
+    //    that our strict parser rejected as invalid).
+    if (/^\d{4}[-\/]/.test(trimmed) && !monMatch && !numMatch) {
+      const native = new Date(trimmed);
+      if (!Number.isNaN(native.getTime())) {
+        const yr = native.getFullYear();
+        if (yr >= 1900 && yr <= 2100) return native.toISOString();
+      }
+    }
+
     return null;
   }
+
   return null;
 };
 
@@ -268,28 +349,48 @@ export const validateRows = (rows: RawExcelRow[]): ParsedWorkbook => {
 
     const grDateIso = excelDateToIso(row.grDateRaw);
     if (!grDateIso) {
-      invalidRows.push({ rowNumber: row.rowNumber, message: 'Invalid GR Date.' });
+      const raw = row.grDateRaw;
+      const detail = (raw === null || raw === undefined || raw === '')
+        ? 'GR Date is required.'
+        : `Invalid GR Date: "${String(raw).trim()}".`;
+      invalidRows.push({ rowNumber: row.rowNumber, message: detail });
       continue;
     }
 
     const nug = parseOptionalNumber(row.nugRaw);
     if (nug === undefined) {
-      invalidRows.push({ rowNumber: row.rowNumber, message: 'Nug must be a number.' });
+      const raw = row.nugRaw;
+      const detail = (raw === null || raw === undefined || String(raw).trim() === '')
+        ? 'Nug is required.'
+        : `Invalid Nug value: "${String(raw).trim()}".`;
+      invalidRows.push({ rowNumber: row.rowNumber, message: detail });
       continue;
     }
     const weight = parseOptionalNumber(row.weightRaw);
     if (weight === undefined) {
-      invalidRows.push({ rowNumber: row.rowNumber, message: 'Weight must be a number.' });
+      const raw = row.weightRaw;
+      const detail = (raw === null || raw === undefined || String(raw).trim() === '')
+        ? 'Weight is required.'
+        : `Invalid Weight value: "${String(raw).trim()}".`;
+      invalidRows.push({ rowNumber: row.rowNumber, message: detail });
       continue;
     }
     const paidAmt = parseOptionalNumber(row.paidAmtRaw);
     if (paidAmt === undefined) {
-      invalidRows.push({ rowNumber: row.rowNumber, message: 'Paid Amount must be a number.' });
+      const raw = row.paidAmtRaw;
+      const detail = (raw === null || raw === undefined || String(raw).trim() === '')
+        ? 'Paid Amount is required.'
+        : `Invalid Paid Amount value: "${String(raw).trim()}".`;
+      invalidRows.push({ rowNumber: row.rowNumber, message: detail });
       continue;
     }
     const toPayAmt = parseOptionalNumber(row.toPayAmtRaw);
     if (toPayAmt === undefined) {
-      invalidRows.push({ rowNumber: row.rowNumber, message: 'To Pay Amount must be a number.' });
+      const raw = row.toPayAmtRaw;
+      const detail = (raw === null || raw === undefined || String(raw).trim() === '')
+        ? 'To Pay Amount is required.'
+        : `Invalid To Pay Amount value: "${String(raw).trim()}".`;
+      invalidRows.push({ rowNumber: row.rowNumber, message: detail });
       continue;
     }
 

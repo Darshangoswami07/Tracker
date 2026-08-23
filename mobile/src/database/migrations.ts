@@ -7,6 +7,13 @@ import { CREATE_SCHEMA_SQL, DROP_SCHEMA_SQL, SCHEMA_VERSION } from './schema';
  * here without wiping existing on-device data.
  */
 export const runMigrations = async (db: SQLiteDatabase): Promise<void> => {
+  // Ensure foreign keys are enforced on every connection.  PRAGMA
+  // foreign_keys is per-connection and resets to OFF on each new connection;
+  // CREATE_SCHEMA_SQL only sets it for fresh installs (version 0).  Existing
+  // databases need it re-applied here so ON DELETE CASCADE and other FK
+  // constraints work in every repository.
+  await db.runAsync('PRAGMA foreign_keys = ON');
+
   const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
   let version = row?.user_version ?? 0;
 

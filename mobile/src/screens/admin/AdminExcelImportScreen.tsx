@@ -3,13 +3,7 @@ import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TouchableOpa
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-// The root `expo-file-system` entrypoint's `readAsStringAsync` is deprecated
-// in SDK 54+ in favor of the `File`/`Directory` classes; the legacy
-// sub-import keeps the same base64-read API without the deprecation
-// warning. Only used on native — see `readFileAsBase64` below, which reads
-// straight off `DocumentPicker`'s web `asset.base64` on web instead, since
-// `expo-file-system` doesn't support the blob: URIs web picking returns.
-import * as FileSystem from 'expo-file-system/legacy';
+import { File as ExpoFile } from 'expo-file-system';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useUserStore } from '../../store/userStore';
 import { Header } from '../../components/Header';
@@ -28,31 +22,17 @@ type Stage = 'select' | 'parsing' | 'preview' | 'importing' | 'result';
 const PREVIEW_ROW_LIMIT = 20;
 const ERROR_LIST_LIMIT = 30;
 
-/** Reads a picked `.xlsx` document into a base64 string, the format
- * `services/excelImport.ts#parseWorkbook` expects. On web, `expo-file-system`
- * can't read the `blob:` URI the picker returns, so this uses the base64
- * content `DocumentPicker` already hands back on that platform (requested
- * via `base64: true` above) directly instead. On native, it reads the
- * copied-to-cache file off disk via `expo-file-system/legacy`. */
-const readFileAsBase64 = async (asset: DocumentPicker.DocumentPickerAsset): Promise<string> => {
-  if (Platform.OS === 'web') {
-    // `DocumentPicker`'s web implementation reads the file via
-    // `FileReader.readAsDataURL`, so `asset.base64` is a full Data URL
-    // (`data:application/...;base64,AAAA...`), not raw base64 — the
-    // `data:...;base64,` prefix has to be stripped before `XLSX.read`
-    // (`type: 'base64'`) can parse it; passing the prefix through produces
-    // an unparsable workbook (surfaced as "Could not find a GR_No column").
-    if (asset.base64) return asset.base64.replace(/^data:[^;]*;base64,/, '');
-    if (asset.file) {
-      const buffer = await asset.file.arrayBuffer();
-      let binary = '';
-      const bytes = new Uint8Array(buffer);
-      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      return btoa(binary);
-    }
-    throw new Error('Could not read the selected file in this browser.');
+/** Web-only: reads a DocumentPicker web asset into base64. */
+const readWebAssetAsBase64 = async (asset: DocumentPicker.DocumentPickerAsset): Promise<string> => {
+  if (asset.base64) return asset.base64.replace(/^data:[^;]*;base64,/, '');
+  if (asset.file) {
+    const buffer = await asset.file.arrayBuffer();
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
   }
-  return FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+  throw new Error('Could not read the selected file in this browser.');
 };
 
 /**
@@ -88,31 +68,88 @@ export const AdminExcelImportScreen = () => {
 
   const pickFile = async () => {
     setFileError(null);
-    const result = await DocumentPicker.getDocumentAsync({
-      type: [
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'application/vnd.ms-excel',
-      ],
-      copyToCacheDirectory: true,
-      multiple: false,
-      // Web only: ask the picker to hand back the file's base64 content
-      // directly (default on web anyway, made explicit here) — the
-      // alternative `uri` it returns on web is a `blob:` URL that
-      // `expo-file-system` cannot read.
-      base64: true,
-    });
-    if (result.canceled || !result.assets?.[0]) return;
 
-    const asset = result.assets[0];
-    if (!/\.xlsx$/i.test(asset.name ?? '')) {
-      setFileError('Unsupported file type. Please select a .xlsx file.');
+    if (Platform.OS === 'web') {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/vnd.ms-excel',
+        ],
+        multiple: false,
+        base64: true,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+
+      const asset = result.assets[0];
+      if (!/\.xlsx$/i.test(asset.name ?? '')) {
+        setFileError('Unsupported file type. Please select a .xlsx file.');
+        return;
+      }
+
+      setFile({ name: asset.name, uri: asset.uri });
+      setStage('parsing');
+      try {
+        const base64 = await readWebAssetAsBase64(asset);
+        const rawRows = parseWorkbook(base64);
+        const result2 = validateRows(rawRows);
+        setParsed(result2);
+        setStage('preview');
+      } catch (err: any) {
+        setFileError(err?.message ?? 'Could not read this Excel file. Please check the format and try again.');
+        setStage('select');
+        setFile(null);
+      }
       return;
     }
 
-    setFile({ name: asset.name, uri: asset.uri });
+    // Native (Android / iOS): use expo-file-system's own File.pickFileAsync().
+    // This uses SAF ACTION_OPEN_DOCUMENT which returns a content:// URI.
+    // expo-file-system can read content:// URIs via ContentResolver (checkPermission
+    // returns true for content URIs), unlike file:/// cache URIs from
+    // expo-document-picker which fail validatePermission(READ).
+    //
+    // No MIME type filter: Android's file picker may report an .xlsx as
+    // application/octet-stream, which would hide the file from the user.
+    // We validate the XLSX content via magic bytes after picking instead.
+    const result = await ExpoFile.pickFileAsync();
+    if (result.canceled || !result.result) return;
+
+    const pickedFile = result.result;
+
+    // Diagnostic logging — helps confirm what Android SAF returns.
+    // Does NOT log file contents or business data.
+    console.log(
+      'Excel file selected:',
+      '\n  name =', pickedFile.name,
+      '\n  extension =', pickedFile.extension,
+      '\n  type =', pickedFile.type,
+      '\n  uri =', pickedFile.uri,
+    );
+
+    // Validate by reading the first 2 bytes: XLSX files are ZIP archives
+    // and always start with the PK magic number (0x50 0x4B).
+    // We do NOT use pickedFile.name for extension checks because on Android,
+    // the name property returns the SAF document ID from the content:// URI
+    // (e.g. "primary:Documents/file.xlsx" or "msf%3A123"), not the actual
+    // display filename.
+    const validationBuffer = await pickedFile.arrayBuffer();
+    const headerBytes = new Uint8Array(validationBuffer.slice(0, 2));
+    if (headerBytes[0] !== 0x50 || headerBytes[1] !== 0x4b) {
+      console.log('File rejected: missing ZIP/XLSX magic bytes (PK). Got:', headerBytes[0], headerBytes[1]);
+      setFileError('Unsupported file type. Please select a .xlsx file.');
+      setStage('select');
+      return;
+    }
+
+    setFile({ name: pickedFile.name ?? 'spreadsheet.xlsx', uri: pickedFile.uri });
     setStage('parsing');
     try {
-      const base64 = await readFileAsBase64(asset);
+      // Reuse the already-read buffer — avoids reading the file a second time.
+      let binary = '';
+      const bytes = new Uint8Array(validationBuffer);
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      const base64 = btoa(binary);
+
       const rawRows = parseWorkbook(base64);
       const result2 = validateRows(rawRows);
       setParsed(result2);

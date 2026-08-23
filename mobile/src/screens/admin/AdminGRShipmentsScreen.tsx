@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/useAppTheme';
@@ -75,7 +75,23 @@ type LoadStatus = 'loading' | 'success' | 'error';
  */
 export const AdminGRShipmentsScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
-  const { goBack, navigate, navigation } = useAppNav();
+  const { navigate, navigation } = useAppNav();
+
+  // Always navigate back to the Dashboard rather than relying on
+  // navigation.goBack(), which can land on an intermediate screen (e.g. the
+  // More tab or a stale Shipments-stack entry) instead of the Dashboard.
+  const handleBack = useCallback(() => {
+    navigate('AdminDashboard');
+  }, [navigate]);
+
+  // Android hardware back button — same intent as the header back arrow.
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleBack();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [handleBack]);
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
@@ -234,7 +250,7 @@ export const AdminGRShipmentsScreen = () => {
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
         <Header
           title="GR / Shipments"
-          leftAction={{ icon: 'chevron-back', onPress: goBack }}
+          leftAction={{ icon: 'chevron-back', onPress: handleBack }}
           rightAction={{ icon: 'add', onPress: onAddPress, accessibilityLabel: 'Create GR' }}
         />
         <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -252,7 +268,7 @@ export const AdminGRShipmentsScreen = () => {
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <Header
         title="GR / Shipments"
-        leftAction={{ icon: 'chevron-back', onPress: goBack }}
+        leftAction={{ icon: 'chevron-back', onPress: handleBack }}
         rightAction={{ icon: 'add', onPress: onAddPress, accessibilityLabel: 'Create GR' }}
       />
 
