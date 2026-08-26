@@ -2,6 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
+import { useTranslation } from 'react-i18next';
 import { AuthScaffold } from '../../components/AuthScaffold';
 import { FormTextBox } from '../../components/form/FormTextBox';
 import { FormNotice } from '../../components/FormNotice';
@@ -9,7 +10,6 @@ import { PrimaryButton } from '../../components/PrimaryButton';
 import { Logo } from '../../components/Logo';
 import { AnimatedHeader } from '../../components/AnimatedHeader';
 import { ScreenHeading } from '../../components/ScreenHeading';
-import { STRINGS } from '../../constants/strings';
 import {
   forgotPasswordSchema,
   type ForgotPasswordValues,
@@ -23,6 +23,7 @@ import { useEffect } from 'react';
 type Props = NativeStackScreenProps<AuthStackParamList, 'ForgotPassword'>;
 
 export const ForgotPasswordScreen = ({ navigation }: Props) => {
+  const { t } = useTranslation();
   const { spacing } = useAppTheme();
   const requestOTP = useAuth().forgotPasswordOTP;
 
@@ -58,13 +59,13 @@ export const ForgotPasswordScreen = ({ navigation }: Props) => {
 
       <View style={{ height: spacing.xxl }} />
 
-      <ScreenHeading title={STRINGS.resetPassword} subtitle={STRINGS.forgotSubtitle} />
+      <ScreenHeading title={t('auth.resetPassword')} subtitle={t('auth.forgotSubtitle')} />
 
       <View style={{ height: spacing.xl * 2 }} />
 
       {isSent ? (
         <View style={styles.form}>
-          <FormNotice message={STRINGS.resetLinkSentTitle} />
+          <FormNotice message={t('auth.resetLinkSentTitle')} />
           <PrimaryButton
             label="Back to Sign In"
             onPress={() => navigation.goBack()}
@@ -77,7 +78,7 @@ export const ForgotPasswordScreen = ({ navigation }: Props) => {
           <FormTextBox
             control={control}
             name="email"
-            label={STRINGS.email}
+            label={t('auth.email')}
             icon="mail-outline"
             placeholder="you@company.com"
             keyboardType="email-address"
@@ -88,7 +89,7 @@ export const ForgotPasswordScreen = ({ navigation }: Props) => {
             onSubmitEditing={handleSubmit(onSubmit)}
           />
           <PrimaryButton
-            label={requestOTP.isPending ? STRINGS.sendingReset : STRINGS.sendResetLink}
+            label={requestOTP.isPending ? t('auth.sendingReset') : t('auth.sendResetLink')}
             onPress={handleSubmit(onSubmit)}
             loading={requestOTP.isPending}
           />

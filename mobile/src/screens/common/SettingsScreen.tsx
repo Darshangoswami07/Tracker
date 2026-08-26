@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAuthStore } from '../../store/authStore';
 import { useThemeStore, type ThemePreference } from '../../store/themeStore';
@@ -23,6 +24,7 @@ import { useSettingsStore, type LanguageCode } from '../../store/settingsStore';
 import { Header } from '../../components/Header';
 import { ActionButton } from '../../components/ActionButton';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { LanguagePickerModal } from '../../components/LanguagePickerModal';
 import { useAppNav } from '../../hooks/useAppNav';
 
 const SUPPORT_EMAIL = 'jobpilotdesk@gmail.com';
@@ -42,11 +44,12 @@ const THEME_LABELS: Record<ThemePreference, string> = {
 
 const LANGUAGE_LABELS: Record<LanguageCode, string> = {
   en: 'English',
-  hi: 'Hindi',
-  gu: 'Gujarati',
+  hi: 'हिन्दी',
+  hinglish: 'Hinglish',
 };
 
 export const SettingsScreen = () => {
+  const { t } = useTranslation();
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const preference = useThemeStore((state) => state.preference);
   const setPreference = useThemeStore((state) => state.setPreference);
@@ -69,9 +72,9 @@ export const SettingsScreen = () => {
   const setBackgroundRefresh = useSettingsStore((s) => s.setBackgroundRefresh);
   const setDataSaver = useSettingsStore((s) => s.setDataSaver);
   const setAutoDownload = useSettingsStore((s) => s.setAutoDownload);
-  const setLanguage = useSettingsStore((s) => s.setLanguage);
 
   const [themeModalVisible, setThemeModalVisible] = useState(false);
+  const [languageModalVisible, setLanguageModalVisible] = useState(false);
   const [signOutDialogVisible, setSignOutDialogVisible] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(20));
@@ -129,20 +132,15 @@ export const SettingsScreen = () => {
   };
 
   const handleContactSupport = () => {
-    Alert.alert('Contact Support', `Reach us anytime at:\n\n📧 ${SUPPORT_EMAIL}\n📞 +91 ${SUPPORT_PHONE}`, [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('settings.contactSupport'), `${t('settings.contactSupportContent')}\n\n📧 ${SUPPORT_EMAIL}\n📞 +91 ${SUPPORT_PHONE}`, [
+      { text: t('common.cancel'), style: 'cancel' },
       { text: 'Call', onPress: () => Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {}) },
       { text: 'Email', onPress: () => Linking.openURL(`mailto:${SUPPORT_EMAIL}`).catch(() => {}) },
     ]);
   };
 
   const handleSelectLanguage = () => {
-    Alert.alert('Select Language', 'Choose your preferred language', [
-      { text: 'English', onPress: () => setLanguage('en') },
-      { text: 'Hindi', onPress: () => setLanguage('hi') },
-      { text: 'Gujarati', onPress: () => setLanguage('gu') },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    setLanguageModalVisible(true);
   };
 
   const switchColors = { false: colors.borderStrong, true: colors.primary };
@@ -150,7 +148,7 @@ export const SettingsScreen = () => {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <View style={styles.header}>
-        <Header title="Settings" leftAction={{ icon: 'chevron-back', onPress: goBack, accessibilityLabel: 'Go back' }} />
+        <Header title={t('settings.title')} leftAction={{ icon: 'chevron-back', onPress: goBack, accessibilityLabel: t('common.back') }} />
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -161,26 +159,26 @@ export const SettingsScreen = () => {
           }}
         >
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Appearance</Text>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('settings.appearance')}</Text>
             <View style={[styles.settingsCard, { backgroundColor: colors.surface, borderRadius: radii.xl, ...shadows.sm }]}>
               <SettingRow
                 icon="sunny-outline"
-                label="Theme"
+                label={t('settings.theme')}
                 value={THEME_LABELS[preference]}
                 showChevron
                 onPress={() => setThemeModalVisible(true)}
               />
               <SettingRow
                 icon="contrast-outline"
-                label="Dark Mode"
+                label={t('settings.darkMode')}
                 trailing={
                   <Switch
                     value={darkActive}
                     onValueChange={(value) => setPreference(value ? 'dark' : 'light')}
                     trackColor={switchColors}
                     thumbColor={darkActive ? colors.primary : colors.surface}
-                    accessibilityLabel="Dark Mode"
-                    accessibilityHint="Toggles between dark and light appearance"
+                    accessibilityLabel={t('settings.darkMode')}
+                    accessibilityHint={t('settings.darkModeHint')}
                   />
                 }
               />
@@ -188,50 +186,50 @@ export const SettingsScreen = () => {
           </View>
 
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Notifications</Text>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('settings.notifications')}</Text>
             <View style={[styles.settingsCard, { backgroundColor: colors.surface, borderRadius: radii.xl, ...shadows.sm }]}>
               <SettingRow
                 icon="notifications-outline"
-                label="Push Notifications"
-                description="Receive push notifications for order updates"
+                label={t('settings.pushNotifications')}
+                description={t('settings.pushNotificationsDesc')}
                 trailing={
                   <Switch
                     value={pushNotifications}
                     onValueChange={setPushNotifications}
                     trackColor={switchColors}
                     thumbColor={pushNotifications ? colors.primary : colors.surface}
-                    accessibilityLabel="Push Notifications"
-                    accessibilityHint="Receives push notifications for order updates"
+                    accessibilityLabel={t('settings.pushNotifications')}
+                    accessibilityHint={t('settings.pushNotificationsHint')}
                   />
                 }
               />
               <SettingRow
                 icon="mail-outline"
-                label="Email Notifications"
-                description="Receive email notifications"
+                label={t('settings.emailNotifications')}
+                description={t('settings.emailNotificationsDesc')}
                 trailing={
                   <Switch
                     value={emailNotifications}
                     onValueChange={setEmailNotifications}
                     trackColor={switchColors}
                     thumbColor={emailNotifications ? colors.primary : colors.surface}
-                    accessibilityLabel="Email Notifications"
-                    accessibilityHint="Receives email notifications"
+                    accessibilityLabel={t('settings.emailNotifications')}
+                    accessibilityHint={t('settings.emailNotificationsHint')}
                   />
                 }
               />
               <SettingRow
                 icon="chatbubble-outline"
-                label="SMS Notifications"
-                description="Receive SMS notifications"
+                label={t('settings.smsNotifications')}
+                description={t('settings.smsNotificationsDesc')}
                 trailing={
                   <Switch
                     value={smsNotifications}
                     onValueChange={setSmsNotifications}
                     trackColor={switchColors}
                     thumbColor={smsNotifications ? colors.primary : colors.surface}
-                    accessibilityLabel="SMS Notifications"
-                    accessibilityHint="Receives SMS notifications"
+                    accessibilityLabel={t('settings.smsNotifications')}
+                    accessibilityHint={t('settings.smsNotificationsHint')}
                   />
                 }
               />
@@ -239,89 +237,89 @@ export const SettingsScreen = () => {
           </View>
 
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Privacy & Security</Text>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('settings.privacySecurity')}</Text>
             <View style={[styles.settingsCard, { backgroundColor: colors.surface, borderRadius: radii.xl, ...shadows.sm }]}>
               <SettingRow
                 icon="location-outline"
-                label="Location Access"
-                description="Allow app to access your location for tracking"
+                label={t('settings.locationAccess')}
+                description={t('settings.locationAccessDesc')}
                 trailing={
                   <Switch
                     value={locationAccess}
                     onValueChange={setLocationAccess}
                     trackColor={switchColors}
                     thumbColor={locationAccess ? colors.primary : colors.surface}
-                    accessibilityLabel="Location Access"
-                    accessibilityHint="Allows the app to access your location for tracking"
+                    accessibilityLabel={t('settings.locationAccess')}
+                    accessibilityHint={t('settings.locationAccessHint')}
                   />
                 }
               />
               <SettingRow
                 icon="refresh-outline"
-                label="Background App Refresh"
-                description="Update data in background"
+                label={t('settings.backgroundRefresh')}
+                description={t('settings.backgroundRefreshDesc')}
                 trailing={
                   <Switch
                     value={backgroundRefresh}
                     onValueChange={setBackgroundRefresh}
                     trackColor={switchColors}
                     thumbColor={backgroundRefresh ? colors.primary : colors.surface}
-                    accessibilityLabel="Background App Refresh"
-                    accessibilityHint="Updates data in the background"
+                    accessibilityLabel={t('settings.backgroundRefresh')}
+                    accessibilityHint={t('settings.backgroundRefreshHint')}
                   />
                 }
               />
               <SettingRow
                 icon="shield-outline"
-                label="Data Saver Mode"
-                description="Reduce data usage"
+                label={t('settings.dataSaver')}
+                description={t('settings.dataSaverDesc')}
                 trailing={
                   <Switch
                     value={dataSaver}
                     onValueChange={setDataSaver}
                     trackColor={switchColors}
                     thumbColor={dataSaver ? colors.primary : colors.surface}
-                    accessibilityLabel="Data Saver Mode"
-                    accessibilityHint="Reduces data usage"
+                    accessibilityLabel={t('settings.dataSaver')}
+                    accessibilityHint={t('settings.dataSaverHint')}
                   />
                 }
               />
               <SettingRow
                 icon="download-outline"
-                label="Auto-download Media"
-                description="Automatically download images on WiFi"
+                label={t('settings.autoDownload')}
+                description={t('settings.autoDownloadDesc')}
                 trailing={
                   <Switch
                     value={autoDownload}
                     onValueChange={setAutoDownload}
                     trackColor={switchColors}
                     thumbColor={autoDownload ? colors.primary : colors.surface}
-                    accessibilityLabel="Auto-download Media"
-                    accessibilityHint="Automatically downloads images on WiFi"
+                    accessibilityLabel={t('settings.autoDownload')}
+                    accessibilityHint={t('settings.autoDownloadHint')}
                   />
                 }
               />
               <SettingRow
                 icon="lock-closed-outline"
-                label="Change Password"
+                label={t('settings.changePassword')}
                 showChevron
                 onPress={() => navigate('ChangePassword')}
               />
               <SettingRow
                 icon="shield-checkmark-outline"
-                label="Two-Factor Authentication"
+                label={t('settings.twoFactorAuth')}
                 showChevron
-                onPress={() => Alert.alert('Two-Factor Authentication', 'Two-factor authentication is coming soon.')}
+                onPress={() => Alert.alert(t('settings.twoFactorAuth'), t('settings.twoFactorAuthComingSoon'))}
               />
             </View>
           </View>
 
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Language</Text>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('settings.language')}</Text>
             <View style={[styles.settingsCard, { backgroundColor: colors.surface, borderRadius: radii.xl, ...shadows.sm }]}>
               <SettingRow
                 icon="language-outline"
-                label="App Language"
+                label={t('settings.appLanguage')}
                 value={LANGUAGE_LABELS[language]}
                 showChevron
                 onPress={handleSelectLanguage}
@@ -330,50 +328,50 @@ export const SettingsScreen = () => {
           </View>
 
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>About</Text>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('settings.about')}</Text>
             <View style={[styles.settingsCard, { backgroundColor: colors.surface, borderRadius: radii.xl, ...shadows.sm }]}>
-              <SettingRow icon="information-circle-outline" label="Version" value="1.0.0" />
+              <SettingRow icon="information-circle-outline" label={t('settings.version')} value="1.0.0" />
               <SettingRow
                 icon="document-text-outline"
-                label="Terms of Service"
+                label={t('settings.termsOfService')}
                 showChevron
                 onPress={() =>
-                  Linking.openURL('https://deliveryhub.app/terms').catch(() => Alert.alert('Terms of Service', 'Terms of Service\n\nUpdated January 1, 2025'))
+                  Linking.openURL('https://deliveryhub.app/terms').catch(() => Alert.alert(t('settings.termsOfService'), t('settings.termsOfServiceContent')))
                 }
               />
               <SettingRow
                 icon="shield-outline"
-                label="Privacy Policy"
+                label={t('settings.privacyPolicy')}
                 showChevron
                 onPress={() =>
-                  Linking.openURL('https://deliveryhub.app/privacy').catch(() => Alert.alert('Privacy Policy', 'Privacy Policy\n\nYour privacy matters to us.'))
+                  Linking.openURL('https://deliveryhub.app/privacy').catch(() => Alert.alert(t('settings.privacyPolicy'), t('settings.privacyPolicyContent')))
                 }
               />
               <SettingRow
                 icon="help-outline"
-                label="Help & Support"
+                label={t('settings.helpSupport')}
                 description={`${SUPPORT_EMAIL} • +91 ${SUPPORT_PHONE}`}
                 showChevron
                 onPress={handleContactSupport}
               />
               <SettingRow
                 icon="star-outline"
-                label="Rate App"
+                label={t('settings.rateApp')}
                 showChevron
-                onPress={() => Alert.alert('Rate App', 'We would love your feedback! You can rate DeliveryHub on the App Store and Google Play.')}
+                onPress={() => Alert.alert(t('settings.rateApp'), t('settings.rateAppContent'))}
               />
               <SettingRow
                 icon="share-outline"
-                label="Share App"
+                label={t('settings.shareApp')}
                 showChevron
-                onPress={() => Alert.alert('Share App', 'Share DeliveryHub with your friends and family using the share sheet.')}
+                onPress={() => Alert.alert(t('settings.shareApp'), t('settings.shareAppContent'))}
               />
             </View>
           </View>
 
           <View style={styles.section}>
             <ActionButton
-              label="Sign Out"
+              label={t('settings.signOut')}
               icon="log-out"
               variant="danger"
               size="lg"
@@ -383,7 +381,7 @@ export const SettingsScreen = () => {
           </View>
 
           <View style={styles.version}>
-            <Text style={[styles.versionText, { color: colors.textMuted }]}>DeliveryHub v1.0.0 • Build 100</Text>
+            <Text style={[styles.versionText, { color: colors.textMuted }]}>{t('app.name')} v1.0.0 • {t('settings.build')} 100</Text>
           </View>
         </Animated.View>
       </ScrollView>
@@ -407,7 +405,7 @@ export const SettingsScreen = () => {
             style={styles.modalSheet}
           >
             <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Theme</Text>
+            <Text style={styles.sheetTitle}>{t('settings.theme')}</Text>
             {THEME_OPTIONS.map((option) => {
               const selected = preference === option.value;
               return (
@@ -439,11 +437,16 @@ export const SettingsScreen = () => {
         </TouchableOpacity>
       </Modal>
 
+      <LanguagePickerModal
+        visible={languageModalVisible}
+        onClose={() => setLanguageModalVisible(false)}
+      />
+
       <ConfirmDialog
         visible={signOutDialogVisible}
-        title="Sign Out"
-        message="Are you sure you want to sign out?"
-        confirmLabel="Sign Out"
+        title={t('settings.signOut')}
+        message={t('settings.signOutConfirm')}
+        confirmLabel={t('settings.signOut')}
         destructive
         onConfirm={handleConfirmSignOut}
         onCancel={() => setSignOutDialogVisible(false)}

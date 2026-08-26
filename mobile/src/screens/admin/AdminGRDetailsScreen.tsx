@@ -14,6 +14,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { AttachmentViewerModal, type ViewableAttachment } from '../../components/AttachmentViewerModal';
 import { persistSlipImage } from '../../services/slipStorage';
 import { useAppNav } from '../../hooks/useAppNav';
+import { useTranslation } from 'react-i18next';
 import type { AppTheme } from '../../theme/types';
 
 interface GRAttachment {
@@ -130,6 +131,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const { orderId } = route.params as { orderId: string };
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { goBack, navigate, navigation } = useAppNav();
+  const { t } = useTranslation();
   const accessToken = useAuthStore((state) => state.accessToken);
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
@@ -159,7 +161,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
       setError(null);
       setNotFound(false);
     } catch (err: any) {
-      setError(err?.message ?? 'Could not load this GR. Please try again.');
+      setError(err?.message ?? t('createGR.couldNotLoadGR'));
     } finally {
       setLoading(false);
     }
@@ -204,7 +206,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
     try {
       setGr(await orderRepository.updateStatus(orderId, status));
     } catch (err: any) {
-      Alert.alert('Error', err?.message ?? 'Could not update the status. Please try again.');
+      Alert.alert(t('createGR.errorTitle'), err?.message ?? t('createGR.statusUpdateFailed'));
     } finally {
       setUpdating(false);
     }
@@ -213,7 +215,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const handleUploadSlip = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission Required', 'Gallery permission is required to select a photo.');
+      Alert.alert(t('createGR.permissionRequired'), t('createGR.permissionGalleryPhoto'));
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
@@ -234,7 +236,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
       });
       await fetchDetail();
     } catch (err: any) {
-      Alert.alert('Upload Failed', err?.message ?? 'Could not save the slip. Please try again.');
+      Alert.alert(t('createGR.uploadFailed'), err?.message ?? t('createGR.couldNotSaveSlip'));
     } finally {
       setUploading(false);
     }
@@ -251,7 +253,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
       );
       setAssignPicker(null);
     } catch (err: any) {
-      Alert.alert('Error', err?.message ?? `Could not assign ${assignPicker}. Please try again.`);
+      Alert.alert(t('createGR.errorTitle'), err?.message ?? t('createGR.couldNotAssign', { role: assignPicker }));
     } finally {
       setAssigning(false);
     }
@@ -260,7 +262,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   if (loading) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-        <Header title="GR Details" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
+        <Header title={t('admin.grDetails')} leftAction={{ icon: 'chevron-back', onPress: goBack }} />
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <ShimmerCard style={styles.shimmer} height={28} />
           <ShimmerCard style={styles.shimmer} height={80} />
@@ -274,9 +276,9 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   if (notFound) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-        <Header title="GR Details" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
+        <Header title={t('admin.grDetails')} leftAction={{ icon: 'chevron-back', onPress: goBack }} />
         <View style={styles.centerFill}>
-          <EmptyState icon="alert-circle-outline" title="GR not found" subtitle="This GR may have been removed." iconColor={colors.error} />
+          <EmptyState icon="alert-circle-outline" title={t('createGR.grNotFound')} subtitle={t('createGR.grNotFoundDesc')} iconColor={colors.error} />
         </View>
       </SafeAreaView>
     );
@@ -285,13 +287,13 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   if (error || !gr) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-        <Header title="GR Details" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
+        <Header title={t('admin.grDetails')} leftAction={{ icon: 'chevron-back', onPress: goBack }} />
         <View style={styles.centerFill}>
           <EmptyState
             icon="cloud-offline-outline"
-            title="Something went wrong"
-            subtitle={error ?? 'Could not load this GR.'}
-            actionLabel="Retry"
+            title={t('createGR.somethingWrong')}
+            subtitle={error ?? t('createGR.couldNotLoadGR')}
+            actionLabel={t('common.retry')}
             onActionPress={() => {
               setLoading(true);
               fetchDetail();
@@ -310,14 +312,14 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <Header
-        title="GR Details"
+        title={t('admin.grDetails')}
         leftAction={{ icon: 'chevron-back', onPress: goBack }}
         rightAction={{ icon: 'create-outline', onPress: () => navigate('EditGR', { orderId }), accessibilityLabel: 'Edit GR' }}
       />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.titleRow}>
           <View>
-            <Text style={[styles.label, { color: colors.textMuted }]}>GR NUMBER</Text>
+            <Text style={[styles.label, { color: colors.textMuted }]}>{t('tracking.grNumber')}</Text>
             <Text style={[styles.grNo, { color: colors.textPrimary }]}>{gr.orderNumber}</Text>
             {gr.trackingCode && (
               <Text style={[styles.trackingCode, { color: colors.textMuted }]}>Tracking: {gr.trackingCode}</Text>
@@ -327,7 +329,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
         </View>
 
         <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
-          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>ROUTE</Text>
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>{t('createGR.sectionRoute')}</Text>
           <View style={styles.routeRow}>
             <Ionicons name="ellipse" size={10} color="#10B981" />
             <Text style={[styles.routeText, { color: colors.textPrimary }]}>{gr.fromLocation || gr.pickupAddress}</Text>
@@ -347,7 +349,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
 
         {gr.particulars && (
           <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
-            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>PARTICULARS</Text>
+            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>{t('createGR.sectionGRInfo').replace('GR Information','PARTICULARS')}</Text>
             <Text style={[styles.bodyText, { color: colors.textPrimary }]}>{gr.particulars}</Text>
           </View>
         )}
@@ -437,7 +439,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
         >
           <Ionicons name="sync-outline" size={16} color={colors.onPrimary} />
           <Text style={[styles.statusButtonText, { color: colors.onPrimary }]}>
-            {updating ? 'Updating…' : 'Update Status'}
+            {updating ? t('createGR.updating') : t('createGR.updateStatus')}
           </Text>
         </TouchableOpacity>
 
@@ -455,7 +457,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
                 <>
                   <Ionicons name="camera-outline" size={14} color={colors.primary} />
                   <Text style={[styles.uploadButtonText, { color: colors.primary }]}>
-                    {gr.attachments.length > 0 ? 'Replace Slip' : 'Upload Slip'}
+                    {gr.attachments.length > 0 ? t('createGR.replaceSlip') : t('createGR.uploadSlip')}
                   </Text>
                 </>
               )}
@@ -529,7 +531,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalSheet, { backgroundColor: colors.background, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Update Status</Text>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>{t('createGR.updateStatus')}</Text>
               <TouchableOpacity onPress={() => setStatusPickerOpen(false)} hitSlop={8}>
                 <Ionicons name="close" size={22} color={colors.textPrimary} />
               </TouchableOpacity>

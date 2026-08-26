@@ -11,6 +11,7 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
 } from 'react-native-reanimated';
+import { useTranslation } from 'react-i18next';
 import { AuthBackground } from '../../components/AuthBackground';
 import { HeroBanner } from '../../components/HeroBanner';
 import { FeatureCard } from '../../components/FeatureCard';
@@ -29,12 +30,7 @@ interface Feature {
   color: string;
 }
 
-const FEATURES: Feature[] = [
-  { icon: 'navigate-outline', title: 'Real-time Tracking', description: 'Live map tracking for every delivery', color: '#3B82F6' },
-  { icon: 'people-outline', title: 'Fleet Management', description: 'Manage drivers and vehicles with ease', color: '#06B6D4' },
-  { icon: 'analytics-outline', title: 'Business Analytics', description: 'Insights that help your business grow', color: '#8B5CF6' },
-  { icon: 'shield-checkmark-outline', title: 'Enterprise Security', description: 'Bank-grade protection for your data', color: '#10B981' },
-];
+// Moved inside component to support i18n
 
 const ctaShadow = Platform.select({
   web: { boxShadow: '0 12px 26px rgba(91, 91, 255, 0.35)' },
@@ -87,12 +83,20 @@ const CtaButton = ({ label, onPress }: CtaButtonProps) => {
 type Props = NativeStackScreenProps<AuthStackParamList, 'Welcome'>;
 
 export const WelcomeScreen = ({ navigation }: Props) => {
+  const { t } = useTranslation();
   const { colors } = useAppTheme();
   const { width } = useWindowDimensions();
 
   const contentWidth = Math.min(width, 480) - 48;
   const twoCol = width >= 600;
   const cardWidth = twoCol ? (contentWidth - 12) / 2 : contentWidth;
+
+  const features: Feature[] = [
+    { icon: 'navigate-outline', title: t('auth.realTimeTracking'), description: t('auth.liveMapTracking'), color: '#3B82F6' },
+    { icon: 'people-outline', title: t('auth.fleetManagement'), description: t('auth.manageDrivers'), color: '#06B6D4' },
+    { icon: 'analytics-outline', title: t('auth.businessAnalytics'), description: t('auth.insightsGrow'), color: '#8B5CF6' },
+    { icon: 'shield-checkmark-outline', title: t('auth.enterpriseSecurity'), description: t('auth.bankGradeProtection'), color: '#10B981' },
+  ];
 
   const cardEntering = (index: number) => FadeInDown.duration(420).delay(500 + index * 90).springify().damping(18);
 
@@ -128,15 +132,15 @@ export const WelcomeScreen = ({ navigation }: Props) => {
               entering={FadeInDown.duration(550).delay(280)}
               style={styles.heading}
             >
-              <Text style={styles.eyebrow}>WELCOME TO</Text>
-              <Text style={[styles.title, { color: colors.navy }]}>DeliveryHub</Text>
+              <Text style={styles.eyebrow}>{t('auth.welcomeTo')}</Text>
+              <Text style={[styles.title, { color: colors.navy }]}>{t('common.appName')}</Text>
               <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-                Your complete logistics management solution.
+                {t('auth.yourCompleteSolution')}
               </Text>
             </Animated.View>
 
             <View style={styles.cards}>
-              {FEATURES.map((feature, index) => (
+              {features.map((feature, index) => (
                 <FeatureCard
                   key={feature.title}
                   icon={feature.icon}
@@ -151,22 +155,22 @@ export const WelcomeScreen = ({ navigation }: Props) => {
 
             <Animated.View entering={FadeInUp.duration(500).delay(900)} style={styles.ctaWrap}>
               <CtaButton
-                label="Get Started"
+                label={t('auth.getStarted')}
                 onPress={() => navigation.navigate('RoleSelection')}
               />
             </Animated.View>
 
             <Animated.View entering={FadeIn.duration(500).delay(980)} style={styles.signInRow}>
-              <Text style={[styles.signInText, { color: colors.textSecondary }]}>Already have an account? </Text>
-              <TextLink label="Sign In" onPress={() => navigation.navigate('RoleSelection')} />
+              <Text style={[styles.signInText, { color: colors.textSecondary }]}>{t('auth.alreadyHaveAccount')} </Text>
+              <TextLink label={t('common.signIn')} onPress={() => navigation.navigate('RoleSelection')} />
             </Animated.View>
 
             <Animated.View entering={FadeIn.duration(500).delay(1060)} style={styles.legal}>
-              <Text style={[styles.legalText, { color: colors.textMuted }]}>By continuing, you agree to our</Text>
+              <Text style={[styles.legalText, { color: colors.textMuted }]}>{t('auth.byContinuing')}</Text>
               <View style={styles.legalLinks}>
-                <TextLink label="Terms of Service" onPress={() => navigation.navigate('Terms')} />
-                <Text style={[styles.legalText, { color: colors.textMuted }]}> and </Text>
-                <TextLink label="Privacy Policy" onPress={() => navigation.navigate('Privacy')} />
+                <TextLink label={t('auth.termsOfService')} onPress={() => navigation.navigate('Terms')} />
+                <Text style={[styles.legalText, { color: colors.textMuted }]}> {t('common.and')} </Text>
+                <TextLink label={t('auth.privacyPolicy')} onPress={() => navigation.navigate('Privacy')} />
               </View>
             </Animated.View>
           </View>

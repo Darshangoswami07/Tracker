@@ -2,6 +2,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown, FadeInUp, ZoomIn } from 'react-native-reanimated';
+import { useTranslation } from 'react-i18next';
 import { AuthScaffold } from '../../components/AuthScaffold';
 import { SuccessMark } from '../../components/auth/SuccessMark';
 import { useAuthStore } from '../../store/authStore';
@@ -15,6 +16,7 @@ const REDIRECT_SECONDS = 3;
 type Props = NativeStackScreenProps<AuthStackParamList, 'RegistrationSuccess'>;
 
 export const RegistrationSuccessScreen = (_props: Props) => {
+  const { t } = useTranslation();
   const { colors, spacing, fonts } = useAppTheme();
   const activateSession = useAuthStore((state) => state.activateSession);
   const user = useUserStore((state) => state.user);
@@ -39,10 +41,10 @@ export const RegistrationSuccessScreen = (_props: Props) => {
           <SuccessMark tone="success" size={128} />
         </Animated.View>
         <Text style={[styles.title, { color: colors.textPrimary, fontSize: fonts.size.xxxl, fontWeight: fonts.weight.heavy }]}>
-          Welcome{firstName ? `, ${firstName}` : ''}
+          {t('common.welcome')}{firstName ? `, ${firstName}` : ''}
         </Text>
         <Text style={[styles.subtitle, { color: colors.textSecondary, fontSize: fonts.size.md }]}>
-          Welcome to DeliveryHub
+          {t('auth.welcomeToDeliveryHub')}
         </Text>
       </Animated.View>
 
@@ -55,10 +57,10 @@ export const RegistrationSuccessScreen = (_props: Props) => {
         style={[styles.card, { borderColor: colors.border }]}
       >
         <Text style={[styles.cardTitle, { color: colors.success, fontSize: fonts.size.lg, fontWeight: '700' }]}>
-          Account Activated
+          {t('auth.accountActivated')}
         </Text>
         <Text style={[styles.cardBody, { color: colors.textSecondary, fontSize: fonts.size.md }]}>
-          Your account has been successfully activated. We’re preparing your workspace…
+          {t('auth.accountActivatedMessage')}
         </Text>
       </LinearGradient>
 
@@ -66,7 +68,7 @@ export const RegistrationSuccessScreen = (_props: Props) => {
 
       <Animated.View entering={FadeInDown.delay(250).duration(500)} style={styles.redirectRow}>
         <Text style={[styles.redirectLabel, { color: colors.textSecondary, fontSize: fonts.size.md }]}>
-          Redirecting to your dashboard
+          {t('auth.redirectingToDashboard')}
         </Text>
         <View style={[styles.countBadge, { backgroundColor: colors.primarySoft }]}>
           <Text style={[styles.countNumber, { color: colors.primary, fontSize: fonts.size.lg, fontWeight: '800' }]}>

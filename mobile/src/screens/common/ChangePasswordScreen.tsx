@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAuth } from '../../hooks/useAuth';
 import { useAppNav } from '../../hooks/useAppNav';
@@ -12,13 +13,13 @@ import { CustomInput } from '../../components/CustomInput';
 import { OTPInput } from '../../components/auth/OTPInput';
 import { ActionButton } from '../../components/ActionButton';
 
-const validateNewPassword = (pwd: string): string | undefined => {
-  if (!pwd) return 'Password is required';
-  if (pwd.length < 8) return 'Must be at least 8 characters';
-  if (!/[A-Z]/.test(pwd)) return 'Must contain an uppercase letter';
-  if (!/[a-z]/.test(pwd)) return 'Must contain a lowercase letter';
-  if (!/[0-9]/.test(pwd)) return 'Must contain a number';
-  if (!/[!@#$%^&*]/.test(pwd)) return 'Must contain a special character (!@#$%^&*)';
+const validateNewPassword = (pwd: string, t: (key: string) => string): string | undefined => {
+  if (!pwd) return t('changePassword.passwordRequired');
+  if (pwd.length < 8) return t('changePassword.mustBeAtLeast8');
+  if (!/[A-Z]/.test(pwd)) return t('changePassword.mustContainUppercase');
+  if (!/[a-z]/.test(pwd)) return t('changePassword.mustContainLowercase');
+  if (!/[0-9]/.test(pwd)) return t('changePassword.mustContainNumber');
+  if (!/[!@#$%^&*]/.test(pwd)) return t('changePassword.mustContainSpecial');
   return undefined;
 };
 
@@ -72,6 +73,7 @@ const PasswordField = ({
  * then verify it alongside the new password in one call.
  */
 export const ChangePasswordScreen = () => {
+  const { t } = useTranslation();
   const { colors, spacing, radii, fonts } = useAppTheme();
   const user = useUserStore((state) => state.user);
   const clearSession = useAuthStore((state) => state.clearSession);
@@ -108,29 +110,29 @@ export const ChangePasswordScreen = () => {
       { email },
       {
         onSuccess: () => setStep('verify'),
-        onError: () => Alert.alert('Could not send code', 'Please check your connection and try again.'),
+        onError: () => Alert.alert(t('changePassword.couldNotSend'), t('changePassword.checkConnection')),
       },
     );
   };
 
   const handleSubmit = () => {
-    const pwdErr = validateNewPassword(newPassword);
-    const confErr = newPassword !== confirmPassword ? 'Passwords do not match' : undefined;
+    const pwdErr = validateNewPassword(newPassword, t);
+    const confErr = newPassword !== confirmPassword ? t('changePassword.passwordsMismatch') : undefined;
     setPasswordError(pwdErr);
     setConfirmError(confErr);
     if (pwdErr || confErr || otp.length < 6) {
-      if (otp.length < 6) Alert.alert('Enter the code', 'Please enter the 6-digit code sent to your email.');
+      if (otp.length < 6) Alert.alert(t('changePassword.enterCode'), t('changePassword.enterCodeDesc'));
       return;
     }
     verifyPasswordResetOTP.mutate(
       { email, otp, password: newPassword },
       {
         onSuccess: () => {
-          Alert.alert('Password Changed', 'Your password has been updated. Please sign in again with your new password.', [
+          Alert.alert(t('changePassword.passwordChanged'), t('changePassword.passwordChangedDesc'), [
             { text: 'OK', onPress: () => clearSession() },
           ]);
         },
-        onError: () => Alert.alert('Verification failed', 'That code is invalid or expired. Please try again.'),
+        onError: () => Alert.alert(t('changePassword.verificationFailed'), t('changePassword.codeInvalid')),
       },
     );
   };
@@ -138,14 +140,14 @@ export const ChangePasswordScreen = () => {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <View style={styles.header}>
-        <Header title="Change Password" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
+        <Header title={t('common.changePassword')} leftAction={{ icon: 'chevron-back', onPress: goBack }} />
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {step === 'request' ? (
           <>
             <View style={styles.note}>
               <Text style={styles.noteText}>
-                We&apos;ll email a 6-digit verification code to your account email to confirm it&apos;s you before changing your password.
+                {t('changePassword.sendCodeNote')}
               </Text>
             </View>
             <View style={styles.emailRow}>
@@ -153,7 +155,7 @@ export const ChangePasswordScreen = () => {
               <Text style={styles.emailText}>{email || 'N/A'}</Text>
             </View>
             <ActionButton
-              label="Send Code"
+              label={t('changePassword.sendCode')}
               icon="paper-plane"
               size="lg"
               fullWidth
@@ -165,24 +167,24 @@ export const ChangePasswordScreen = () => {
         ) : (
           <>
             <View style={styles.note}>
-              <Text style={styles.noteText}>Enter the code sent to {email} along with your new password.</Text>
+              <Text style={styles.noteText}>{t('changePassword.enterCodeWithPassword', { email })}</Text>
             </View>
 
-            <Text style={styles.otpLabel}>VERIFICATION CODE</Text>
+            <Text style={styles.otpLabel}>{t('changePassword.verificationCode')}</Text>
             <View style={{ marginBottom: spacing.lg }}>
-              <OTPInput value={otp} onChange={setOtp} accessibilityLabel="Verification code" />
+              <OTPInput value={otp} onChange={setOtp} accessibilityLabel={t('changePassword.verificationCode')} />
             </View>
 
             <View style={styles.form}>
-              <PasswordField label="New Password" placeholder="Enter new password" value={newPassword} onChangeText={setNewPassword} error={passwordError} />
-              <PasswordField label="Confirm New Password" placeholder="Re-enter new password" value={confirmPassword} onChangeText={setConfirmPassword} error={confirmError} />
+              <PasswordField label={t('changePassword.newPassword')} placeholder={t('changePassword.enterNewPassword')} value={newPassword} onChangeText={setNewPassword} error={passwordError} />
+              <PasswordField label={t('changePassword.confirmNewPassword')} placeholder={t('changePassword.reEnterNewPassword')} value={confirmPassword} onChangeText={setConfirmPassword} error={confirmError} />
               <Text style={styles.hint}>
-                Minimum 8 characters with uppercase, lowercase, a number and a special character.
+                {t('changePassword.passwordHint')}
               </Text>
             </View>
 
             <ActionButton
-              label="Update Password"
+              label={t('changePassword.updatePassword')}
               icon="lock-closed"
               size="lg"
               fullWidth
@@ -195,9 +197,9 @@ export const ChangePasswordScreen = () => {
               onPress={handleSendCode}
               disabled={forgotPasswordOTP.isPending}
               accessibilityRole="button"
-              accessibilityLabel="Resend code"
+              accessibilityLabel={t('changePassword.resendCode')}
             >
-              <Text style={styles.resendText}>{forgotPasswordOTP.isPending ? 'Sending…' : 'Resend Code'}</Text>
+              <Text style={styles.resendText}>{forgotPasswordOTP.isPending ? t('changePassword.sending') : t('changePassword.resendCode')}</Text>
             </Pressable>
           </>
         )}

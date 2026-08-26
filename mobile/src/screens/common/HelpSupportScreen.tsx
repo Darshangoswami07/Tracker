@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Alert, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAppNav } from '../../hooks/useAppNav';
 import { Header } from '../../components/Header';
@@ -12,41 +13,27 @@ const HELP_CENTER_URL = 'https://deliveryhub.app/help';
 const TERMS_URL = 'https://deliveryhub.app/terms';
 const PRIVACY_URL = 'https://deliveryhub.app/privacy';
 
-const FAQS: { q: string; a: string }[] = [
-  {
-    q: 'How do I track an order?',
-    a: 'Open the Orders screen, tap the delivery you want to follow and select "Track". You will see the driver\'s live location and the latest status updates.',
-  },
-  {
-    q: 'Why is my order still "pending"?',
-    a: 'A pending order is waiting for a driver to accept it. You can check the assigned fleet, contact your driver, or cancel the order from the order details screen.',
-  },
-  {
-    q: 'How do I update my profile or password?',
-    a: 'Go to Settings from the menu. Use "Change Password" to update your credentials and the Profile screen to refresh your contact details.',
-  },
-  {
-    q: 'The phone number I entered is not accepted.',
-    a: 'Phone numbers must match the country code you used when registering. If you still face issues, contact support with your full name and the email on your account.',
-  },
-  {
-    q: 'How do I report a problem with a delivery?',
-    a: 'Open the order, tap Report a Problem and pick your issue. You can also reach our support team directly from this screen — use the button below.',
-  },
+const getFaqs = (t: (key: string) => string): { q: string; a: string }[] => [
+  { q: t('help.faq1Q'), a: t('help.faq1A') },
+  { q: t('help.faq2Q'), a: t('help.faq2A') },
+  { q: t('help.faq3Q'), a: t('help.faq3A') },
+  { q: t('help.faq4Q'), a: t('help.faq4A') },
+  { q: t('help.faq5Q'), a: t('help.faq5A') },
 ];
 
-const openUrl = (url: string) => {
+const openUrl = (url: string, t: (key: string) => string) => {
   Linking.canOpenURL(url)
     .then((supported) => {
       if (supported) return Linking.openURL(url);
       throw new Error('unsupported');
     })
     .catch(() => {
-      Alert.alert('Unable to Open', 'This link could not be opened from the app.');
+      Alert.alert(t('help.unableToOpen'), t('help.unableToOpenDesc'));
     });
 };
 
 export const HelpSupportScreen = () => {
+  const { t } = useTranslation();
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { goBack } = useAppNav();
   const [openFaq, setOpenFaq] = useState<number | null>(0);
@@ -87,24 +74,24 @@ export const HelpSupportScreen = () => {
   });
 
   const showContactChoices = () => {
-    Alert.alert('Contact Support', 'How would you like to reach us?', [
-      { text: 'Call', onPress: () => openUrl(`tel:${SUPPORT_PHONE}`) },
-      { text: 'Email', onPress: () => openUrl(`mailto:${SUPPORT_EMAIL}`) },
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('help.contactUs'), t('help.howToReachUs'), [
+      { text: t('help.call'), onPress: () => openUrl(`tel:${SUPPORT_PHONE}`, t) },
+      { text: t('help.email'), onPress: () => openUrl(`mailto:${SUPPORT_EMAIL}`, t) },
+      { text: t('common.cancel'), style: 'cancel' },
     ]);
   };
 
   const handleReport = () => {
-    Alert.alert('Report a Problem', 'Describe the issue. Your feedback helps us improve.', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('help.reportProblem'), t('help.describeIssue'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Continue',
+        text: t('common.continue'),
         onPress: () => {
           setSubmitted(true);
           Alert.alert(
-            'Thanks, we got this.',
-            'Our team usually replies within 24 hours. Meanwhile you can reach us directly via email.',
-            [{ text: 'Email Support', onPress: () => openUrl(`mailto:${SUPPORT_EMAIL}?subject=DeliveryHub%20Problem`) }, { text: 'OK' }],
+            t('help.thanksTitle'),
+            t('help.thanksMessage'),
+            [{ text: t('help.emailSupport'), onPress: () => openUrl(`mailto:${SUPPORT_EMAIL}?subject=DeliveryHub%20Problem`, t) }, { text: t('common.ok') }],
           );
         },
       },
@@ -113,7 +100,7 @@ export const HelpSupportScreen = () => {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-      <Header title="Help & Support" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
+      <Header title={t('help.title')} leftAction={{ icon: 'chevron-back', onPress: goBack }} />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {submitted && (
@@ -123,14 +110,14 @@ export const HelpSupportScreen = () => {
                 <Ionicons name="checkmark-circle" size={22} color="#10B981" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.rowLabel}>Issue submitted</Text>
-                <Text style={styles.rowHint}>We have recorded your feedback.</Text>
+                <Text style={styles.rowLabel}>{t('help.issueSubmitted')}</Text>
+                <Text style={styles.rowHint}>{t('help.feedbackRecorded')}</Text>
               </View>
             </View>
           </View>
         )}
 
-        <Text style={styles.sectionTitle}>Contact Us</Text>
+        <Text style={styles.sectionTitle}>{t('help.contactUs')}</Text>
 
         <View style={styles.card}>
           <TouchableOpacity
@@ -143,7 +130,7 @@ export const HelpSupportScreen = () => {
               <Ionicons name="call" size={20} color="#635BFF" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.rowLabel}>Phone</Text>
+              <Text style={styles.rowLabel}>{t('help.phone')}</Text>
               <Text style={styles.rowHint}>+91 {SUPPORT_PHONE}</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
@@ -159,19 +146,19 @@ export const HelpSupportScreen = () => {
               <Ionicons name="mail" size={20} color="#635BFF" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.rowLabel}>Email</Text>
+              <Text style={styles.rowLabel}>{t('help.email')}</Text>
               <Text style={styles.rowHint}>{SUPPORT_EMAIL}</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.row} onPress={() => openUrl(HELP_CENTER_URL)} activeOpacity={0.7} accessibilityRole="button">
+          <TouchableOpacity style={styles.row} onPress={() => openUrl(HELP_CENTER_URL, t)} activeOpacity={0.7} accessibilityRole="button">
             <View style={styles.iconBox}>
               <Ionicons name="globe" size={20} color="#635BFF" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.rowLabel}>Help Center</Text>
-              <Text style={styles.rowHint}>Guides, videos and FAQs online</Text>
+              <Text style={styles.rowLabel}>{t('help.helpCenter')}</Text>
+              <Text style={styles.rowHint}>{t('help.helpCenterDesc')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
           </TouchableOpacity>
@@ -181,16 +168,16 @@ export const HelpSupportScreen = () => {
               <Ionicons name="alert-circle" size={20} color="#10B981" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.rowLabel}>Report a Problem</Text>
-              <Text style={styles.rowHint}>Order issues, payments, app bugs</Text>
+              <Text style={styles.rowLabel}>{t('help.reportProblem')}</Text>
+              <Text style={styles.rowHint}>{t('help.reportProblemDesc')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.sectionTitle}>Frequently Asked Questions</Text>
+        <Text style={styles.sectionTitle}>{t('help.faq')}</Text>
         <View style={styles.card}>
-          {FAQS.map((faq, index) => {
+          {getFaqs(t).map((faq, index) => {
             const expanded = openFaq === index;
             return (
               <TouchableOpacity
@@ -211,30 +198,30 @@ export const HelpSupportScreen = () => {
           })}
         </View>
 
-        <Text style={styles.sectionTitle}>Legal</Text>
+        <Text style={styles.sectionTitle}>{t('help.legal')}</Text>
         <View style={styles.card}>
-          <TouchableOpacity style={styles.row} onPress={() => openUrl(TERMS_URL)} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.row} onPress={() => openUrl(TERMS_URL, t)} activeOpacity={0.7}>
             <View style={styles.iconBox}>
               <Ionicons name="document-text" size={20} color="#635BFF" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.rowLabel}>Terms of Service</Text>
+              <Text style={styles.rowLabel}>{t('settings.termsOfService')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.row} onPress={() => openUrl(PRIVACY_URL)} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.row} onPress={() => openUrl(PRIVACY_URL, t)} activeOpacity={0.7}>
             <View style={styles.iconBox}>
               <Ionicons name="shield-checkmark" size={20} color="#635BFF" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.rowLabel}>Privacy Policy</Text>
+              <Text style={styles.rowLabel}>{t('settings.privacyPolicy')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
           </TouchableOpacity>
         </View>
 
         <Text style={{ textAlign: 'center', fontSize: fonts.size.xs, color: colors.textMuted, marginTop: spacing.sm }}>
-          DeliveryHub v1.0.0 • Help & Support
+          DeliveryHub v1.0.0 • {t('help.title')}
         </Text>
       </ScrollView>
     </SafeAreaView>

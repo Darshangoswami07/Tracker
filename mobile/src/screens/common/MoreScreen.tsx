@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { Header } from '../../components/Header';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { getDrawerMenu, type DrawerMenuItem } from '../../navigation/drawerMenu';
@@ -26,6 +27,7 @@ const initialsOf = (name: string): string =>
  * as tappable rows instead of a sidebar panel.
  */
 export const MoreScreen = () => {
+  const { t } = useTranslation();
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const user = useUserStore((state) => state.user);
   const signOut = useAuth().signOut;
@@ -54,7 +56,7 @@ export const MoreScreen = () => {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
-      <Header title="More" />
+      <Header title={t('common.more')} />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={[styles.profileCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
           <View style={[styles.avatar, { backgroundColor: colors.primarySoft, borderRadius: radii.pill }]}>
@@ -62,7 +64,7 @@ export const MoreScreen = () => {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[styles.userName, { color: colors.textPrimary }]} numberOfLines={1}>
-              {user?.fullName ?? 'Account'}
+              {user?.fullName ?? t('common.account')}
             </Text>
             <View style={[styles.rolePill, { backgroundColor: colors.primarySoft, borderRadius: radii.pill }]}>
               <Text style={[styles.roleText, { color: colors.primary }]}>{humanizeRole(role)}</Text>
@@ -72,9 +74,9 @@ export const MoreScreen = () => {
 
         {sections.map((section) => (
           <View key={section.key} style={styles.section}>
-            {section.title ? (
+            {section.titleKey ? (
               <Text style={[styles.sectionTitle, { color: colors.textMuted, fontSize: fonts.size.xxs }]}>
-                {section.title.toUpperCase()}
+                {t(section.titleKey).toUpperCase()}
               </Text>
             ) : null}
             <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
@@ -86,7 +88,7 @@ export const MoreScreen = () => {
                     onPress={() => handlePress(item)}
                     activeOpacity={0.7}
                     accessibilityRole="button"
-                    accessibilityLabel={item.label}
+                    accessibilityLabel={t(item.labelKey)}
                     style={[
                       styles.row,
                       index < section.items.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.border },
@@ -96,7 +98,7 @@ export const MoreScreen = () => {
                       <Ionicons name={item.icon} size={20} color={isLogout ? colors.error : colors.textSecondary} />
                     </View>
                     <Text style={[styles.rowLabel, { color: isLogout ? colors.error : colors.textPrimary, fontSize: fonts.size.md }]}>
-                      {item.label}
+                      {t(item.labelKey)}
                     </Text>
                     {!isLogout && <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />}
                   </TouchableOpacity>
@@ -111,9 +113,9 @@ export const MoreScreen = () => {
 
       <ConfirmDialog
         visible={showLogoutDialog}
-        title="Logout"
-        message="Are you sure you want to logout of your DeliveryHub account?"
-        confirmLabel="Logout"
+        title={t('navigation.logout')}
+        message={t('settings.signOutConfirm')}
+        confirmLabel={t('navigation.logout')}
         destructive
         onConfirm={handleConfirmLogout}
         onCancel={() => setShowLogoutDialog(false)}

@@ -8,6 +8,7 @@ import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
 import { EmptyState } from '../../components/EmptyState';
 import { useAppNav } from '../../hooks/useAppNav';
+import { useTranslation } from 'react-i18next';
 import type { AppTheme } from '../../theme/types';
 
 /** Simple Bill Type choices — matches `AdminCreateGRScreen`'s toggle. */
@@ -124,6 +125,7 @@ export const AdminEditGRScreen = ({ route }: any) => {
   const { orderId } = route.params as { orderId: string };
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { goBack } = useAppNav();
+  const { t } = useTranslation();
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
   const [orderNumber, setOrderNumber] = useState('');
@@ -142,7 +144,7 @@ export const AdminEditGRScreen = ({ route }: any) => {
     try {
       const gr = await orderRepository.getById(orderId);
       if (!gr) {
-        setError('This GR could not be found.');
+        setError(t('createGR.grNotFoundEdit'));
         return;
       }
       setOrderNumber(gr.orderNumber ?? '');
@@ -186,7 +188,7 @@ export const AdminEditGRScreen = ({ route }: any) => {
       });
       setError(null);
     } catch (err: any) {
-      setError(err?.message ?? 'Could not load this GR. Please try again.');
+      setError(err?.message ?? t('createGR.couldNotLoadGR'));
     } finally {
       setLoading(false);
     }
@@ -254,10 +256,10 @@ export const AdminEditGRScreen = ({ route }: any) => {
         transportGrn: str(form.transportGrn),
         paymentMode: str(form.paymentMode),
       });
-      Alert.alert('GR Updated', `GR ${orderNumber} was updated successfully.`);
+      Alert.alert(t('createGR.updatedTitle'), t('createGR.updatedMessage', { number: orderNumber }));
       goBack();
     } catch (err: any) {
-      setErrorText(err?.message ?? 'Could not update the GR. Please try again.');
+      setErrorText(err?.message ?? t('createGR.couldNotUpdate'));
     } finally {
       setSubmitting(false);
     }
@@ -266,7 +268,7 @@ export const AdminEditGRScreen = ({ route }: any) => {
   if (loading) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-        <Header title="Edit GR" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
+        <Header title={t('createGR.title')} leftAction={{ icon: 'chevron-back', onPress: goBack }} />
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <ShimmerCard style={styles.shimmer} height={44} />
           <ShimmerCard style={styles.shimmer} height={44} />
@@ -280,13 +282,13 @@ export const AdminEditGRScreen = ({ route }: any) => {
   if (error) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-        <Header title="Edit GR" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
+        <Header title={t('createGR.title')} leftAction={{ icon: 'chevron-back', onPress: goBack }} />
         <View style={styles.centerFill}>
           <EmptyState
             icon="cloud-offline-outline"
-            title="Something went wrong"
+            title={t('createGR.somethingWrong')}
             subtitle={error}
-            actionLabel="Retry"
+            actionLabel={t('common.retry')}
             onActionPress={() => {
               setLoading(true);
               fetchDetail();
@@ -460,7 +462,7 @@ export const AdminEditGRScreen = ({ route }: any) => {
           disabled={!canSubmit}
           activeOpacity={0.85}
         >
-          {submitting ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={[styles.submitText, { color: colors.onPrimary }]}>Save Changes</Text>}
+          {submitting ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={[styles.submitText, { color: colors.onPrimary }]}>{t('createGR.saveChanges')}</Text>}
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>

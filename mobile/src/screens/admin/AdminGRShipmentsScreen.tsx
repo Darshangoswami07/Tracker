@@ -12,6 +12,7 @@ import { FilterChips } from '../../components/FilterChips';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { useAppNav } from '../../hooks/useAppNav';
 import { useUserStore } from '../../store/userStore';
+import { useTranslation } from 'react-i18next';
 import { canDeleteGR as roleCanDeleteGR, canImportExcel as roleCanImportExcel } from '../../constants/roles';
 import type { AppTheme } from '../../theme/types';
 
@@ -71,6 +72,7 @@ type LoadStatus = 'loading' | 'success' | 'error';
  */
 export const AdminGRShipmentsScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
+  const { t } = useTranslation();
   const { navigate, navigation } = useAppNav();
 
   // Always navigate back to the Dashboard rather than relying on
@@ -134,11 +136,11 @@ export const AdminGRShipmentsScreen = () => {
     try {
       await orderRepository.delete(deleteTarget.id);
       setItems((prev) => prev.filter((gr) => gr.id !== deleteTarget.id));
-      setActionMessage({ kind: 'success', text: `GR ${deleteTarget.orderNumber} deleted successfully.` });
+      setActionMessage({ kind: 'success', text: t('gr.deletedSuccess') });
       setDeleteTarget(null);
     } catch (err: any) {
       console.warn('[GR Delete] Failed:', err?.message ?? err);
-      setActionMessage({ kind: 'error', text: 'Unable to delete GR. Please try again.' });
+      setActionMessage({ kind: 'error', text: t('gr.unableToDelete') });
       // Deliberately do NOT remove the GR from `items` or close the dialog
       // here — the Admin should see the failure and can retry, and the list
       // must keep showing the GR since it was not actually deleted.
@@ -174,7 +176,7 @@ export const AdminGRShipmentsScreen = () => {
         setError(null);
         setStatus('success');
       } catch (err: any) {
-        setError(err?.message ?? 'Could not load GR entries. Please try again.');
+        setError(err?.message ?? t('gr.couldNotLoadEntries'));
         setStatus('error');
       } finally {
         inFlightRef.current = false;
@@ -245,7 +247,7 @@ export const AdminGRShipmentsScreen = () => {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
         <Header
-          title="GR / Shipments"
+          title={t('gr.grShipments')}
           leftAction={{ icon: 'chevron-back', onPress: handleBack }}
           rightAction={{ icon: 'add', onPress: onAddPress, accessibilityLabel: 'Create GR' }}
         />
@@ -263,7 +265,7 @@ export const AdminGRShipmentsScreen = () => {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <Header
-        title="GR / Shipments"
+        title={t('gr.grShipments')}
         leftAction={{ icon: 'chevron-back', onPress: handleBack }}
         rightAction={{ icon: 'add', onPress: onAddPress, accessibilityLabel: 'Create GR' }}
       />
@@ -312,7 +314,7 @@ export const AdminGRShipmentsScreen = () => {
         <View style={styles.searchBar}>
           <Ionicons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
           <TextInput
-            placeholder="Search GR number, consignor, consignee…"
+            placeholder={t('gr.searchPlaceholder')}
             value={search}
             onChangeText={setSearch}
             style={[styles.searchInput, { color: colors.textPrimary, backgroundColor: colors.surface }]}
@@ -328,9 +330,9 @@ export const AdminGRShipmentsScreen = () => {
         {status === 'error' && items.length === 0 && (
           <EmptyState
             icon="cloud-offline-outline"
-            title="Could not load GRs"
-            subtitle={error ?? 'Something went wrong while reading your shipments.'}
-            actionLabel="Retry"
+            title={t('gr.couldNotLoad')}
+            subtitle={error ?? t('gr.somethingWrong')}
+            actionLabel={t('common.retry')}
             onActionPress={() => fetchGRs(1, 'initial')}
             iconColor={colors.error}
           />
@@ -339,13 +341,13 @@ export const AdminGRShipmentsScreen = () => {
         {status === 'success' && items.length === 0 && (
           <EmptyState
             icon="reader-outline"
-            title="No GR entries"
+            title={t('gr.noEntries')}
             subtitle={
               search || statusTab !== 'All'
                 ? 'No GRs match your search or filter.'
                 : 'Shipments will appear here once created.'
             }
-            actionLabel="Create GR"
+            actionLabel={t('gr.createGR')}
             onActionPress={() => navigate('CreateGR')}
           />
         )}
@@ -397,7 +399,7 @@ export const AdminGRShipmentsScreen = () => {
                         { color: gr.source === 'excel' ? '#635BFF' : gr.hasSlip ? '#10B981' : colors.textMuted },
                       ]}
                     >
-                      {gr.source === 'excel' ? 'Excel imported' : gr.hasSlip ? 'Slip uploaded' : 'No slip'}
+                      {gr.source === 'excel' ? t('gr.excelImported') : gr.hasSlip ? t('gr.slipUploaded') : t('gr.noSlip')}
                     </Text>
                   </View>
                   <Text style={[styles.dateText, { color: colors.textMuted }]}>{formatDate(gr.createdAt)}</Text>
@@ -426,7 +428,7 @@ export const AdminGRShipmentsScreen = () => {
               }}
             >
               <Ionicons name="eye-outline" size={18} color={colors.textPrimary} />
-              <Text style={[styles.menuRowText, { color: colors.textPrimary }]}>View GR</Text>
+              <Text style={[styles.menuRowText, { color: colors.textPrimary }]}>{t('gr.viewGR')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.menuRow}
@@ -436,7 +438,7 @@ export const AdminGRShipmentsScreen = () => {
               }}
             >
               <Ionicons name="trash-outline" size={18} color={colors.error} />
-              <Text style={[styles.menuRowText, { color: colors.error }]}>Delete GR</Text>
+              <Text style={[styles.menuRowText, { color: colors.error }]}>{t('gr.deleteGR')}</Text>
             </TouchableOpacity>
           </View>
         </Pressable>
@@ -475,10 +477,10 @@ export const AdminGRShipmentsScreen = () => {
 
       <ConfirmDialog
         visible={!!deleteTarget}
-        title={`Delete GR ${deleteTarget?.orderNumber ?? ''}?`}
-        message="This GR will be deleted. This action cannot be undone."
-        confirmLabel={deleting ? 'Deleting…' : 'Delete'}
-        cancelLabel="Cancel"
+        title={t('gr.deleteTitle', { number: deleteTarget?.orderNumber ?? '' })}
+        message={t('gr.deleteConfirmMessage')}
+        confirmLabel={deleting ? t('gr.deleting') : t('gr.delete')}
+        cancelLabel={t('gr.cancel')}
         destructive
         confirmDisabled={deleting}
         onConfirm={confirmDeleteGR}

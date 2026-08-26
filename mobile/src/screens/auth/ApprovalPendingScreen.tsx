@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { Animated, StyleSheet, Text, View, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAuthStore } from '../../store/authStore';
 import { Logo } from '../../components/Logo';
 
 export const ApprovalPendingScreen = () => {
+  const { t } = useTranslation();
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { status } = useAuthStore();
 
@@ -73,35 +75,35 @@ export const ApprovalPendingScreen = () => {
           </View>
 
           <View style={styles.content}>
-            <Text style={styles.title}>Account Under Review</Text>
+            <Text style={styles.title}>{t('auth.accountUnderReview')}</Text>
             <Text style={styles.subtitle}>
-              Your account is pending approval from our team. This usually takes less than 24 hours.
+              {t('auth.accountPendingApproval')}
             </Text>
 
             <View style={styles.infoCard}>
               <View style={styles.infoRow}>
                 <Ionicons name="information-circle-outline" size={20} color="#635BFF" />
-                <Text style={styles.infoText}>We'll notify you via email once your account is approved.</Text>
+                <Text style={styles.infoText}>{t('auth.willNotifyViaEmail')}</Text>
               </View>
               <View style={styles.infoRow}>
                 <Ionicons name="mail-outline" size={20} color="#635BFF" />
-                <Text style={styles.infoText}>Check your inbox (and spam folder) for updates.</Text>
+                <Text style={styles.infoText}>{t('auth.checkInboxSpam')}</Text>
               </View>
               <View style={styles.infoRow}>
                 <Ionicons name="shield-outline" size={20} color="#635BFF" />
-                <Text style={styles.infoText}>Your data is secure and will not be shared.</Text>
+                <Text style={styles.infoText}>{t('auth.dataSecureNotShared')}</Text>
               </View>
             </View>
 
             <View style={styles.statusIndicator}>
               <View style={styles.statusDot} />
-              <Text style={styles.statusText}>Pending Approval</Text>
+              <Text style={styles.statusText}>{t('common.pendingApproval')}</Text>
             </View>
           </View>
 
           <View style={styles.actions}>
-            <Text style={styles.helpText}>Need help? </Text>
-            <Text style={styles.helpLink}>Contact Support</Text>
+            <Text style={styles.helpText}>{t('common.needHelp')} </Text>
+            <Text style={styles.helpLink}>{t('common.contactSupport')}</Text>
           </View>
         </View>
       </Animated.View>

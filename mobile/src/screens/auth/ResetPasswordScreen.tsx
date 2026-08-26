@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Animated, Keyboard, KeyboardAvoidingView, ScrollView, StyleSheet, Text, TouchableOpacity, View, TextInput, Alert, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAuthStore } from '../../store/authStore';
 import { api } from '../../api/client';
@@ -14,6 +15,7 @@ import { Logo } from '../../components/Logo';
 import type { AppTheme } from '../../theme/types';
 
 export const ResetPasswordScreen = ({ route }: any) => {
+  const { t } = useTranslation();
   const { requestId } = route.params;
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const clearSession = useAuthStore((state) => state.clearSession);
@@ -35,18 +37,18 @@ export const ResetPasswordScreen = ({ route }: any) => {
   }, [fadeAnim, slideAnim]);
 
   const validatePassword = (pwd: string): string | undefined => {
-    if (!pwd) return 'Password is required';
-    if (pwd.length < 8) return 'Password must be at least 8 characters';
-    if (!/[A-Z]/.test(pwd)) return 'Password must contain at least one uppercase letter';
-    if (!/[a-z]/.test(pwd)) return 'Password must contain at least one lowercase letter';
-    if (!/[0-9]/.test(pwd)) return 'Password must contain at least one number';
-    if (!/[!@#$%^&*]/.test(pwd)) return 'Password must contain at least one special character (!@#$%^&*)';
+    if (!pwd) return t('auth.passwordRequired');
+    if (pwd.length < 8) return t('auth.passwordMinLength');
+    if (!/[A-Z]/.test(pwd)) return t('auth.passwordUppercase');
+    if (!/[a-z]/.test(pwd)) return t('auth.passwordLowercase');
+    if (!/[0-9]/.test(pwd)) return t('auth.passwordNumber');
+    if (!/[!@#$%^&*]/.test(pwd)) return t('auth.passwordSpecial');
     return undefined;
   };
 
   const validateConfirmPassword = (pwd: string, confirm: string): string | undefined => {
-    if (!confirm) return 'Please confirm your password';
-    if (pwd !== confirm) return 'Passwords do not match';
+    if (!confirm) return t('auth.confirmPasswordRequired');
+    if (pwd !== confirm) return t('auth.passwordsDoNotMatch');
     return undefined;
   };
 
@@ -75,12 +77,12 @@ export const ResetPasswordScreen = ({ route }: any) => {
         requestId,
         newPassword: password,
       });
-      Alert.alert('Success', 'Your password has been reset successfully. Please sign in with your new password.');
+      Alert.alert(t('common.success'), t('auth.passwordResetSuccess'));
       clearSession();
     } catch (error) {
       console.error('Reset password failed:', error);
       const message = toAppError(error).message;
-      Alert.alert('Error', message);
+      Alert.alert(t('common.error'), message);
     } finally {
       setSubmitting(false);
     }
@@ -107,45 +109,45 @@ export const ResetPasswordScreen = ({ route }: any) => {
             </View>
 
             <View style={styles.header}>
-              <Text style={styles.title}>Reset Password</Text>
-              <Text style={styles.subtitle}>Enter your new password below</Text>
+              <Text style={styles.title}>{t('auth.resetPassword')}</Text>
+              <Text style={styles.subtitle}>{t('auth.enterNewPasswordBelow')}</Text>
             </View>
 
             <View style={styles.form}>
               <View style={styles.field}>
-                <Text style={styles.fieldLabel}>New Password</Text>
+                <Text style={styles.fieldLabel}>{t('auth.newPassword')}</Text>
                 <PasswordField
-                  label="New Password"
+                  label={t('auth.newPassword')}
                   value={password}
                   onChangeText={handlePasswordChange}
-                  placeholder="Enter new password"
+                  placeholder={t('auth.enterNewPassword')}
                   error={errors.password}
                   autoFocus
                   textContentType="newPassword"
                 />
                 <View style={styles.passwordRequirements}>
-                  <Requirement met={password.length >= 8} text="At least 8 characters" />
-                  <Requirement met={/[A-Z]/.test(password)} text="One uppercase letter" />
-                  <Requirement met={/[a-z]/.test(password)} text="One lowercase letter" />
-                  <Requirement met={/[0-9]/.test(password)} text="One number" />
-                  <Requirement met={/[!@#$%^&*]/.test(password)} text="One special character" />
+                  <Requirement met={password.length >= 8} text={t('auth.atLeast8Characters')} />
+                  <Requirement met={/[A-Z]/.test(password)} text={t('auth.oneUppercase')} />
+                  <Requirement met={/[a-z]/.test(password)} text={t('auth.oneLowercase')} />
+                  <Requirement met={/[0-9]/.test(password)} text={t('auth.oneNumber')} />
+                  <Requirement met={/[!@#$%^&*]/.test(password)} text={t('auth.oneSpecialCharacter')} />
                 </View>
               </View>
 
               <View style={styles.field}>
-                <Text style={styles.fieldLabel}>Confirm Password</Text>
+                <Text style={styles.fieldLabel}>{t('auth.confirmPassword')}</Text>
                 <PasswordField
-                  label="Confirm Password"
+                  label={t('auth.confirmPassword')}
                   value={confirmPassword}
                   onChangeText={handleConfirmPasswordChange}
-                  placeholder="Confirm new password"
+                  placeholder={t('auth.confirmNewPassword')}
                   error={errors.confirmPassword}
                   textContentType="newPassword"
                 />
               </View>
 
               <PrimaryButton
-                label={submitting ? 'Resetting...' : 'Reset Password'}
+                label={submitting ? t('auth.resetting') : t('auth.resetPassword')}
                 loading={submitting}
                 onPress={handleSubmit}
                 disabled={submitting || !!errors.password || !!errors.confirmPassword || !password || !confirmPassword}
@@ -153,8 +155,8 @@ export const ResetPasswordScreen = ({ route }: any) => {
             </View>
 
             <View style={styles.footer}>
-              <Text style={styles.footerText}>Remember your password? </Text>
-              <TextLink label="Sign In" onPress={clearSession} />
+              <Text style={styles.footerText}>{t('auth.rememberPassword')} </Text>
+              <TextLink label={t('common.signIn')} onPress={clearSession} />
             </View>
           </View>
         </Animated.View>

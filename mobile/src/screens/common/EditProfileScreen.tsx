@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useUserStore } from '../../store/userStore';
 import { useProfileLocalStore } from '../../store/profileLocalStore';
@@ -9,9 +10,9 @@ import { Header } from '../../components/Header';
 import { CustomInput } from '../../components/CustomInput';
 import { ActionButton } from '../../components/ActionButton';
 
-const validateName = (value: string): string | undefined => (value.trim() ? undefined : 'Name is required');
-const validatePhone = (value: string): string | undefined =>
-  /^\+?[0-9\s-]{7,15}$/.test(value.trim()) ? undefined : 'Enter a valid phone number';
+const validateName = (value: string, t: (key: string) => string): string | undefined => (value.trim() ? undefined : t('editProfile.nameRequired'));
+const validatePhone = (value: string, t: (key: string) => string): string | undefined =>
+  /^\+?[0-9\s-]{7,15}$/.test(value.trim()) ? undefined : t('editProfile.validPhone');
 
 /**
  * Edit Profile. There is no backend endpoint to update the logged-in user's
@@ -20,6 +21,7 @@ const validatePhone = (value: string): string | undefined =>
  * display overrides on top of the real account data via `profileLocalStore`.
  */
 export const EditProfileScreen = () => {
+  const { t } = useTranslation();
   const { colors, spacing, radii, fonts } = useAppTheme();
   const user = useUserStore((state) => state.user);
   const nameOverride = useProfileLocalStore((state) => state.nameOverride);
@@ -43,8 +45,8 @@ export const EditProfileScreen = () => {
   });
 
   const handleSave = () => {
-    const nameErr = validateName(name);
-    const phoneErr = validatePhone(phone);
+    const nameErr = validateName(name, t);
+    const phoneErr = validatePhone(phone, t);
     setErrors({ name: nameErr, phone: phoneErr });
     if (nameErr || phoneErr) return;
 
@@ -56,26 +58,26 @@ export const EditProfileScreen = () => {
     // rest of the app rather than feeling instantaneous/broken.
     setTimeout(() => {
       setSaving(false);
-      Alert.alert('Saved', 'Your profile has been updated on this device.', [{ text: 'OK', onPress: goBack }]);
+      Alert.alert(t('editProfile.saved'), t('editProfile.savedDesc'), [{ text: 'OK', onPress: goBack }]);
     }, 400);
   };
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <View style={styles.header}>
-        <Header title="Edit Profile" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
+        <Header title={t('common.editProfile')} leftAction={{ icon: 'chevron-back', onPress: goBack }} />
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.note}>
           <Text style={styles.noteText}>
-            Saved on this device only — there&apos;s no account-sync yet, so other admins won&apos;t see these changes.
+            {t('editProfile.localSaveNote')}
           </Text>
         </View>
 
         <View style={styles.form}>
-          <CustomInput label="Full Name" icon="person-outline" placeholder="Enter your name" value={name} onChangeText={setName} error={errors.name} />
+          <CustomInput label={t('editProfile.fullName')} icon="person-outline" placeholder={t('editProfile.enterName')} value={name} onChangeText={setName} error={errors.name} />
           <CustomInput
-            label="Email"
+            label={t('auth.email')}
             icon="mail-outline"
             value={user?.email ?? 'N/A'}
             editable={false}
@@ -83,9 +85,9 @@ export const EditProfileScreen = () => {
             style={{ opacity: 0.6 }}
           />
           <CustomInput
-            label="Phone"
+            label={t('auth.phone')}
             icon="call-outline"
-            placeholder="Enter your phone number"
+            placeholder={t('editProfile.enterPhone')}
             value={phone}
             onChangeText={setPhone}
             error={errors.phone}
@@ -93,7 +95,7 @@ export const EditProfileScreen = () => {
           />
         </View>
 
-        <ActionButton label="Save Changes" icon="checkmark" size="lg" fullWidth loading={saving} onPress={handleSave} />
+        <ActionButton label={t('editProfile.saveChanges')} icon="checkmark" size="lg" fullWidth loading={saving} onPress={handleSave} />
       </ScrollView>
     </SafeAreaView>
   );

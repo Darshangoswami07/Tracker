@@ -13,6 +13,7 @@ import { ShimmerCard } from '../../components/ShimmerCard';
 import { ActivityItem } from '../../components/ActivityItem';
 import { EmptyState } from '../../components/EmptyState';
 import { useAppNav } from '../../hooks/useAppNav';
+import { useTranslation } from 'react-i18next';
 import type { AppTheme } from '../../theme/types';
 
 interface RevenueOverview {
@@ -67,12 +68,12 @@ const humanizeStatus = (status: string): string => STATUS_LABELS[status] ?? stat
 
 /** Turns a real GR/shipment event (status history row or slip upload) into
  * the title/description shape `ActivityItem` renders. */
-const describeActivity = (event: ActivityEvent): RecentActivity => {
+const describeActivity = (event: ActivityEvent, t: (key: string) => string): RecentActivity => {
   if (event.kind === 'created') {
     return {
       id: event.id,
       type: 'order_created',
-      title: 'GR Created',
+      title: t('dashboard.grCreated'),
       description: `GR #${event.orderNumber} was created`,
       timestamp: event.createdAt,
     };
@@ -81,7 +82,7 @@ const describeActivity = (event: ActivityEvent): RecentActivity => {
     return {
       id: event.id,
       type: 'slip_uploaded',
-      title: 'Slip Uploaded',
+      title: t('dashboard.slipUploaded'),
       description: `Slip uploaded for GR #${event.orderNumber}`,
       timestamp: event.createdAt,
     };
@@ -114,11 +115,11 @@ const getPercentChange = (current: number, previous: number): number | null => {
   return ((current - previous) / previous) * 100;
 };
 
-const getGreeting = (): string => {
+const getGreeting = (t: (key: string) => string): string => {
   const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 18) return 'Good afternoon';
-  return 'Good evening';
+  if (hour < 12) return t('dashboard.greeting.morning');
+  if (hour < 18) return t('dashboard.greeting.afternoon');
+  return t('dashboard.greeting.evening');
 };
 
 const firstNameOf = (fullName?: string): string => (fullName ?? '').trim().split(/\s+/)[0] || 'there';
@@ -128,6 +129,7 @@ export const AdminDashboardScreen = () => {
   const accessToken = useAuthStore((state) => state.accessToken);
   const user = useUserStore((state) => state.user);
   const isSuperAdmin = user?.role === 'super_admin';
+  const { t } = useTranslation();
   const { goToNotifications, navigate } = useAppNav();
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
@@ -190,7 +192,7 @@ export const AdminDashboardScreen = () => {
     setActivityStatus('loading');
     try {
       const events = await orderRepository.listRecentActivity(8);
-      setActivities(events.map(describeActivity));
+      setActivities(events.map(e => describeActivity(e, t)));
       setActivityStatus('success');
     } catch (error) {
       console.error('Failed to load recent activity:', error);
@@ -221,7 +223,7 @@ export const AdminDashboardScreen = () => {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
         <View style={styles.header}>
-          <Header title="Dashboard" rightAction={{ icon: 'notifications-outline', onPress: goToNotifications }} />
+          <Header title={t('dashboard.dashboard')} rightAction={{ icon: 'notifications-outline', onPress: goToNotifications }} />
         </View>
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.revenueSection}>
@@ -252,10 +254,10 @@ export const AdminDashboardScreen = () => {
 
   const getHealthConfig = (health: string): { color: string; label: string } => {
     switch (health) {
-      case 'healthy': return { color: colors.success, label: 'Healthy' };
-      case 'degraded': return { color: colors.warning, label: 'Degraded' };
-      case 'critical': return { color: colors.error, label: 'Critical' };
-      default: return { color: colors.textMuted, label: 'Unknown' };
+      case 'healthy': return { color: colors.success, label: t('dashboard.healthy') };
+      case 'degraded': return { color: colors.warning, label: t('dashboard.degraded') };
+      case 'critical': return { color: colors.error, label: t('dashboard.critical') };
+      default: return { color: colors.textMuted, label: t('dashboard.unknown') };
     }
   };
 
@@ -271,43 +273,43 @@ export const AdminDashboardScreen = () => {
     ? []
     : [
     {
-      title: "Today's Revenue",
+      title: t('dashboard.todaysRevenue'),
       value: formatINR(revenue.today),
       icon: 'today-outline',
       color: '#3B82F6',
       trend: (() => {
         const pct = getPercentChange(revenue.today, revenue.yesterday);
-        return pct !== null ? { value: Math.round(pct), label: 'from yesterday', isPercentage: true } : undefined;
+        return pct !== null ? { value: Math.round(pct), label: t('dashboard.fromYesterday'), isPercentage: true } : undefined;
       })(),
     },
     {
-      title: 'This Week',
+      title: t('dashboard.thisWeek'),
       value: formatINR(revenue.week),
       icon: 'calendar-outline',
       color: '#10B981',
       trend: (() => {
         const pct = getPercentChange(revenue.week, revenue.prevWeek);
-        return pct !== null ? { value: Math.round(pct), label: 'from last week', isPercentage: true } : undefined;
+        return pct !== null ? { value: Math.round(pct), label: t('dashboard.fromLastWeek'), isPercentage: true } : undefined;
       })(),
     },
     {
-      title: 'This Month',
+      title: t('dashboard.thisMonth'),
       value: formatINR(revenue.month),
       icon: 'calendar-number-outline',
       color: '#8B5CF6',
       trend: (() => {
         const pct = getPercentChange(revenue.month, revenue.prevMonth);
-        return pct !== null ? { value: Math.round(pct), label: 'from last month', isPercentage: true } : undefined;
+        return pct !== null ? { value: Math.round(pct), label: t('dashboard.fromLastMonth'), isPercentage: true } : undefined;
       })(),
     },
     {
-      title: 'Total Collected',
+      title: t('dashboard.totalCollected'),
       value: formatINR(revenue.totalCollected),
       icon: 'wallet-outline',
       color: '#14B8A6',
     },
     {
-      title: 'Outstanding',
+      title: t('dashboard.outstanding'),
       value: formatINR(revenue.outstandingAmount),
       icon: 'time-outline',
       color: '#F59E0B',
@@ -321,18 +323,18 @@ export const AdminDashboardScreen = () => {
       <Animated.View style={styles.headerContainer}>
         <View style={styles.header}>
           <Header
-            title="Dashboard"
+            title={t('dashboard.dashboard')}
             leftAction={{ icon: 'person-circle-outline', onPress: () => navigate('Profile'), accessibilityLabel: 'Profile' }}
             rightAction={{ icon: 'notifications-outline', onPress: goToNotifications }}
           />
         </View>
         <Animated.View style={{ transform: [{ translateY: slideAnim }], opacity: fadeAnim }}>
           <View style={styles.welcomeSection}>
-            <Text style={styles.welcomeTitle}>{getGreeting()}, {firstNameOf(user?.fullName)} 👋</Text>
+            <Text style={styles.welcomeTitle}>{getGreeting(t)}, {firstNameOf(user?.fullName)} 👋</Text>
             <View style={styles.summaryRow}>
               <View style={[styles.healthDot, { backgroundColor: healthConfig.color }]} />
               <Text style={styles.welcomeSubtitle}>
-                {(stats?.totalOrders ?? 0).toLocaleString()} orders · {stats?.onlineUsers ?? 0} online · System {healthConfig.label}
+                {(stats?.totalOrders ?? 0).toLocaleString()} {t('dashboard.ordersCount')} · {stats?.onlineUsers ?? 0} {t('dashboard.onlineCount')} · {t('dashboard.systemLabel')} {healthConfig.label}
               </Text>
             </View>
           </View>
@@ -348,15 +350,15 @@ export const AdminDashboardScreen = () => {
       >
         <Animated.View style={{ transform: [{ translateY: slideAnim }], opacity: fadeAnim }}>
           <View style={styles.revenueSection}>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Revenue Overview</Text>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('dashboard.revenueOverview')}</Text>
             {revenueStatus === 'error' ? (
               <View style={styles.revenueError}>
                 <Ionicons name="cloud-offline-outline" size={28} color={colors.error} />
                 <Text style={[styles.revenueErrorText, { color: colors.textSecondary }]}>
-                  Failed to load revenue data
+                  {t('dashboard.failedToLoadRevenue')}
                 </Text>
                 <TouchableOpacity onPress={fetchRevenue} style={[styles.retryButton, { backgroundColor: colors.primary }]}>
-                  <Text style={{ color: colors.onPrimary, fontWeight: '700', fontSize: 13 }}>Retry</Text>
+                  <Text style={{ color: colors.onPrimary, fontWeight: '700', fontSize: 13 }}>{t('common.retry')}</Text>
                 </TouchableOpacity>
               </View>
             ) : (
@@ -376,7 +378,7 @@ export const AdminDashboardScreen = () => {
           </View>
 
           <View style={styles.quickActions}>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Quick Actions</Text>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('dashboard.quickActions')}</Text>
             <TouchableOpacity
               style={[styles.primaryAction, { backgroundColor: colors.primary, borderRadius: radii.lg }]}
               onPress={() => navigate('CreateGR')}
@@ -385,7 +387,7 @@ export const AdminDashboardScreen = () => {
               <View style={styles.primaryActionIcon}>
                 <Ionicons name="add-circle-outline" size={22} color={colors.onPrimary} />
               </View>
-              <Text style={[styles.primaryActionLabel, { color: colors.onPrimary }]}>Create GR / Shipment</Text>
+              <Text style={[styles.primaryActionLabel, { color: colors.onPrimary }]}>{t('dashboard.createGR')}</Text>
               <Ionicons name="chevron-forward" size={20} color={colors.onPrimary} />
             </TouchableOpacity>
 
@@ -399,7 +401,7 @@ export const AdminDashboardScreen = () => {
               <View style={[styles.secondaryActionIcon, { backgroundColor: '#635BFF15', borderRadius: radii.md }]}>
                 <Ionicons name="cloud-upload-outline" size={20} color="#635BFF" />
               </View>
-              <Text style={[styles.secondaryActionLabel, { color: colors.textPrimary }]}>Import GRs from Excel</Text>
+              <Text style={[styles.secondaryActionLabel, { color: colors.textPrimary }]}>{t('dashboard.importFromExcel')}</Text>
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </TouchableOpacity>
 
@@ -412,7 +414,7 @@ export const AdminDashboardScreen = () => {
                 <View style={[styles.secondaryActionIcon, { backgroundColor: '#F59E0B15', borderRadius: radii.md }]}>
                   <Ionicons name="time-outline" size={20} color="#F59E0B" />
                 </View>
-                <Text style={[styles.secondaryActionLabel, { color: colors.textPrimary }]}>Pending Approvals</Text>
+                <Text style={[styles.secondaryActionLabel, { color: colors.textPrimary }]}>{t('dashboard.pendingApprovalsLabel')}</Text>
                 {(stats?.pendingApprovals ?? 0) > 0 && (
                   <View style={[styles.badge, { backgroundColor: '#F59E0B', borderRadius: radii.pill }]}>
                     <Text style={styles.badgeText}>{(stats?.pendingApprovals ?? 0) > 99 ? '99+' : stats?.pendingApprovals}</Text>
@@ -434,7 +436,7 @@ export const AdminDashboardScreen = () => {
               <View style={[styles.secondaryActionIcon, { backgroundColor: '#06B6D415', borderRadius: radii.md }]}>
                 <Ionicons name="checkmark-done-circle-outline" size={20} color="#06B6D4" />
               </View>
-              <Text style={[styles.secondaryActionLabel, { color: colors.textPrimary }]}>Staff Approvals</Text>
+              <Text style={[styles.secondaryActionLabel, { color: colors.textPrimary }]}>{t('dashboard.staffApprovalsLabel')}</Text>
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </TouchableOpacity>
 
@@ -449,13 +451,13 @@ export const AdminDashboardScreen = () => {
               <View style={[styles.secondaryActionIcon, { backgroundColor: '#635BFF15', borderRadius: radii.md }]}>
                 <Ionicons name="people-outline" size={20} color="#635BFF" />
               </View>
-              <Text style={[styles.secondaryActionLabel, { color: colors.textPrimary }]}>All Staff</Text>
+              <Text style={[styles.secondaryActionLabel, { color: colors.textPrimary }]}>{t('dashboard.allStaffLabel')}</Text>
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
 
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Activity</Text>
+            <Text style={styles.sectionTitle}>{t('dashboard.recentActivity')}</Text>
           </View>
 
           {activityStatus === 'loading' && (
@@ -469,8 +471,8 @@ export const AdminDashboardScreen = () => {
           {activityStatus === 'error' && (
             <EmptyState
               icon="cloud-offline-outline"
-              title="Unable to load recent activity"
-              subtitle="Pull down to refresh and try again."
+              title={t('dashboard.unableToLoadActivity')}
+              subtitle={t('dashboard.pullToRefresh')}
               iconColor={colors.error}
             />
           )}
@@ -478,8 +480,8 @@ export const AdminDashboardScreen = () => {
           {activityStatus === 'success' && activities.length === 0 && (
             <EmptyState
               icon="time-outline"
-              title="No recent activity"
-              subtitle="Shipment and GR activity will appear here when available."
+              title={t('dashboard.noRecentActivity')}
+              subtitle={t('dashboard.activityWillAppear')}
             />
           )}
 

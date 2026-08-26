@@ -2,6 +2,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../theme/useAppTheme';
 import type {
   AdminTabParamList,
@@ -135,12 +136,12 @@ const TAB_ICONS: Record<keyof AdminTabParamList, { active: keyof typeof Ionicons
   More: { active: 'ellipsis-horizontal-circle', inactive: 'ellipsis-horizontal-outline' },
 };
 
-const TAB_LABELS: Record<keyof AdminTabParamList, string> = {
-  Dashboard: 'Dashboard',
-  Shipments: 'Shipments',
-  Tracking: 'Tracking',
-  GRTracker: 'GR Tracker',
-  More: 'More',
+const TAB_LABEL_KEYS: Record<keyof AdminTabParamList, string> = {
+  Dashboard: 'navigation.dashboard',
+  Shipments: 'navigation.grShipments',
+  Tracking: 'navigation.customerTracking',
+  GRTracker: 'navigation.grTrackerClassic',
+  More: 'common.more',
 };
 
 /**
@@ -149,6 +150,7 @@ const TAB_LABELS: Record<keyof AdminTabParamList, string> = {
  * push navigation (details, create/edit) stays within the tab it belongs to.
  */
 export const AdminTabs = () => {
+  const { t } = useTranslation();
   const { colors, fonts } = useAppTheme();
   const insets = useSafeAreaInsets();
 
@@ -176,11 +178,11 @@ export const AdminTabs = () => {
         ),
       })}
     >
-      <Tab.Screen name="Dashboard" component={DashboardTabStack} options={{ tabBarLabel: TAB_LABELS.Dashboard }} />
-      <Tab.Screen name="Shipments" component={ShipmentsTabStack} options={{ tabBarLabel: TAB_LABELS.Shipments }} />
-      <Tab.Screen name="Tracking" component={TrackingTabStack} options={{ tabBarLabel: TAB_LABELS.Tracking }} />
-      <Tab.Screen name="GRTracker" component={GRTrackerTabStack} options={{ tabBarLabel: TAB_LABELS.GRTracker }} />
-      <Tab.Screen name="More" component={MoreTabStack} options={{ tabBarLabel: TAB_LABELS.More }} />
+      <Tab.Screen name="Dashboard" component={DashboardTabStack} options={{ tabBarLabel: t(TAB_LABEL_KEYS.Dashboard) }} />
+      <Tab.Screen name="Shipments" component={ShipmentsTabStack} options={{ tabBarLabel: t(TAB_LABEL_KEYS.Shipments) }} />
+      <Tab.Screen name="Tracking" component={TrackingTabStack} options={{ tabBarLabel: t(TAB_LABEL_KEYS.Tracking) }} />
+      <Tab.Screen name="GRTracker" component={GRTrackerTabStack} options={{ tabBarLabel: t(TAB_LABEL_KEYS.GRTracker) }} />
+      <Tab.Screen name="More" component={MoreTabStack} options={{ tabBarLabel: t(TAB_LABEL_KEYS.More) }} />
     </Tab.Navigator>
   );
 };
