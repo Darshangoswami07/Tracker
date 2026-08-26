@@ -144,6 +144,6 @@ async def test_driver_can_reach_employee_orders_but_only_update_own_assignment(c
     assert any(i["orderNumber"] == "LISTINGS-GR-002" for i in list_resp.json()["data"]["items"])
 
     status_resp = await client.patch(
-        f"/api/v1/orders/{gr_id}/status", json={"status": "assigned"}, headers=auth_headers(driver_token)
+        f"/api/v1/orders/{gr_id}/status", json={"status": "pending"}, headers=auth_headers(driver_token)
     )
     assert status_resp.status_code == 403, status_resp.text

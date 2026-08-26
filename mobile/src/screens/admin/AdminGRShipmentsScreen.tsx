@@ -35,17 +35,13 @@ interface GRListItem {
 
 const PAGE_SIZE = 20;
 
-const STATUS_FILTERS = ['All', 'Pending', 'Assigned', 'Pickup', 'In Transit', 'Delivered', 'Failed', 'Returned', 'Cancelled'];
+const STATUS_FILTERS = ['All', 'Pending', 'Cleared', 'Uncleared', 'Delivered'];
 const FILTER_TO_STATUS: Record<string, string | undefined> = {
   All: undefined,
   Pending: 'pending',
-  Assigned: 'assigned',
-  Pickup: 'pickup',
-  'In Transit': 'in_transit',
+  Cleared: 'cleared',
+  Uncleared: 'uncleared',
   Delivered: 'delivered',
-  Failed: 'failed',
-  Returned: 'returned',
-  Cancelled: 'cancelled',
 };
 
 const formatDate = (iso: string): string => {

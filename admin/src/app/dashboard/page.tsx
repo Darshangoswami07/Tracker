@@ -6,13 +6,13 @@ import {
   Users,
   Truck,
   Package,
-  Building2,
   TrendingUp,
-  DollarSign,
-  Clock,
+  TrendingDown,
   CheckCircle,
-  XCircle,
   RefreshCw,
+  CalendarDays,
+  CalendarRange,
+  Calendar,
 } from 'lucide-react';
 import {
   Card,
@@ -27,7 +27,7 @@ import {
   Textarea,
   useToast,
 } from '@/components/ui';
-import { formatNumber, formatCurrency, formatRelativeTime, cn } from '@/lib/utils';
+import { formatNumber, formatINR, formatRelativeTime, cn } from '@/lib/utils';
 import { api } from '@/lib/api/client';
 import { useQuery } from '@tanstack/react-query';
 import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip } from 'recharts';
@@ -38,7 +38,7 @@ interface DashboardStats {
   todaysDeliveries: number;
   pendingOrders: number;
   completedOrders: number;
-  cancelledOrders: number;
+  unclearedOrders: number;
   activeDrivers: number;
   onlineDrivers: number;
   vehicles: number;
@@ -47,6 +47,17 @@ interface DashboardStats {
   revenue: number;
   growth: number;
   pendingApprovals?: number;
+}
+
+interface RevenueOverview {
+  today: number;
+  yesterday: number;
+  week: number;
+  prevWeek: number;
+  month: number;
+  prevMonth: number;
+  totalCollected: number;
+  outstandingAmount: number;
 }
 
 interface ActivityItem {
@@ -59,6 +70,11 @@ interface ActivityItem {
 
 async function fetchDashboardStats(): Promise<DashboardStats> {
   const response = await api.get<any>('/admin/dashboard/stats');
+  return response.data;
+}
+
+async function fetchRevenueOverview(): Promise<RevenueOverview> {
+  const response = await api.get<any>('/admin/dashboard/revenue');
   return response.data;
 }
 
@@ -77,27 +93,59 @@ async function fetchOrderChartData(): Promise<{ date: string; orders: number; de
   return response.data;
 }
 
-function StatCard({ name, value, change, icon: Icon, color }: {
-  name: string;
-  value: string | number;
-  change: string;
+function RevenueCard({ label, amount, icon: Icon, color, comparison }: {
+  label: string;
+  amount: number;
   icon: React.ComponentType<{ className?: string }>;
   color: string;
+  comparison?: { value: number; label: string } | null;
 }) {
   return (
-    <Card className="card-hover">
+    <Card className="card-hover relative overflow-hidden">
       <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm font-medium text-secondary-500">{name}</p>
-          <p className="text-3xl font-bold text-secondary-900 mt-2">{value}</p>
-          <p className="text-sm text-green-600 mt-1 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-            {change} vs last month
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-secondary-500">{label}</p>
+          <p className="text-3xl font-bold text-secondary-900 mt-2 tracking-tight">
+            {formatINR(amount)}
           </p>
+          {comparison && (
+            <p className={cn(
+              'text-sm mt-1.5 flex items-center gap-1 font-medium',
+              comparison.value >= 0 ? 'text-green-600' : 'text-red-500'
+            )}>
+              {comparison.value >= 0 ? (
+                <TrendingUp className="w-3.5 h-3.5" />
+              ) : (
+                <TrendingDown className="w-3.5 h-3.5" />
+              )}
+              {comparison.value >= 0 ? '↑' : '↓'} {Math.abs(comparison.value).toFixed(1)}% {comparison.label}
+            </p>
+          )}
+          {!comparison && (
+            <p className="text-sm text-secondary-400 mt-1.5 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-secondary-300" />
+              No prior data
+            </p>
+          )}
         </div>
         <div className={cn('p-3 rounded-xl', color)}>
           <Icon className="w-6 h-6" aria-hidden="true" />
         </div>
+      </div>
+    </Card>
+  );
+}
+
+function RevenueCardSkeleton() {
+  return (
+    <Card className="p-6">
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <Skeleton variant="text" className="w-24 h-4" />
+          <Skeleton variant="text" className="w-36 h-9 mt-3" />
+          <Skeleton variant="text" className="w-40 h-4 mt-2" />
+        </div>
+        <Skeleton variant="rectangular" className="w-12 h-12 rounded-xl" />
       </div>
     </Card>
   );
@@ -108,7 +156,6 @@ function ActivityItemRow({ activity }: { activity: ActivityItem }) {
     pending: '⏳',
     completed: '✅',
     active: '🟢',
-    assigned: '📋',
     approved: '✅',
   };
 
@@ -185,6 +232,12 @@ export default function DashboardPage() {
     staleTime: 10000,
   });
 
+  const { data: revenue, isLoading: revenueLoading, isError: revenueError, refetch: refetchRevenue } = useQuery({
+    queryKey: ['revenue-overview'],
+    queryFn: fetchRevenueOverview,
+    staleTime: 10000,
+  });
+
   const { data: activity, isLoading: activityLoading } = useQuery({
     queryKey: ['recent-activity'],
     queryFn: fetchRecentActivity,
@@ -232,20 +285,60 @@ export default function DashboardPage() {
     }
   };
 
-  const statCards = stats ? [
-    { name: 'Total Orders', value: formatNumber(stats.totalOrders), change: '+12%', icon: Package, color: 'text-blue-600 bg-blue-50' },
-    { name: "Today's Deliveries", value: formatNumber(stats.todaysDeliveries), change: '+5%', icon: Truck, color: 'text-green-600 bg-green-50' },
-    { name: 'Pending Orders', value: formatNumber(stats.pendingOrders), change: '-3%', icon: Clock, color: 'text-yellow-600 bg-yellow-50' },
-    { name: 'Completed Orders', value: formatNumber(stats.completedOrders), change: '+8%', icon: CheckCircle, color: 'text-green-600 bg-green-50' },
-    { name: 'Cancelled Orders', value: formatNumber(stats.cancelledOrders), change: '-2%', icon: XCircle, color: 'text-red-600 bg-red-50' },
-    { name: 'Active Drivers', value: formatNumber(stats.activeDrivers), change: '+3', icon: Truck, color: 'text-blue-600 bg-blue-50' },
-    { name: 'Online Drivers', value: formatNumber(stats.onlineDrivers), change: '+2', icon: Truck, color: 'text-green-600 bg-green-50' },
-    { name: 'Vehicles', value: formatNumber(stats.vehicles), change: '+5', icon: Truck, color: 'text-purple-600 bg-purple-50' },
-    { name: 'Companies', value: formatNumber(stats.companies), change: '+2', icon: Building2, color: 'text-indigo-600 bg-indigo-50' },
-    { name: 'Employees', value: formatNumber(stats.employees), change: '+8', icon: Users, color: 'text-pink-600 bg-pink-50' },
-    { name: 'Revenue', value: formatCurrency(stats.revenue), change: '+15%', icon: DollarSign, color: 'text-green-600 bg-green-50' },
-    { name: 'Growth', value: `${stats.growth}%`, change: '+2.1%', icon: TrendingUp, color: 'text-emerald-600 bg-emerald-50' },
-  ] : [];
+  const getPercentChange = (current: number, previous: number): number | null => {
+    if (previous === 0 && current === 0) return null;
+    if (previous === 0) return current > 0 ? 100 : 0;
+    return ((current - previous) / previous) * 100;
+  };
+
+  const revenueCards = revenue
+    ? [
+        {
+          label: "Today's Revenue",
+          amount: revenue.today,
+          icon: CalendarDays,
+          color: 'text-blue-600 bg-blue-50',
+          comparison: (() => {
+            const pct = getPercentChange(revenue.today, revenue.yesterday);
+            return pct !== null ? { value: pct, label: 'from yesterday' } : null;
+          })(),
+        },
+        {
+          label: 'This Week',
+          amount: revenue.week,
+          icon: CalendarRange,
+          color: 'text-green-600 bg-green-50',
+          comparison: (() => {
+            const pct = getPercentChange(revenue.week, revenue.prevWeek);
+            return pct !== null ? { value: pct, label: 'from last week' } : null;
+          })(),
+        },
+        {
+          label: 'This Month',
+          amount: revenue.month,
+          icon: Calendar,
+          color: 'text-purple-600 bg-purple-50',
+          comparison: (() => {
+            const pct = getPercentChange(revenue.month, revenue.prevMonth);
+            return pct !== null ? { value: pct, label: 'from last month' } : null;
+          })(),
+        },
+        {
+          label: 'Total Collected',
+          amount: revenue.totalCollected,
+          icon: CheckCircle,
+          color: 'text-teal-600 bg-teal-50',
+          comparison: null,
+        },
+        {
+          label: 'Outstanding',
+          amount: revenue.outstandingAmount,
+          icon: TrendingUp,
+          color: 'text-amber-600 bg-amber-50',
+          comparison: null,
+        },
+      ]
+    : [];
 
   return (
     <DashboardLayout>
@@ -263,20 +356,32 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Stats Grid */}
-        {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {Array.from({ length: 12 }).map((_, i) => (
-              <Skeleton key={i} variant="card" className="p-6" />
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {statCards.map((stat) => (
-              <StatCard key={stat.name} {...stat} />
-            ))}
-          </div>
-        )}
+        {/* Revenue Overview */}
+        <div>
+          <h2 className="text-lg font-semibold text-secondary-900 mb-4">Revenue Overview</h2>
+          {revenueLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <RevenueCardSkeleton key={i} />
+              ))}
+            </div>
+          ) : revenueError ? (
+            <Card className="p-8 text-center">
+              <TrendingUp className="w-10 h-10 mx-auto text-red-400 mb-3" />
+              <p className="font-medium text-secondary-700">Failed to load revenue data</p>
+              <p className="text-sm text-secondary-500 mt-1 mb-4">Please check your connection and try again.</p>
+              <Button variant="secondary" size="sm" onClick={() => refetchRevenue()} leftIcon={<RefreshCw className="w-3.5 h-3.5" />}>
+                Retry
+              </Button>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+              {revenueCards.map((card) => (
+                <RevenueCard key={card.label} {...card} />
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

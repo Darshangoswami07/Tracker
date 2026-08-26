@@ -113,10 +113,9 @@ export const NotificationsScreen = () => {
   const getNotificationConfig = (type: string): { icon: ComponentProps<typeof Ionicons>['name']; color: string; bg: string } => {
     switch (type) {
       case 'order_created': return { icon: 'document-text-outline', color: '#635BFF', bg: '#635BFF15' };
-      case 'order_assigned': return { icon: 'person-add-outline', color: '#06B6D4', bg: '#06B6D415' };
-      case 'order_picked_up': return { icon: 'cube-outline', color: '#8B5CF6', bg: '#8B5CF615' };
+      case 'order_cleared': return { icon: 'checkmark-done-outline', color: '#10B981', bg: '#10B98115' };
+      case 'order_uncleared': return { icon: 'alert-circle-outline', color: '#F97316', bg: '#F9731615' };
       case 'order_delivered': return { icon: 'checkmark-circle-outline', color: '#10B981', bg: '#10B98115' };
-      case 'order_cancelled': return { icon: 'close-circle-outline', color: '#EF4444', bg: '#EF444415' };
       case 'driver_assigned': return { icon: 'person-outline', color: '#F97316', bg: '#F9731615' };
       case 'payment_received': return { icon: 'cash-outline', color: '#10B981', bg: '#10B98115' };
       case 'system_alert': return { icon: 'alert-circle-outline', color: '#F59E0B', bg: '#F59E0B15' };

@@ -49,24 +49,16 @@ import { GR, GRStatus } from '@/types/gr';
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'All', label: 'All Statuses' },
   { value: 'pending', label: 'Pending' },
-  { value: 'assigned', label: 'Assigned' },
-  { value: 'pickup', label: 'Pickup' },
-  { value: 'in_transit', label: 'In Transit' },
+  { value: 'cleared', label: 'Cleared' },
+  { value: 'uncleared', label: 'Uncleared' },
   { value: 'delivered', label: 'Delivered' },
-  { value: 'failed', label: 'Failed' },
-  { value: 'returned', label: 'Returned' },
-  { value: 'cancelled', label: 'Cancelled' },
 ];
 
 const STATUS_OPTIONS: { value: GRStatus; label: string }[] = [
   { value: 'pending', label: 'Pending' },
-  { value: 'assigned', label: 'Assigned' },
-  { value: 'pickup', label: 'Pickup' },
-  { value: 'in_transit', label: 'In Transit' },
+  { value: 'cleared', label: 'Cleared' },
+  { value: 'uncleared', label: 'Uncleared' },
   { value: 'delivered', label: 'Delivered' },
-  { value: 'failed', label: 'Failed' },
-  { value: 'returned', label: 'Returned' },
-  { value: 'cancelled', label: 'Cancelled' },
 ];
 
 // Slip/Documents upload — mirrors the server's allow-list in

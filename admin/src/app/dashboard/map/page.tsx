@@ -8,14 +8,13 @@ import { useGRList } from '@/hooks';
 import { GRStatus } from '@/types/gr';
 import { Card, Button, Select, StatusBadge, Skeleton, EmptyState } from '@/components/ui';
 
-const ACTIVE_STATUSES: GRStatus[] = ['pending', 'assigned', 'pickup', 'in_transit'];
+const ACTIVE_STATUSES: GRStatus[] = ['pending', 'uncleared', 'cleared'];
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All In-Progress' },
   { value: 'pending', label: 'Pending' },
-  { value: 'assigned', label: 'Assigned' },
-  { value: 'pickup', label: 'Pickup' },
-  { value: 'in_transit', label: 'In Transit' },
+  { value: 'uncleared', label: 'Uncleared' },
+  { value: 'cleared', label: 'Cleared' },
 ];
 
 export default function LiveMapPage() {
@@ -51,7 +50,7 @@ export default function LiveMapPage() {
           <div>
             <p className="text-sm font-semibold text-secondary-900">Live driver GPS tracking is coming soon.</p>
             <p className="text-sm text-secondary-500 mt-0.5">
-              This page shows every in-progress shipment (pending, assigned, pickup, in-transit) with its real
+              This page shows every in-progress shipment (pending, uncleared, cleared) with its real
               pickup → delivery route. Once driver location telemetry is connected, live positions will appear
               here on the map.
             </p>

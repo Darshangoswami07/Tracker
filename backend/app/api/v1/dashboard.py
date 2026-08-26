@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, require_roles
+from app.core.tenancy import effective_company_id
 from app.database.db import get_db_session
 from app.models.enums import UserRole
 from app.repositories.order_repository import OrderRepository
@@ -78,7 +79,7 @@ async def get_dashboard_stats(
         "todaysDeliveries": todays_deliveries,
         "pendingOrders": order_stats["pending"],
         "completedOrders": order_stats["delivered"],
-        "cancelledOrders": order_stats["cancelled"],
+        "unclearedOrders": order_stats["uncleared"],
         "activeDrivers": driver_stats["active"],
         "onlineDrivers": driver_stats["online"],
         "vehicles": vehicles,
@@ -128,8 +129,6 @@ async def get_recent_activity(
             status = "pending"
         elif "approved" in log.action.lower():
             status = "approved"
-        elif "assigned" in log.action.lower():
-            status = "assigned"
         elif "driver" in log.action.lower():
             status = "active"
 
@@ -153,5 +152,22 @@ async def get_order_chart_data(
     """Get order chart data."""
     order_repo = OrderRepository(session=db)
     data = await order_repo.get_order_chart_data(days)
+
+    return success(data)
+
+
+@router.get("/revenue")
+async def get_revenue_overview(
+    admin: Annotated[AdminUser, AdminRequired],
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Get revenue overview for today, this week, and this month.
+
+    Revenue per GR = Paid_Amt + ToPay_Amt, filtered by GRDate.
+    Scoped to the caller's company (platform admins see all companies).
+    """
+    company_id = await effective_company_id(admin, db)
+    order_repo = OrderRepository(session=db)
+    data = await order_repo.get_revenue_overview(company_id=company_id)
 
     return success(data)

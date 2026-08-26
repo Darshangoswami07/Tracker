@@ -14,7 +14,7 @@ interface DashboardStats {
   todaysDeliveries: number;
   pendingOrders: number;
   completedOrders: number;
-  cancelledOrders: number;
+  unclearedOrders: number;
   activeDrivers: number;
   onlineDrivers: number;
   vehicles: number;
@@ -98,7 +98,7 @@ export default function AnalyticsPage() {
     { name: "Today's Deliveries", value: formatNumber(stats.todaysDeliveries), icon: Truck, color: 'text-green-600 bg-green-50' },
     { name: 'Pending Orders', value: formatNumber(stats.pendingOrders), icon: Clock, color: 'text-yellow-600 bg-yellow-50' },
     { name: 'Completed Orders', value: formatNumber(stats.completedOrders), icon: CheckCircle, color: 'text-green-600 bg-green-50' },
-    { name: 'Cancelled Orders', value: formatNumber(stats.cancelledOrders), icon: XCircle, color: 'text-red-600 bg-red-50' },
+    { name: 'Uncleared Orders', value: formatNumber(stats.unclearedOrders), icon: XCircle, color: 'text-orange-600 bg-orange-50' },
     { name: 'Active Drivers', value: formatNumber(stats.activeDrivers), icon: Truck, color: 'text-blue-600 bg-blue-50' },
     { name: 'Vehicles', value: formatNumber(stats.vehicles), icon: Truck, color: 'text-purple-600 bg-purple-50' },
     { name: 'Companies', value: formatNumber(stats.companies), icon: Building2, color: 'text-indigo-600 bg-indigo-50' },
@@ -111,7 +111,6 @@ export default function AnalyticsPage() {
     pending: '⏳',
     completed: '✅',
     active: '🟢',
-    assigned: '📋',
     approved: '✅',
   };
 

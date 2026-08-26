@@ -101,17 +101,13 @@ interface PickerOption {
  * a linear transition graph (e.g. blocking any change once a GR reached
  * "delivered"), which the web reference never did and which is why Admin
  * appeared unable to change status. */
-const ALL_STATUSES = ['pending', 'assigned', 'pickup', 'in_transit', 'delivered', 'failed', 'returned', 'cancelled'];
+const ALL_STATUSES = ['pending', 'cleared', 'uncleared', 'delivered'];
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
-  assigned: 'Assigned',
-  pickup: 'Pickup',
-  in_transit: 'In Transit',
+  cleared: 'Cleared',
+  uncleared: 'Uncleared',
   delivered: 'Delivered',
-  failed: 'Failed',
-  returned: 'Returned',
-  cancelled: 'Cancelled',
 };
 
 const formatDate = (iso: string | null): string => {

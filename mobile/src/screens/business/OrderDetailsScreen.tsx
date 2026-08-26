@@ -196,11 +196,9 @@ export const OrderDetailsScreen = ({ route }: any) => {
   const getStatusConfig = (status: string): { color: string; icon: ComponentProps<typeof Ionicons>['name']; label: string } => {
     switch (status.toLowerCase()) {
       case 'pending': return { color: '#F59E0B', icon: 'time-outline', label: 'Pending' };
-      case 'assigned': return { color: '#06B6D4', icon: 'person-add-outline', label: 'Assigned' };
-      case 'picked_up': return { color: '#8B5CF6', icon: 'cube-outline', label: 'Picked Up' };
-      case 'in_transit': return { color: '#3B82F6', icon: 'navigate-outline', label: 'In Transit' };
+      case 'cleared': return { color: '#10B981', icon: 'checkmark-done-outline', label: 'Cleared' };
+      case 'uncleared': return { color: '#F97316', icon: 'alert-circle-outline', label: 'Uncleared' };
       case 'delivered': return { color: '#10B981', icon: 'checkmark-circle-outline', label: 'Delivered' };
-      case 'cancelled': return { color: '#EF4444', icon: 'close-circle-outline', label: 'Cancelled' };
       default: return { color: colors.textMuted, icon: 'help-outline', label: status };
     }
   };

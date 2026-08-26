@@ -1,12 +1,8 @@
 export type GRStatus =
   | 'pending'
-  | 'assigned'
-  | 'pickup'
-  | 'in_transit'
-  | 'delivered'
-  | 'failed'
-  | 'returned'
-  | 'cancelled';
+  | 'cleared'
+  | 'uncleared'
+  | 'delivered';
 
 export interface OrderAttachment {
   id: string;

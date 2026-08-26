@@ -46,13 +46,9 @@ class OrderType(str, Enum):
 
 class OrderStatus(str, Enum):
     PENDING = "pending"
-    ASSIGNED = "assigned"
-    PICKUP = "pickup"
-    IN_TRANSIT = "in_transit"
+    CLEARED = "cleared"
+    UNCLEARED = "uncleared"
     DELIVERED = "delivered"
-    FAILED = "failed"
-    RETURNED = "returned"
-    CANCELLED = "cancelled"
 
 
 class OrderPriority(str, Enum):

@@ -24,6 +24,29 @@ export function formatCurrency(amount: number, currency = 'USD'): string {
   }).format(amount);
 }
 
+/**
+ * Format a number as Indian Rupees using the lakh/crore grouping system.
+ *
+ * Examples: 2650 → ₹2,650 | 12450 → ₹12,450 | 124500 → ₹1,24,500 | 1234567 → ₹12,34,567
+ */
+export function formatINR(amount: number): string {
+  const absAmount = Math.abs(amount);
+  const sign = amount < 0 ? '-' : '';
+
+  if (absAmount >= 10000000) {
+    const crores = Math.floor(absAmount / 10000000);
+    const remainder = absAmount % 10000000;
+    const remainderStr = remainder.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+    return `${sign}₹${crores},${remainderStr}`;
+  }
+
+  const formatted = absAmount.toLocaleString('en-IN', {
+    maximumFractionDigits: 0,
+  });
+
+  return `${sign}₹${formatted}`;
+}
+
 export function formatDate(date: string | Date): string {
   return new Intl.DateTimeFormat('en-US', {
     year: 'numeric',

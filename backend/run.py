@@ -1,12 +1,4 @@
-"""Local development server entrypoint.
-
-Configures the Windows event loop *before* uvicorn starts so psycopg (async)
-can run: uvicorn creates the loop before it imports the app, so the policy must
-be set here rather than in ``main``. Equivalent to
-``uvicorn main:app --reload`` (and works without ``--reload`` on Windows too).
-"""
-from __future__ import annotations
-
+"""Local development entrypoint — sets the event loop policy before anything else."""
 import asyncio
 import sys
 
@@ -16,4 +8,4 @@ if sys.platform == "win32":
 import uvicorn
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

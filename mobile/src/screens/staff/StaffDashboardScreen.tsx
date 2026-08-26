@@ -15,7 +15,7 @@ interface Overview {
   completed: number;
 }
 
-const ASSIGNED_STATUSES = ['assigned', 'pickup', 'in_transit'];
+const ASSIGNED_STATUSES = ['uncleared'];
 
 /**
  * Staff's home screen — welcome header, today's delivery overview (counts

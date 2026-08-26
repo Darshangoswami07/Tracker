@@ -130,11 +130,11 @@ async def test_update_gr_status(client):
 
     resp = await client.patch(
         f"{GR_BASE}/{gr_id}/status",
-        json={"status": "in_transit", "notes": "Left Haldwani depot"},
+        json={"status": "cleared", "notes": "Payment confirmed"},
         headers=auth_headers(token),
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["data"]["status"] == "in_transit"
+    assert resp.json()["data"]["status"] == "cleared"
 
 
 async def test_upload_and_download_slip(client):
@@ -295,11 +295,11 @@ async def test_shared_status_update_endpoint(client):
 
     resp = await client.patch(
         f"{SHARED_ORDER_BASE}/{gr_id}/status",
-        json={"status": "assigned"},
+        json={"status": "pending"},
         headers=auth_headers(token),
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["data"]["status"] == "assigned"
+    assert resp.json()["data"]["status"] == "pending"
 
 
 async def test_customer_cannot_update_status_but_can_track(client):
@@ -314,7 +314,7 @@ async def test_customer_cannot_update_status_but_can_track(client):
 
     status_resp = await client.patch(
         f"{SHARED_ORDER_BASE}/{gr_id}/status",
-        json={"status": "assigned"},
+        json={"status": "pending"},
         headers=auth_headers(customer_token),
     )
     assert status_resp.status_code == 403, status_resp.text
