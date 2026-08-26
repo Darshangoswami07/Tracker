@@ -633,4 +633,83 @@ export const orderRepository = {
       );
     }
   },
+
+  /** Revenue aggregation matching `backend/order_repository.get_revenue_overview()`.
+   *  Revenue per GR = COALESCE(paymentAmount, 0) + COALESCE(toPay, 0).
+   *  Date bucketing uses grDate if set, falling back to createdAt. */
+  async getRevenueOverview(): Promise<{
+    today: number;
+    yesterday: number;
+    week: number;
+    prevWeek: number;
+    month: number;
+    prevMonth: number;
+    totalCollected: number;
+    outstandingAmount: number;
+  }> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+
+    const now = new Date();
+    const yyyy = now.getUTCFullYear();
+    const mm = now.getUTCMonth();
+    const dd = now.getUTCDate();
+    const dayOfWeek = now.getUTCDay(); // 0=Sun
+
+    const fmt = (d: Date) => d.toISOString().slice(0, 19).replace('T', ' ');
+    const dayStart = (y: number, m: number, d: number) => fmt(new Date(Date.UTC(y, m, d, 0, 0, 0)));
+    const dayEnd = (y: number, m: number, d: number) => fmt(new Date(Date.UTC(y, m, d + 1, 0, 0, 0)));
+
+    const startToday = dayStart(yyyy, mm, dd);
+    const startYesterday = dayStart(yyyy, mm, dd - 1);
+    // ISO week: Monday = 0 … Sunday = 6
+    const weekDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const startOfWeek = dayStart(yyyy, mm, dd - weekDay);
+    const startPrevWeek = dayStart(yyyy, mm, dd - weekDay - 7);
+    const startOfMonth = dayStart(yyyy, mm, 1);
+    const prevMonthDate = new Date(Date.UTC(yyyy, mm, 0)); // last day of prev month
+    const startPrevMonth = dayStart(prevMonthDate.getUTCFullYear(), prevMonthDate.getUTCMonth(), 1);
+
+    const row = await db.getFirstAsync<{
+      today: number; yesterday: number; week: number; prev_week: number;
+      month: number; prev_month: number; total_collected: number; outstanding: number;
+    }>(
+      `SELECT
+         SUM(CASE WHEN COALESCE(grDate, createdAt) >= ? AND COALESCE(grDate, createdAt) < ?
+           THEN COALESCE(paymentAmount, 0) + COALESCE(toPay, 0) ELSE 0 END) AS today,
+         SUM(CASE WHEN COALESCE(grDate, createdAt) >= ? AND COALESCE(grDate, createdAt) < ?
+           THEN COALESCE(paymentAmount, 0) + COALESCE(toPay, 0) ELSE 0 END) AS yesterday,
+         SUM(CASE WHEN COALESCE(grDate, createdAt) >= ? AND COALESCE(grDate, createdAt) < ?
+           THEN COALESCE(paymentAmount, 0) + COALESCE(toPay, 0) ELSE 0 END) AS week,
+         SUM(CASE WHEN COALESCE(grDate, createdAt) >= ? AND COALESCE(grDate, createdAt) < ?
+           THEN COALESCE(paymentAmount, 0) + COALESCE(toPay, 0) ELSE 0 END) AS prev_week,
+         SUM(CASE WHEN COALESCE(grDate, createdAt) >= ? AND COALESCE(grDate, createdAt) < ?
+           THEN COALESCE(paymentAmount, 0) + COALESCE(toPay, 0) ELSE 0 END) AS month,
+         SUM(CASE WHEN COALESCE(grDate, createdAt) >= ? AND COALESCE(grDate, createdAt) < ?
+           THEN COALESCE(paymentAmount, 0) + COALESCE(toPay, 0) ELSE 0 END) AS prev_month,
+         SUM(COALESCE(paymentAmount, 0)) AS total_collected,
+         SUM(COALESCE(toPay, 0)) AS outstanding
+       FROM orders
+       WHERE isDeleted = 0 AND isActive = 1`,
+      [
+        startToday, dayEnd(yyyy, mm, dd),
+        startYesterday, startToday,
+        startOfWeek, dayEnd(yyyy, mm, dd),
+        startPrevWeek, startOfWeek,
+        startOfMonth, dayEnd(yyyy, mm, dd),
+        startPrevMonth, startOfMonth,
+      ],
+    );
+
+    return {
+      today: Number(row?.today ?? 0),
+      yesterday: Number(row?.yesterday ?? 0),
+      week: Number(row?.week ?? 0),
+      prevWeek: Number(row?.prev_week ?? 0),
+      month: Number(row?.month ?? 0),
+      prevMonth: Number(row?.prev_month ?? 0),
+      totalCollected: Number(row?.total_collected ?? 0),
+      outstandingAmount: Number(row?.outstanding ?? 0),
+    };
+  },
 };

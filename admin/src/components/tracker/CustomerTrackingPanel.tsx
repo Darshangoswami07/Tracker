@@ -8,16 +8,12 @@ import { downloadAttachment } from '@/lib/downloadAttachment';
 
 const AMBER = '#F97316';
 
-const STATUS_STEPS = ['pending', 'assigned', 'pickup', 'in_transit', 'delivered'];
+const STATUS_STEPS = ['pending', 'uncleared', 'cleared', 'delivered'];
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
-  assigned: 'Assigned',
-  pickup: 'Pickup',
-  in_transit: 'In Transit',
+  uncleared: 'Uncleared',
+  cleared: 'Cleared',
   delivered: 'Delivered',
-  failed: 'Failed',
-  returned: 'Returned',
-  cancelled: 'Cancelled',
 };
 
 interface TrackedShipment {

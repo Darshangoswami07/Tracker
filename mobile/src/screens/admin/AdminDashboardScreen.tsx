@@ -15,11 +15,18 @@ import { EmptyState } from '../../components/EmptyState';
 import { useAppNav } from '../../hooks/useAppNav';
 import type { AppTheme } from '../../theme/types';
 
+interface RevenueOverview {
+  today: number;
+  yesterday: number;
+  week: number;
+  prevWeek: number;
+  month: number;
+  prevMonth: number;
+  totalCollected: number;
+  outstandingAmount: number;
+}
+
 interface AdminStats {
-  totalUsers: number;
-  totalCompanies: number;
-  totalDrivers: number;
-  totalVehicles: number;
   totalOrders: number;
   pendingApprovals: number;
   onlineUsers: number;
@@ -37,35 +44,23 @@ interface RecentActivity {
 /** Human-readable GR status labels, matching `StaffGRPanelScreen`/`StatusBadge`. */
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
-  assigned: 'Assigned',
-  pickup: 'Picked Up',
-  in_transit: 'In Transit',
+  cleared: 'Cleared',
+  uncleared: 'Uncleared',
   delivered: 'Delivered',
-  failed: 'Failed',
-  returned: 'Returned',
-  cancelled: 'Cancelled',
 };
 
 const ACTIVITY_TYPE_FOR_STATUS: Record<string, string> = {
   pending: 'order_pending',
-  assigned: 'order_assigned',
-  pickup: 'order_picked_up',
-  in_transit: 'order_in_transit',
+  cleared: 'order_cleared',
+  uncleared: 'order_uncleared',
   delivered: 'order_delivered',
-  failed: 'order_failed',
-  returned: 'order_returned',
-  cancelled: 'order_cancelled',
 };
 
 const TITLE_FOR_STATUS: Record<string, string> = {
   pending: 'GR Pending',
-  assigned: 'Shipment Assigned',
-  pickup: 'Shipment Picked Up',
-  in_transit: 'Shipment In Transit',
-  delivered: 'Shipment Delivered',
-  failed: 'Delivery Failed',
-  returned: 'Shipment Returned',
-  cancelled: 'Shipment Cancelled',
+  cleared: 'GR Cleared',
+  uncleared: 'GR Uncleared',
+  delivered: 'GR Delivered',
 };
 
 const humanizeStatus = (status: string): string => STATUS_LABELS[status] ?? status.replace(/_/g, ' ');
@@ -106,6 +101,19 @@ const describeActivity = (event: ActivityEvent): RecentActivity => {
   };
 };
 
+const formatINR = (amount: number): string => {
+  const absAmount = Math.abs(amount);
+  const sign = amount < 0 ? '-' : '';
+  const formatted = absAmount.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  return `${sign}₹${formatted}`;
+};
+
+const getPercentChange = (current: number, previous: number): number | null => {
+  if (previous === 0 && current === 0) return null;
+  if (previous === 0) return current > 0 ? 100 : 0;
+  return ((current - previous) / previous) * 100;
+};
+
 const getGreeting = (): string => {
   const hour = new Date().getHours();
   if (hour < 12) return 'Good morning';
@@ -125,6 +133,17 @@ export const AdminDashboardScreen = () => {
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
   const [stats, setStats] = useState<AdminStats | null>(null);
+  const [revenue, setRevenue] = useState<RevenueOverview>({
+    today: 0,
+    yesterday: 0,
+    week: 0,
+    prevWeek: 0,
+    month: 0,
+    prevMonth: 0,
+    totalCollected: 0,
+    outstandingAmount: 0,
+  });
+  const [revenueStatus, setRevenueStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [activities, setActivities] = useState<RecentActivity[]>([]);
   const [activityStatus, setActivityStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [loading, setLoading] = useState(true);
@@ -136,7 +155,13 @@ export const AdminDashboardScreen = () => {
     if (!accessToken) return;
     try {
       const statsRes = await api.get('/admin/dashboard/stats', { headers: { Authorization: `Bearer ${accessToken}` } });
-      setStats(statsRes.data.data);
+      const d = statsRes.data.data;
+      setStats({
+        totalOrders: d.totalOrders ?? 0,
+        pendingApprovals: d.pendingApprovals ?? 0,
+        onlineUsers: d.onlineUsers ?? 0,
+        systemHealth: d.systemHealth ?? 'healthy',
+      });
     } catch (error) {
       console.error('Failed to fetch admin dashboard stats:', error);
     } finally {
@@ -144,6 +169,18 @@ export const AdminDashboardScreen = () => {
       setRefreshing(false);
     }
   }, [accessToken]);
+
+  const fetchRevenue = useCallback(async () => {
+    setRevenueStatus('loading');
+    try {
+      const data = await orderRepository.getRevenueOverview();
+      setRevenue(data);
+      setRevenueStatus('success');
+    } catch (error) {
+      console.error('Failed to fetch revenue overview:', error);
+      setRevenueStatus('error');
+    }
+  }, []);
 
   // Recent Activity is real GR/shipment history (status transitions + slip
   // uploads) read from the on-device SQLite database — the same source the
@@ -163,8 +200,9 @@ export const AdminDashboardScreen = () => {
 
   const fetchDashboardData = useCallback(() => {
     void fetchStats();
+    void fetchRevenue();
     void fetchActivity();
-  }, [fetchStats, fetchActivity]);
+  }, [fetchStats, fetchRevenue, fetchActivity]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -186,14 +224,20 @@ export const AdminDashboardScreen = () => {
           <Header title="Dashboard" rightAction={{ icon: 'notifications-outline', onPress: goToNotifications }} />
         </View>
         <ScrollView contentContainerStyle={styles.scrollContent}>
-          <View style={styles.statsGrid}>
-            <View style={styles.statsRow}>
-              <ShimmerCard style={styles.statCardHalf} height={104} />
-              <ShimmerCard style={styles.statCardHalf} height={104} />
-            </View>
-            <View style={styles.statsRow}>
-              <ShimmerCard style={styles.statCardHalf} height={104} />
-              <ShimmerCard style={styles.statCardHalf} height={104} />
+          <View style={styles.revenueSection}>
+            <ShimmerCard style={styles.sectionTitleShimmer} />
+            <View style={styles.revenueGrid}>
+              <View style={styles.revenueRow}>
+                <ShimmerCard style={styles.revenueCardHalf} height={104} />
+                <ShimmerCard style={styles.revenueCardHalf} height={104} />
+              </View>
+              <View style={styles.revenueRow}>
+                <ShimmerCard style={styles.revenueCardHalf} height={104} />
+                <ShimmerCard style={styles.revenueCardHalf} height={104} />
+              </View>
+              <View style={styles.revenueRow}>
+                <ShimmerCard style={styles.revenueCardHalf} height={104} />
+              </View>
             </View>
           </View>
           <View style={styles.sectionHeader}>
@@ -217,18 +261,60 @@ export const AdminDashboardScreen = () => {
 
   const healthConfig = getHealthConfig(stats?.systemHealth || 'healthy');
 
-  const metrics: { title: string; value: string; icon: ComponentProps<typeof Ionicons>['name']; color: string }[] = [
-    { title: 'Total Orders', value: (stats?.totalOrders ?? 0).toLocaleString(), icon: 'clipboard-outline', color: '#10B981' },
-    { title: 'Drivers', value: (stats?.totalDrivers ?? 0).toLocaleString(), icon: 'person-outline', color: '#8B5CF6' },
-    { title: 'Vehicles', value: (stats?.totalVehicles ?? 0).toLocaleString(), icon: 'car-outline', color: '#F97316' },
-    { title: 'Companies', value: (stats?.totalCompanies ?? 0).toLocaleString(), icon: 'business-outline', color: '#06B6D4' },
-    { title: 'Total Users', value: (stats?.totalUsers ?? 0).toLocaleString(), icon: 'people-outline', color: '#635BFF' },
+  const revenueCards: {
+    title: string;
+    value: string;
+    icon: ComponentProps<typeof Ionicons>['name'];
+    color: string;
+    trend?: { value: number; label: string; isPercentage?: boolean };
+  }[] = revenueStatus === 'error'
+    ? []
+    : [
+    {
+      title: "Today's Revenue",
+      value: formatINR(revenue.today),
+      icon: 'today-outline',
+      color: '#3B82F6',
+      trend: (() => {
+        const pct = getPercentChange(revenue.today, revenue.yesterday);
+        return pct !== null ? { value: Math.round(pct), label: 'from yesterday', isPercentage: true } : undefined;
+      })(),
+    },
+    {
+      title: 'This Week',
+      value: formatINR(revenue.week),
+      icon: 'calendar-outline',
+      color: '#10B981',
+      trend: (() => {
+        const pct = getPercentChange(revenue.week, revenue.prevWeek);
+        return pct !== null ? { value: Math.round(pct), label: 'from last week', isPercentage: true } : undefined;
+      })(),
+    },
+    {
+      title: 'This Month',
+      value: formatINR(revenue.month),
+      icon: 'calendar-number-outline',
+      color: '#8B5CF6',
+      trend: (() => {
+        const pct = getPercentChange(revenue.month, revenue.prevMonth);
+        return pct !== null ? { value: Math.round(pct), label: 'from last month', isPercentage: true } : undefined;
+      })(),
+    },
+    {
+      title: 'Total Collected',
+      value: formatINR(revenue.totalCollected),
+      icon: 'wallet-outline',
+      color: '#14B8A6',
+    },
+    {
+      title: 'Outstanding',
+      value: formatINR(revenue.outstandingAmount),
+      icon: 'time-outline',
+      color: '#F59E0B',
+    },
   ];
-  if (isSuperAdmin) {
-    metrics.push({ title: 'Pending Approvals', value: (stats?.pendingApprovals ?? 0).toLocaleString(), icon: 'time-outline', color: '#F59E0B' });
-  }
-  const metricRows: (typeof metrics)[] = [];
-  for (let i = 0; i < metrics.length; i += 2) metricRows.push(metrics.slice(i, i + 2));
+  const revenueRows: (typeof revenueCards)[] = [];
+  for (let i = 0; i < revenueCards.length; i += 2) revenueRows.push(revenueCards.slice(i, i + 2));
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
@@ -261,17 +347,32 @@ export const AdminDashboardScreen = () => {
         showsVerticalScrollIndicator={false}
       >
         <Animated.View style={{ transform: [{ translateY: slideAnim }], opacity: fadeAnim }}>
-          <View style={styles.statsGrid}>
-            {metricRows.map((row, rowIndex) => (
-              <View key={rowIndex} style={styles.statsRow}>
-                {row.map((metric) => (
-                  <View key={metric.title} style={styles.statCardHalf}>
-                    <StatCard title={metric.title} value={metric.value} icon={metric.icon} color={metric.color} />
-                  </View>
-                ))}
-                {row.length === 1 && <View style={styles.statCardHalf} />}
+          <View style={styles.revenueSection}>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Revenue Overview</Text>
+            {revenueStatus === 'error' ? (
+              <View style={styles.revenueError}>
+                <Ionicons name="cloud-offline-outline" size={28} color={colors.error} />
+                <Text style={[styles.revenueErrorText, { color: colors.textSecondary }]}>
+                  Failed to load revenue data
+                </Text>
+                <TouchableOpacity onPress={fetchRevenue} style={[styles.retryButton, { backgroundColor: colors.primary }]}>
+                  <Text style={{ color: colors.onPrimary, fontWeight: '700', fontSize: 13 }}>Retry</Text>
+                </TouchableOpacity>
               </View>
-            ))}
+            ) : (
+            <View style={styles.revenueGrid}>
+              {revenueRows.map((row, rowIndex) => (
+                <View key={rowIndex} style={styles.revenueRow}>
+                  {row.map((card) => (
+                    <View key={card.title} style={styles.revenueCardHalf}>
+                      <StatCard title={card.title} value={card.value} icon={card.icon} color={card.color} trend={card.trend} />
+                    </View>
+                  ))}
+                  {row.length === 1 && <View style={styles.revenueCardHalf} />}
+                </View>
+              ))}
+            </View>
+            )}
           </View>
 
           <View style={styles.quickActions}>
@@ -406,9 +507,13 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     healthDot: { width: 8, height: 8, borderRadius: 4 },
     welcomeSubtitle: { fontSize: theme.fonts.size.sm, fontWeight: '500', color: theme.colors.textSecondary },
     scrollContent: { paddingBottom: 40, paddingHorizontal: theme.spacing.lg },
-    statsGrid: { gap: theme.spacing.md, marginBottom: theme.spacing.lg },
-    statsRow: { flexDirection: 'row', gap: theme.spacing.md },
-    statCardHalf: { flex: 1 },
+    revenueSection: { marginBottom: theme.spacing.lg },
+    revenueGrid: { gap: theme.spacing.md },
+    revenueRow: { flexDirection: 'row', gap: theme.spacing.md },
+    revenueCardHalf: { flex: 1 },
+    revenueError: { alignItems: 'center', justifyContent: 'center', paddingVertical: 32, gap: 8 },
+    revenueErrorText: { fontSize: 14, fontWeight: '500' },
+    retryButton: { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 8, marginTop: 4 },
     quickActions: { marginTop: theme.spacing.sm, gap: theme.spacing.sm },
     sectionTitle: { fontSize: theme.fonts.size.lg, fontWeight: '800', color: theme.colors.textPrimary, marginBottom: theme.spacing.md },
     primaryAction: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm, padding: theme.spacing.lg },

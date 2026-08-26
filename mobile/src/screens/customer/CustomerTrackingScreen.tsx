@@ -21,8 +21,8 @@ import type { TrackingStackParamList } from '../../navigation/types';
 /** The four customer-facing delivery stages, derived from the backend status. */
 const STAGES = [
   { key: 'pending', label: 'Pending' },
-  { key: 'in_transit', label: 'In Transit' },
-  { key: 'out_for_delivery', label: 'Out for Delivery' },
+  { key: 'uncleared', label: 'Uncleared' },
+  { key: 'cleared', label: 'Cleared' },
   { key: 'delivered', label: 'Delivered' },
 ] as const;
 
@@ -60,11 +60,9 @@ interface TrackedShipment {
  */
 const stageIndexFor = (status?: string): number => {
   switch ((status ?? '').toLowerCase()) {
-    case 'assigned':
-    case 'pickup':
-    case 'in_transit':
+    case 'uncleared':
       return 1;
-    case 'out_for_delivery':
+    case 'cleared':
       return 2;
     case 'delivered':
       return 3;

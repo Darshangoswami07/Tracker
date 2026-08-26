@@ -31,17 +31,13 @@ interface GREntry {
  * (`admin/src/components/tracker/StaffPanel.tsx`'s `STATUS_OPTIONS`) — that
  * dropdown lets any GR-access role set a GR to any status at any time, not
  * just the "next" one in a fixed pipeline. */
-const ALL_STATUSES = ['pending', 'assigned', 'pickup', 'in_transit', 'delivered', 'failed', 'returned', 'cancelled'];
+const ALL_STATUSES = ['pending', 'cleared', 'uncleared', 'delivered'];
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
-  assigned: 'Assigned',
-  pickup: 'Pickup',
-  in_transit: 'In Transit',
+  cleared: 'Cleared',
+  uncleared: 'Uncleared',
   delivered: 'Delivered',
-  failed: 'Failed',
-  returned: 'Returned',
-  cancelled: 'Cancelled',
 };
 
 /** Optional params a caller can push this screen with to pre-filter by

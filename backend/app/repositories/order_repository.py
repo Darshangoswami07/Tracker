@@ -5,7 +5,7 @@ from datetime import datetime, date, timedelta, timezone
 from typing import Optional, Tuple, List
 from uuid import UUID
 
-from sqlalchemy import select, func, and_, or_, desc
+from sqlalchemy import select, func, and_, or_, desc, case, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.db import session_scope
@@ -221,7 +221,7 @@ class OrderRepository(BaseRepository[Order]):
                     func.count(Order.id).label("total"),
                     func.count(Order.id).filter(Order.status == "delivered").label("delivered"),
                     func.count(Order.id).filter(Order.status == "pending").label("pending"),
-                    func.count(Order.id).filter(Order.status == "cancelled").label("cancelled"),
+                    func.count(Order.id).filter(Order.status == "uncleared").label("uncleared"),
                     func.coalesce(
                         func.sum(Order.paymentAmount).filter(
                             and_(Order.paymentStatus == "paid", Order.status == "delivered")
@@ -234,8 +234,91 @@ class OrderRepository(BaseRepository[Order]):
                 "total": row.total,
                 "delivered": row.delivered,
                 "pending": row.pending,
-                "cancelled": row.cancelled,
+                "uncleared": row.uncleared,
                 "revenue": float(row.revenue),
+            }
+
+    async def get_revenue_overview(self, company_id: UUID | None = None) -> dict:
+        """Return revenue aggregation for today, this week, and this month.
+
+        Revenue per GR = coalesce(paymentAmount, 0) + coalesce(toPay, 0).
+        Optionally scoped to a single company (platform admins see all).
+
+        Returns dicts with ``current`` and ``previous`` period totals so the
+        frontend can show comparison percentages.
+        """
+        async with session_scope(self._session) as session:
+            today = date.today()
+            now = datetime.now(timezone.utc)
+
+            # --- date boundaries (local calendar day, midnight UTC) ---
+            start_of_today = datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
+            start_of_yesterday = start_of_today - timedelta(days=1)
+
+            # ISO week: Monday = 0
+            start_of_week = datetime.combine(
+                today - timedelta(days=today.weekday()), datetime.min.time()
+            ).replace(tzinfo=timezone.utc)
+            start_of_prev_week = start_of_week - timedelta(weeks=1)
+
+            start_of_month = today.replace(day=1)
+            start_of_month = datetime.combine(start_of_month, datetime.min.time()).replace(tzinfo=timezone.utc)
+            if today.month == 1:
+                start_of_prev_month = today.replace(year=today.year - 1, month=12, day=1)
+            else:
+                start_of_prev_month = today.replace(month=today.month - 1, day=1)
+            start_of_prev_month = datetime.combine(start_of_prev_month, datetime.min.time()).replace(tzinfo=timezone.utc)
+
+            # Revenue expression: Paid_Amt + ToPay_Amt
+            revenue_expr = func.coalesce(Order.paymentAmount, 0) + func.coalesce(Order.toPay, 0)
+
+            # Effective date for bucketing: prefer grDate, fall back to createdAt
+            effective_date = func.coalesce(Order.grDate, Order.createdAt)
+
+            # Match GR list filters: active, not soft-deleted, optional company scope
+            base_filter = [Order.isActive == True, Order.deletedAt.is_(None)]
+            if company_id is not None:
+                base_filter.append(Order.companyId == company_id)
+
+            # Single query with FILTER (WHERE) for 6 periods + 2 lifetime totals
+            row = (await session.execute(
+                select(
+                    func.coalesce(func.sum(revenue_expr).filter(
+                        and_(*base_filter, effective_date >= start_of_today, effective_date < start_of_today + timedelta(days=1))
+                    ), 0).label("today"),
+                    func.coalesce(func.sum(revenue_expr).filter(
+                        and_(*base_filter, effective_date >= start_of_yesterday, effective_date < start_of_today)
+                    ), 0).label("yesterday"),
+                    func.coalesce(func.sum(revenue_expr).filter(
+                        and_(*base_filter, effective_date >= start_of_week, effective_date < start_of_today + timedelta(days=1))
+                    ), 0).label("week"),
+                    func.coalesce(func.sum(revenue_expr).filter(
+                        and_(*base_filter, effective_date >= start_of_prev_week, effective_date < start_of_week)
+                    ), 0).label("prev_week"),
+                    func.coalesce(func.sum(revenue_expr).filter(
+                        and_(*base_filter, effective_date >= start_of_month, effective_date < start_of_today + timedelta(days=1))
+                    ), 0).label("month"),
+                    func.coalesce(func.sum(revenue_expr).filter(
+                        and_(*base_filter, effective_date >= start_of_prev_month, effective_date < start_of_month)
+                    ), 0).label("prev_month"),
+                    func.coalesce(func.sum(Order.paymentAmount).filter(
+                        and_(*base_filter),
+                    ), 0).label("total_collected"),
+                    func.coalesce(func.sum(Order.toPay).filter(
+                        and_(*base_filter),
+                    ), 0).label("outstanding"),
+                )
+            )).one()
+
+            return {
+                "today": float(row.today),
+                "yesterday": float(row.yesterday),
+                "week": float(row.week),
+                "prevWeek": float(row.prev_week),
+                "month": float(row.month),
+                "prevMonth": float(row.prev_month),
+                "totalCollected": float(row.total_collected),
+                "outstandingAmount": float(row.outstanding),
             }
 
     async def get_order_chart_data(self, days: int = 30) -> list:
@@ -391,7 +474,6 @@ class OrderRepository(BaseRepository[Order]):
                 return None
 
             order.driverId = driver_id
-            order.status = OrderStatus.ASSIGNED
             order.updatedAt = datetime.now(timezone.utc)
 
             await session.flush()

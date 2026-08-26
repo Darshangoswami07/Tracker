@@ -12,13 +12,9 @@ const AMBER = '#F97316';
 
 const STATUS_OPTIONS: { value: GRStatus; label: string }[] = [
   { value: 'pending', label: 'Pending' },
-  { value: 'assigned', label: 'Assigned' },
-  { value: 'pickup', label: 'Pickup' },
-  { value: 'in_transit', label: 'In Transit' },
+  { value: 'cleared', label: 'Cleared' },
+  { value: 'uncleared', label: 'Uncleared' },
   { value: 'delivered', label: 'Delivered' },
-  { value: 'failed', label: 'Failed' },
-  { value: 'returned', label: 'Returned' },
-  { value: 'cancelled', label: 'Cancelled' },
 ];
 
 interface SharedOrderRow {
