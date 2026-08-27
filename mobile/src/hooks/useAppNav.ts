@@ -38,7 +38,7 @@ const ADMIN_SCREEN_TO_TAB: Record<string, keyof AdminTabParamList> = {
   GRDetails: 'Shipments',
   EditGR: 'Shipments',
 
-  CustomerTracking: 'Tracking',
+  CustomerTracking: 'More',
 
   GRTrackerClassic: 'GRTracker',
 

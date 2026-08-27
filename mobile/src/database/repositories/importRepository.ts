@@ -17,6 +17,7 @@ export interface ImportHistoryRow {
   fileName: string;
   importedAt: string;
   importedByName: string | null;
+  area: string | null;
   totalRows: number;
   importedRows: number;
   duplicateRows: number;
@@ -48,7 +49,7 @@ const nowIso = (): string => new Date().toISOString();
  * - Writes exactly one `import_history` row summarizing the whole batch.
  */
 export const importRepository = {
-  async bulkImportGRs(rows: ValidGRRow[], fileName: string, importedByName: string | null): Promise<ImportSummary> {
+  async bulkImportGRs(rows: ValidGRRow[], fileName: string, importedByName: string | null, area?: string): Promise<ImportSummary> {
     await ensureDatabaseReady();
     const db = await getDatabase();
 
@@ -106,9 +107,9 @@ export const importRepository = {
             packageCount, pickupAddress, deliveryAddress, pickupTime, weight,
             priority, status, trackingCode, notes, hasSlip, slipData, source,
             grDate, fromLocation, toLocation, paymentMode, toPay,
-            chalaanNo, chalaanDate, transportGrn, grSourceLabel,
+            chalaanNo, chalaanDate, transportGrn, grSourceLabel, area,
             createdAt, updatedAt, isDeleted
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             row.grNumber,
@@ -116,31 +117,32 @@ export const importRepository = {
             row.consignorName,
             row.consigneeName,
             row.particulars,
-            row.packageCount,
+            row.packageCount ?? 1,
             row.fromLocation || fallbackAddress,
             row.toLocation || fallbackAddress,
-            row.grDateIso,
-            row.weight,
-            'normal',
+            nowIso(),
+            row.weight ?? null,
+            null,
             'pending',
             null,
             null,
             0,
             null,
             'excel',
-            row.grDateIso,
-            row.fromLocation,
-            row.toLocation,
-            row.paymentMode,
-            row.toPay,
-            row.chalaanNo,
-            row.chalaanDate,
-            row.transportGrn,
-            row.grSourceLabel,
+            row.grDateIso ?? null,
+            row.fromLocation ?? null,
+            row.toLocation ?? null,
+            row.paymentMode ?? null,
+            row.toPay ?? null,
+            row.chalaanNo ?? null,
+            row.chalaanDate ?? null,
+            row.transportGrn ?? null,
+            row.grSourceLabel ?? null,
+            area ?? null,
             createdAt,
             createdAt,
             0,
-          ]
+          ],
         );
         await db.runAsync(
           'INSERT INTO order_status_history (id, orderId, status, note, createdAt) VALUES (?, ?, ?, ?, ?)',
@@ -160,9 +162,9 @@ export const importRepository = {
     }
 
     await db.runAsync(
-      `INSERT INTO import_history (id, fileName, importedAt, importedByName, totalRows, importedRows, duplicateRows, failedRows)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [uuid(), fileName, nowIso(), importedByName, rows.length, importedRows, duplicateGRNumbers.length, failedRows]
+      `INSERT INTO import_history (id, fileName, importedAt, importedByName, area, totalRows, importedRows, duplicateRows, failedRows)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [uuid(), fileName, nowIso(), importedByName, area ?? null, rows.length, importedRows, duplicateGRNumbers.length, failedRows]
     );
 
     return {

@@ -129,15 +129,25 @@ async def list_grs(
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     status: Annotated[str | None, Query()] = None,
     search: Annotated[str | None, Query(max_length=200)] = None,
+    area: Annotated[str | None, Query(max_length=100)] = None,
+    consignor: Annotated[str | None, Query(max_length=160)] = None,
 ) -> dict:
     """List GRs/shipments. Super Admin sees every company; every other role
-    is scoped to their own company."""
+    is scoped to their own company. Staff users are automatically filtered
+    to their assigned area."""
+    # Auto-filter staff users to their assigned area
+    effective_area = area
+    if effective_area is None and hasattr(admin, "area") and admin.area:
+        effective_area = admin.area
+
     orders, total = await order_repo.get_all_orders(
         page=page,
         page_size=page_size,
         status=status,
         search=search,
         company_id=await effective_company_id(admin),
+        area=effective_area,
+        consignor=consignor,
     )
     items = []
     for order in orders:
@@ -152,6 +162,7 @@ async def list_grs(
                 "deliveryAddress": order.deliveryAddress,
                 "driverId": str(order.driverId) if order.driverId else None,
                 "assignedStaffId": str(order.assignedStaffId) if order.assignedStaffId else None,
+                "area": order.area,
                 "status": order.status.value if hasattr(order.status, "value") else order.status,
                 "createdAt": order.createdAt.isoformat(),
                 "hasSlip": bool(attachments),

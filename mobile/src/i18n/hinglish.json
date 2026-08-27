@@ -296,6 +296,7 @@
     "staffApprovals": "Staff Approvals",
     "grShipments": "GR / Shipments",
     "customerTracking": "Customer Tracking",
+    "receivingDetails": "Receiving Details",
     "grTrackerClassic": "GR Tracker (Classic)",
     "notifications": "Notifications",
     "profile": "Profile",
@@ -550,7 +551,15 @@
     "addMenuTitle": "GR / Shipments",
     "createGRAction": "GR banayein",
     "importFromExcelAction": "Excel se import karein",
-    "moreActions": "GR {number} ke liye aur options"
+    "moreActions": "GR {number} ke liye aur options",
+    "allShopOwners": "Sabhi shop owners",
+    "filterByShopOwner": "Shop Owner se filter karein",
+    "noShopOwners": "Koi shop owner nahi mila.",
+    "clearFilter": "Filter hatao",
+    "grShipmentsSingular": "GR shipment",
+    "grShipmentsPlural": "GR shipments",
+    "allLocations": "Sabhi jagah",
+    "filterByLocation": "Jagah se filter karein"
   },
   "tracking": {
     "title": "Tracking",
@@ -686,5 +695,41 @@
     "chalaanDate": "Chalaan Date",
     "transportGRN": "Transport GRN",
     "trackingCode": "Tracking"
+  },
+  "receiving": {
+    "title": "Receiving Details",
+    "totalToCollect": "To Collect",
+    "totalCollected": "Collected",
+    "outstanding": "Outstanding",
+    "transactions": "Transactions",
+    "searchPlaceholder": "Search GR number, consignee…",
+    "couldNotLoad": "Could not load receiving details",
+    "somethingWrong": "Something went wrong while loading data.",
+    "noEntries": "No receiving records",
+    "searchResultsEmpty": "No GRs match your search or filter.",
+    "noPaymentsYet": "No payment records yet. Payments will appear here once recorded.",
+    "payment": "payment",
+    "payments": "payments",
+    "toPay": "To Pay",
+    "paid": "Paid",
+    "balance": "Balance",
+    "cleared": "Cleared",
+    "uncleared": "Uncleared"
+  },
+  "receivingDetails": {
+    "customDateRange": "Custom Range",
+    "from": "From",
+    "to": "To",
+    "apply": "Apply"
+  },
+  "adminGRShipments": {
+    "todayCollection": "Today's Collection"
+  },
+  "adminDashboard": {
+    "todayCollection": "Today's Collection"
+  },
+  "areas": {
+    "title": "Area Select Karein",
+    "info": "Us area ka select karein jiske liye aap GR import karna chahte hain. Saare imported GRs selected area ko assign kiye jaayenge."
   }
 }

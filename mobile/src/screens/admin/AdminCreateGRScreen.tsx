@@ -737,7 +737,7 @@ export const AdminCreateGRScreen = () => {
 
         <Section title="Route" expanded>
           <Field label="From" required value={form.fromLocation} onChangeText={set('fromLocation')} placeholder="e.g. Haldwani" badge={ocrBadge(slipData?.fromAddress, true)} />
-          <Field label="To" required value={form.toLocation} onChangeText={set('toLocation')} placeholder="e.g. Garur" badge={ocrBadge(slipData?.toAddress, true)} />
+          <Field label="To" required value={form.toLocation} onChangeText={set('toLocation')} placeholder="e.g. Garur Someshwar" badge={ocrBadge(slipData?.toAddress, true)} />
         </Section>
 
         <Section title="Goods" expanded>

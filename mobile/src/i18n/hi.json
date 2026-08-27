@@ -296,6 +296,7 @@
     "staffApprovals": "स्टाफ स्वीकृतियाँ",
     "grShipments": "GR / शिपमेंट",
     "customerTracking": "ग्राहक ट्रैकिंग",
+    "receivingDetails": "प्राप्ति विवरण",
     "grTrackerClassic": "GR ट्रैकर (क्लासिक)",
     "notifications": "सूचनाएँ",
     "profile": "प्रोफ़ाइल",
@@ -550,7 +551,15 @@
     "addMenuTitle": "GR / Shipments",
     "createGRAction": "GR banayein",
     "importFromExcelAction": "Excel se aayat karein",
-    "moreActions": "GR {number} ke liye aur kriyaein"
+    "moreActions": "GR {number} ke liye aur kriyaein",
+    "allShopOwners": "Sabhi dukaan maalik",
+    "filterByShopOwner": "Dukaan maalik se filter karein",
+    "noShopOwners": "Koi dukaan maalik nahi mila.",
+    "clearFilter": "Filter hataein",
+    "grShipmentsSingular": "GR shipment",
+    "grShipmentsPlural": "GR shipments",
+    "allLocations": "Sabhi sthaan",
+    "filterByLocation": "Sthaan se filter karein"
   },
   "tracking": {
     "title": "ट्रैकिंग",
@@ -686,5 +695,41 @@
     "chalaanDate": "Chalaan Tarikh",
     "transportGRN": "Transport GRN",
     "trackingCode": "Tracking"
+  },
+  "receiving": {
+    "title": "प्राप्ति विवरण",
+    "totalToCollect": "वसूल करना है",
+    "totalCollected": "वसूला गया",
+    "outstanding": "बकाया",
+    "transactions": "लेनदेन",
+    "searchPlaceholder": "GR नंबर, प्राप्तकर्ता खोजें…",
+    "couldNotLoad": "प्राप्ति विवरण लोड नहीं हो सका",
+    "somethingWrong": "डेटा लोड करते समय कुछ गलत हो गया।",
+    "noEntries": "कोई प्राप्ति रिकॉर्ड नहीं",
+    "searchResultsEmpty": "कोई GR आपकी खोज या फ़िल्टर से मेल नहीं खाता।",
+    "noPaymentsYet": "अभी तक कोई भुगतान रिकॉर्ड नहीं। भुगतान दर्ज होने पर यहाँ दिखाई देंगे।",
+    "payment": "भुगतान",
+    "payments": "भुगतान",
+    "toPay": "देना है",
+    "paid": "भुगतान",
+    "balance": "शेष",
+    "cleared": "क्लियर",
+    "uncleared": "अनक्लियर"
+  },
+  "receivingDetails": {
+    "customDateRange": "कस्टम रेंज",
+    "from": "से",
+    "to": "तक",
+    "apply": "लागू करें"
+  },
+  "adminGRShipments": {
+    "todayCollection": "आज का संग्रह"
+  },
+  "adminDashboard": {
+    "todayCollection": "आज का संग्रह"
+  },
+  "areas": {
+    "title": "क्षेत्र चुनें",
+    "info": "उस क्षेत्र का चयन करें जिसके लिए आप GR आयात करना चाहते हैं। सभी आयातित GR चयनित क्षेत्र को निर्धारित किए जाएंगे।"
   }
 }

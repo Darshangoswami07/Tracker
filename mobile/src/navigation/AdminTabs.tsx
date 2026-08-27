@@ -8,7 +8,7 @@ import type {
   AdminTabParamList,
   DashboardStackParamList,
   ShipmentsStackParamList,
-  TrackingStackParamList,
+  ReceivingDetailsStackParamList,
   GRTrackerStackParamList,
   MoreStackParamList,
 } from './types';
@@ -26,15 +26,17 @@ import { AdminGRShipmentsScreen } from '../screens/admin/AdminGRShipmentsScreen'
 import { AdminCreateGRScreen } from '../screens/admin/AdminCreateGRScreen';
 import { AdminGRDetailsScreen } from '../screens/admin/AdminGRDetailsScreen';
 import { AdminEditGRScreen } from '../screens/admin/AdminEditGRScreen';
+import { AdminAreasScreen } from '../screens/admin/AdminAreasScreen';
 import { AdminExcelImportScreen } from '../screens/admin/AdminExcelImportScreen';
 import { ExcelImportHistoryScreen } from '../screens/admin/ExcelImportHistoryScreen';
+import { PaymentHistoryScreen } from '../screens/admin/PaymentHistoryScreen';
 
 // Customer Tracking and GR Tracker (Classic) reuse the exact same components
 // already used by the Customer/Employee stacks for these roles — the GR
 // lookup endpoint and the `/employee/orders` staff-panel endpoint are
 // role-agnostic server-side (any GR-access role), so there's no separate
 // "admin version" of this business logic to build.
-import { CustomerTrackingScreen } from '../screens/customer/CustomerTrackingScreen';
+import { ReceivingDetailsScreen } from '../screens/admin/ReceivingDetailsScreen';
 import { StaffGRPanelScreen } from '../screens/employee/StaffGRPanelScreen';
 
 import { MoreScreen } from '../screens/common/MoreScreen';
@@ -50,11 +52,12 @@ import { DriverManagementScreen } from '../screens/admin/DriverManagementScreen'
 import { VehicleManagementScreen } from '../screens/admin/VehicleManagementScreen';
 import { OrderManagementScreen } from '../screens/admin/OrderManagementScreen';
 import { OrderDetailsScreen } from '../screens/business/OrderDetailsScreen';
+import { CustomerTrackingScreen } from '../screens/customer/CustomerTrackingScreen';
 
 const Tab = createBottomTabNavigator<AdminTabParamList>();
 const DashboardStack = createNativeStackNavigator<DashboardStackParamList>();
 const ShipmentsStack = createNativeStackNavigator<ShipmentsStackParamList>();
-const TrackingStack = createNativeStackNavigator<TrackingStackParamList>();
+const ReceivingDetailsStack = createNativeStackNavigator<ReceivingDetailsStackParamList>();
 const GRTrackerStack = createNativeStackNavigator<GRTrackerStackParamList>();
 const MoreStack = createNativeStackNavigator<MoreStackParamList>();
 
@@ -82,8 +85,10 @@ const DashboardTabStack = () => (
      * goBack() then returns to AdminDashboard, the screen the user actually
      * came from, instead of jumping into the Shipments tab. See useAppNav.ts. */}
     <DashboardStack.Screen name="CreateGR" component={AdminCreateGRScreen} />
+    <DashboardStack.Screen name="Areas" component={AdminAreasScreen} />
     <DashboardStack.Screen name="ExcelImport" component={AdminExcelImportScreen} />
     <DashboardStack.Screen name="ExcelImportHistory" component={ExcelImportHistoryScreen} />
+    <DashboardStack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
   </DashboardStack.Navigator>
 );
 
@@ -93,15 +98,17 @@ const ShipmentsTabStack = () => (
     <ShipmentsStack.Screen name="CreateGR" component={AdminCreateGRScreen} />
     <ShipmentsStack.Screen name="GRDetails" component={AdminGRDetailsScreen} />
     <ShipmentsStack.Screen name="EditGR" component={AdminEditGRScreen} />
+    <ShipmentsStack.Screen name="Areas" component={AdminAreasScreen} />
     <ShipmentsStack.Screen name="ExcelImport" component={AdminExcelImportScreen} />
     <ShipmentsStack.Screen name="ExcelImportHistory" component={ExcelImportHistoryScreen} />
+    <ShipmentsStack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
   </ShipmentsStack.Navigator>
 );
 
-const TrackingTabStack = () => (
-  <TrackingStack.Navigator screenOptions={useStackScreenOptions()}>
-    <TrackingStack.Screen name="CustomerTracking" component={CustomerTrackingScreen} />
-  </TrackingStack.Navigator>
+const ReceivingDetailsTabStack = () => (
+  <ReceivingDetailsStack.Navigator screenOptions={useStackScreenOptions()}>
+    <ReceivingDetailsStack.Screen name="ReceivingDetailsHome" component={ReceivingDetailsScreen} />
+  </ReceivingDetailsStack.Navigator>
 );
 
 const GRTrackerTabStack = () => (
@@ -125,13 +132,14 @@ const MoreTabStack = () => (
     <MoreStack.Screen name="VehicleManagement" component={VehicleManagementScreen} />
     <MoreStack.Screen name="OrderManagement" component={OrderManagementScreen} />
     <MoreStack.Screen name="OrderDetails" component={OrderDetailsScreen} />
+    <MoreStack.Screen name="CustomerTracking" component={CustomerTrackingScreen} />
   </MoreStack.Navigator>
 );
 
 const TAB_ICONS: Record<keyof AdminTabParamList, { active: keyof typeof Ionicons.glyphMap; inactive: keyof typeof Ionicons.glyphMap }> = {
   Dashboard: { active: 'grid', inactive: 'grid-outline' },
   Shipments: { active: 'reader', inactive: 'reader-outline' },
-  Tracking: { active: 'search', inactive: 'search-outline' },
+  ReceivingDetails: { active: 'wallet', inactive: 'wallet-outline' },
   GRTracker: { active: 'time', inactive: 'time-outline' },
   More: { active: 'ellipsis-horizontal-circle', inactive: 'ellipsis-horizontal-outline' },
 };
@@ -139,7 +147,7 @@ const TAB_ICONS: Record<keyof AdminTabParamList, { active: keyof typeof Ionicons
 const TAB_LABEL_KEYS: Record<keyof AdminTabParamList, string> = {
   Dashboard: 'navigation.dashboard',
   Shipments: 'navigation.grShipments',
-  Tracking: 'navigation.customerTracking',
+  ReceivingDetails: 'navigation.receivingDetails',
   GRTracker: 'navigation.grTrackerClassic',
   More: 'common.more',
 };
@@ -180,7 +188,7 @@ export const AdminTabs = () => {
     >
       <Tab.Screen name="Dashboard" component={DashboardTabStack} options={{ tabBarLabel: t(TAB_LABEL_KEYS.Dashboard) }} />
       <Tab.Screen name="Shipments" component={ShipmentsTabStack} options={{ tabBarLabel: t(TAB_LABEL_KEYS.Shipments) }} />
-      <Tab.Screen name="Tracking" component={TrackingTabStack} options={{ tabBarLabel: t(TAB_LABEL_KEYS.Tracking) }} />
+      <Tab.Screen name="ReceivingDetails" component={ReceivingDetailsTabStack} options={{ tabBarLabel: t(TAB_LABEL_KEYS.ReceivingDetails) }} />
       <Tab.Screen name="GRTracker" component={GRTrackerTabStack} options={{ tabBarLabel: t(TAB_LABEL_KEYS.GRTracker) }} />
       <Tab.Screen name="More" component={MoreTabStack} options={{ tabBarLabel: t(TAB_LABEL_KEYS.More) }} />
     </Tab.Navigator>

@@ -16,7 +16,7 @@ import { AttachmentViewerModal, type ViewableAttachment } from '../../components
 import { formatDateTime } from '../../utils/format';
 import type { AppTheme } from '../../theme/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { TrackingStackParamList } from '../../navigation/types';
+import type { MoreStackParamList } from '../../navigation/types';
 
 /** The four customer-facing delivery stages, derived from the backend status. */
 const STAGES = [
@@ -100,7 +100,7 @@ const toTrackedShipment = (gr: LocalGRDetail): TrackedShipment => ({
 
 const humanizeStatus = (status: string): string => status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
-type Props = NativeStackScreenProps<TrackingStackParamList, 'CustomerTracking'>;
+type Props = NativeStackScreenProps<MoreStackParamList, 'CustomerTracking'>;
 
 export const CustomerTrackingScreen = ({ route }: Props) => {
   const theme = useAppTheme();

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState, type ComponentProps } from 'react';
-import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAuthStore } from '../../store/authStore';
 import { orderRepository } from '../../database/repositories/orderRepository';
+import type { LocalPayment, PaymentSummary } from '../../database/repositories/orderRepository';
 import { syncLookupTables } from '../../database/sync';
 import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
@@ -25,8 +26,6 @@ interface GRAttachment {
   url: string;
 }
 
-/** Extended GR/slip fields — mirrors `GRExtendedFields` in `orderRepository.ts`
- * / `backend/app/models/order.py`. All optional: only shown when present. */
 interface GRExtendedDetail {
   grDate?: string;
   transportCompanyName?: string;
@@ -61,7 +60,6 @@ interface GRExtendedDetail {
   grSourceLabel?: string;
 }
 
-/** Full GR record from `GET /admin/orders/{id}` — matches `admin/src/types/gr.ts` `GR` on the web reference. */
 interface GRDetail extends GRExtendedDetail {
   id: string;
   orderNumber: string;
@@ -80,7 +78,6 @@ interface GRDetail extends GRExtendedDetail {
   createdAt: string;
   attachments: GRAttachment[];
   paymentAmount?: number | null;
-  /** 'manual' | 'slip' | 'excel'. */
   source: string;
 }
 
@@ -95,13 +92,6 @@ interface PickerOption {
   name: string;
 }
 
-/** Every GR status, matching the web GR Details drawer's "Update Status"
- * `<select>` (`admin/src/app/dashboard/orders/page.tsx`'s `STATUS_OPTIONS`)
- * exactly — that dropdown lets Admin set a GR to ANY status at any time, not
- * just the "next" one in a pipeline. A prior version of this screen enforced
- * a linear transition graph (e.g. blocking any change once a GR reached
- * "delivered"), which the web reference never did and which is why Admin
- * appeared unable to change status. */
 const ALL_STATUSES = ['pending', 'cleared', 'uncleared', 'delivered'];
 
 const STATUS_LABELS: Record<string, string> = {
@@ -118,14 +108,13 @@ const formatDate = (iso: string | null): string => {
   return date.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 };
 
+const formatCurrency = (amount: number): string => {
+  return `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+};
+
 /**
- * Mobile equivalent of the web GR Details drawer
- * (`admin/src/app/dashboard/orders/page.tsx`'s `GRDetailDrawer`), extended
- * with staff/driver assignment. In the local-first architecture the full
- * record is read and mutated through the on-device SQLite repository
- * (`orderRepository`) so it works fully offline; driver/staff pickers are
- * seeded from the control plane when online and cached locally. Reached from
- * `AdminGRShipmentsScreen`; Back pops to that list.
+ * Mobile GR Details screen — extended with payment summary, receive payment
+ * bottom sheet, and payment history list.
  */
 export const AdminGRDetailsScreen = ({ route }: any) => {
   const { orderId } = route.params as { orderId: string };
@@ -150,6 +139,14 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const [assigning, setAssigning] = useState(false);
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
 
+  // Payment state
+  const [paymentSummary, setPaymentSummary] = useState<PaymentSummary | null>(null);
+  const [payments, setPayments] = useState<LocalPayment[]>([]);
+  const [receivePaymentOpen, setReceivePaymentOpen] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentNotes, setPaymentNotes] = useState('');
+  const [submittingPayment, setSubmittingPayment] = useState(false);
+
   const fetchDetail = useCallback(async () => {
     try {
       const gr = await orderRepository.getById(orderId);
@@ -167,24 +164,34 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
     }
   }, [orderId]);
 
-  useEffect(() => {
-    fetchDetail();
-  }, [fetchDetail]);
+  const fetchPayments = useCallback(async () => {
+    try {
+      const [summary, paymentList] = await Promise.all([
+        orderRepository.getPaymentSummary(orderId),
+        orderRepository.listPayments(orderId),
+      ]);
+      setPaymentSummary(summary);
+      setPayments(paymentList);
+    } catch {
+      // Payment data is supplementary — don't block the screen on failure
+    }
+  }, [orderId]);
 
-  // Refetch when returning from Edit GR so field changes made there show up
-  // immediately, without a manual pull-to-refresh (no pull-to-refresh gesture
-  // exists on this screen at all).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchDetail();
+    fetchPayments();
+  }, [fetchDetail, fetchPayments]);
+
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       fetchDetail();
+      fetchPayments();
     });
     return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
 
-  // Loaded once, best-effort, to resolve assigned driver/staff names and to
-  // populate the assignment pickers. Seeds from the control plane when online
-  // and falls back to the locally cached rows, so names still resolve offline.
   useEffect(() => {
     (async () => {
       await syncLookupTables(accessToken);
@@ -194,9 +201,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
       ]);
       setDrivers(driverRows.map((d) => ({ id: d.id, name: d.name })));
       setStaff(staffRows.map((s) => ({ id: s.id, name: s.name })));
-    })().catch(() => {
-      /* picker stays empty */
-    });
+    })().catch(() => {});
   }, [accessToken]);
 
   const updateStatus = async (status: string) => {
@@ -223,10 +228,6 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
 
     setUploading(true);
     try {
-      // Persist the picked image into the app's Documents directory first so
-      // the slip survives restarts and stays viewable fully offline from
-      // AttachmentViewerModal (gallery URIs are temporary cache entries the
-      // OS can evict at any time).
       const persisted = await persistSlipImage(result.assets[0].uri, result.assets[0].mimeType ?? 'image/jpeg');
       await orderRepository.addAttachment(orderId, {
         originalFilename: persisted.fileName,
@@ -257,6 +258,50 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
     } finally {
       setAssigning(false);
     }
+  };
+
+  const handleReceivePayment = async () => {
+    if (!paymentAmount || submittingPayment) return;
+    const amount = parseFloat(paymentAmount);
+    if (isNaN(amount) || amount <= 0) {
+      Alert.alert(t('payment.invalidAmount'), t('payment.enterValidAmount'));
+      return;
+    }
+    const balance = paymentSummary?.balance ?? 0;
+    if (amount > balance) {
+      Alert.alert(t('payment.insufficientBalance'), t('payment.insufficientBalance'));
+      return;
+    }
+
+    Alert.alert(
+      t('payment.confirmReceive'),
+      t('payment.confirmReceiveDesc', { amount: formatCurrency(amount), number: gr?.orderNumber ?? '' }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.confirm'),
+          onPress: async () => {
+            setSubmittingPayment(true);
+            try {
+              await orderRepository.addPayment({
+                orderId,
+                amount,
+                paymentMethod: 'cash',
+                notes: paymentNotes || undefined,
+              });
+              setReceivePaymentOpen(false);
+              setPaymentAmount('');
+              setPaymentNotes('');
+              await Promise.all([fetchDetail(), fetchPayments()]);
+            } catch (err: any) {
+              Alert.alert(t('createGR.errorTitle'), err?.message ?? t('payment.failed'));
+            } finally {
+              setSubmittingPayment(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (loading) {
@@ -294,10 +339,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
             title={t('createGR.somethingWrong')}
             subtitle={error ?? t('createGR.couldNotLoadGR')}
             actionLabel={t('common.retry')}
-            onActionPress={() => {
-              setLoading(true);
-              fetchDetail();
-            }}
+            onActionPress={() => { setLoading(true); fetchDetail(); }}
             iconColor={colors.error}
           />
         </View>
@@ -308,6 +350,11 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const assignedDriverName = gr.driverId ? drivers.find((d) => d.id === gr.driverId)?.name ?? 'Assigned' : null;
   const assignedStaffName = gr.assignedStaffId ? staff.find((s) => s.id === gr.assignedStaffId)?.name ?? 'Assigned' : null;
   const pickerOptions = assignPicker === 'driver' ? drivers : staff;
+
+  const totalPaid = paymentSummary?.totalPaid ?? 0;
+  const balance = paymentSummary?.balance ?? (gr.toPay ?? 0);
+  const paymentCount = payments.length;
+  const paymentStatus = paymentCount === 0 ? 'unpaid' : balance <= 0 ? 'paid' : 'partial';
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
@@ -328,6 +375,43 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
           <StatusBadge status={gr.status} size="lg" />
         </View>
 
+        {/* Payment Summary Card */}
+        {gr.toPay != null && (
+          <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+            <View style={styles.paymentSummaryHeader}>
+              <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>{t('summary.financialOverview')}</Text>
+              <StatusBadge status={paymentStatus} size="sm" />
+            </View>
+            <View style={styles.paymentSummaryRow}>
+              <View style={styles.paymentSummaryItem}>
+                <Text style={[styles.paymentSummaryValue, { color: colors.textPrimary }]}>{formatCurrency(gr.toPay)}</Text>
+                <Text style={[styles.paymentSummaryLabel, { color: colors.textMuted }]}>{t('payment.totalAmount')}</Text>
+              </View>
+              <View style={[styles.paymentSummaryDivider, { backgroundColor: colors.border }]} />
+              <View style={styles.paymentSummaryItem}>
+                <Text style={[styles.paymentSummaryValue, { color: '#10B981' }]}>{formatCurrency(totalPaid)}</Text>
+                <Text style={[styles.paymentSummaryLabel, { color: colors.textMuted }]}>{t('payment.paid')}</Text>
+              </View>
+              <View style={[styles.paymentSummaryDivider, { backgroundColor: colors.border }]} />
+              <View style={styles.paymentSummaryItem}>
+                <Text style={[styles.paymentSummaryValue, { color: balance > 0 ? '#F97316' : '#10B981' }]}>{formatCurrency(balance)}</Text>
+                <Text style={[styles.paymentSummaryLabel, { color: colors.textMuted }]}>{t('payment.balance')}</Text>
+              </View>
+            </View>
+            {balance > 0 && (
+              <TouchableOpacity
+                style={[styles.receivePaymentBtn, { backgroundColor: colors.primary, borderRadius: radii.md }]}
+                onPress={() => setReceivePaymentOpen(true)}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="wallet-outline" size={16} color="#fff" />
+                <Text style={[styles.receivePaymentBtnText, { color: '#fff' }]}>{t('payment.receivePayment')}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {/* Route */}
         <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>{t('createGR.sectionRoute')}</Text>
           <View style={styles.routeRow}>
@@ -349,7 +433,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
 
         {gr.particulars && (
           <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
-            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>{t('createGR.sectionGRInfo').replace('GR Information','PARTICULARS')}</Text>
+            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>{t('createGR.sectionGRInfo').replace('GR Information', 'PARTICULARS')}</Text>
             <Text style={[styles.bodyText, { color: colors.textPrimary }]}>{gr.particulars}</Text>
           </View>
         )}
@@ -408,6 +492,27 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
           </View>
         )}
 
+        {/* Payment History */}
+        {payments.length > 0 && (
+          <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>{t('payment.paymentHistory')} ({paymentCount})</Text>
+            <View style={styles.paymentList}>
+              {payments.map((p) => (
+                <View key={p.id} style={[styles.paymentRow, { borderBottomColor: colors.border }]}>
+                  <View style={styles.paymentRowLeft}>
+                    <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+                    <View>
+                      <Text style={[styles.paymentRowAmount, { color: colors.textPrimary }]}>{formatCurrency(p.amount)}</Text>
+                      <Text style={[styles.paymentRowDate, { color: colors.textMuted }]}>{formatDate(p.createdAt)}</Text>
+                    </View>
+                  </View>
+                  {p.notes && <Text style={[styles.paymentRowNote, { color: colors.textMuted }]} numberOfLines={1}>{p.notes}</Text>}
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
         {gr.notes && (
           <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
             <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>REMARKS</Text>
@@ -417,18 +522,8 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
 
         <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>ASSIGNMENT</Text>
-          <AssignRow
-            icon="person-outline"
-            label="Staff"
-            value={assignedStaffName}
-            onPress={() => setAssignPicker('staff')}
-          />
-          <AssignRow
-            icon="car-outline"
-            label="Driver"
-            value={assignedDriverName}
-            onPress={() => setAssignPicker('driver')}
-          />
+          <AssignRow icon="person-outline" label="Staff" value={assignedStaffName} onPress={() => setAssignPicker('staff')} />
+          <AssignRow icon="car-outline" label="Driver" value={assignedDriverName} onPress={() => setAssignPicker('driver')} />
         </View>
 
         <TouchableOpacity
@@ -438,9 +533,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
           activeOpacity={0.85}
         >
           <Ionicons name="sync-outline" size={16} color={colors.onPrimary} />
-          <Text style={[styles.statusButtonText, { color: colors.onPrimary }]}>
-            {updating ? t('createGR.updating') : t('createGR.updateStatus')}
-          </Text>
+          <Text style={[styles.statusButtonText, { color: colors.onPrimary }]}>{updating ? t('createGR.updating') : t('createGR.updateStatus')}</Text>
         </TouchableOpacity>
 
         <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
@@ -473,14 +566,8 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
                   style={[styles.attachmentRow, { backgroundColor: colors.surfaceMuted, borderRadius: radii.md }]}
                   onPress={() => setPreviewAttachment(a)}
                 >
-                  <Ionicons
-                    name={a.mimeType.startsWith('image/') ? 'image-outline' : 'document-text-outline'}
-                    size={18}
-                    color={colors.primary}
-                  />
-                  <Text style={[styles.attachmentName, { color: colors.textPrimary }]} numberOfLines={1}>
-                    {a.originalFilename}
-                  </Text>
+                  <Ionicons name={a.mimeType.startsWith('image/') ? 'image-outline' : 'document-text-outline'} size={18} color={colors.primary} />
+                  <Text style={[styles.attachmentName, { color: colors.textPrimary }]} numberOfLines={1}>{a.originalFilename}</Text>
                   <Ionicons name="eye-outline" size={16} color={colors.textMuted} />
                 </TouchableOpacity>
               ))}
@@ -493,30 +580,82 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
 
       <AttachmentViewerModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
 
+      {/* Receive Payment Bottom Sheet */}
+      <Modal visible={receivePaymentOpen} transparent animationType="slide" onRequestClose={() => setReceivePaymentOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalSheet, { backgroundColor: colors.background, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>{t('payment.receivePayment')}</Text>
+              <TouchableOpacity onPress={() => setReceivePaymentOpen(false)} hitSlop={8}>
+                <Ionicons name="close" size={22} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.paymentForm}>
+              <View style={styles.paymentFormRow}>
+                <Text style={[styles.paymentFormLabel, { color: colors.textMuted }]}>{t('payment.totalAmount')}</Text>
+                <Text style={[styles.paymentFormValue, { color: colors.textPrimary }]}>{formatCurrency(gr.toPay ?? 0)}</Text>
+              </View>
+              <View style={styles.paymentFormRow}>
+                <Text style={[styles.paymentFormLabel, { color: colors.textMuted }]}>{t('payment.paid')}</Text>
+                <Text style={[styles.paymentFormValue, { color: '#10B981' }]}>{formatCurrency(totalPaid)}</Text>
+              </View>
+              <View style={[styles.paymentFormRow, { borderBottomWidth: 0 }]}>
+                <Text style={[styles.paymentFormLabel, { color: colors.textMuted }]}>{t('payment.balance')}</Text>
+                <Text style={[styles.paymentFormValue, { color: '#F97316', fontWeight: '800' }]}>{formatCurrency(balance)}</Text>
+              </View>
+              <Text style={[styles.paymentFormSectionTitle, { color: colors.textMuted }]}>{t('payment.enterAmount')}</Text>
+              <TextInput
+                style={[styles.paymentInput, { color: colors.textPrimary, backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border }]}
+                placeholder={`${t('payment.enterAmount')} (₹)`}
+                placeholderTextColor={colors.textMuted}
+                value={paymentAmount}
+                onChangeText={setPaymentAmount}
+                keyboardType="numeric"
+                autoFocus
+              />
+              <TextInput
+                style={[styles.paymentInput, { color: colors.textPrimary, backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, marginTop: 12 }]}
+                placeholder={t('payment.notes')}
+                placeholderTextColor={colors.textMuted}
+                value={paymentNotes}
+                onChangeText={setPaymentNotes}
+              />
+              <TouchableOpacity
+                style={[styles.receivePaymentBtn, { backgroundColor: colors.primary, borderRadius: radii.md, marginTop: 20, opacity: submittingPayment ? 0.6 : 1 }]}
+                onPress={handleReceivePayment}
+                disabled={submittingPayment}
+                activeOpacity={0.85}
+              >
+                {submittingPayment ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle-outline" size={16} color="#fff" />
+                    <Text style={[styles.receivePaymentBtnText, { color: '#fff' }]}>{t('payment.confirmReceive')}</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Assign picker */}
       <Modal visible={!!assignPicker} animationType="slide" transparent onRequestClose={() => setAssignPicker(null)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalSheet, { backgroundColor: colors.background, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
-                Assign {assignPicker === 'driver' ? 'Driver' : 'Staff'}
-              </Text>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Assign {assignPicker === 'driver' ? 'Driver' : 'Staff'}</Text>
               <TouchableOpacity onPress={() => setAssignPicker(null)} hitSlop={8}>
                 <Ionicons name="close" size={22} color={colors.textPrimary} />
               </TouchableOpacity>
             </View>
             <ScrollView style={{ maxHeight: 360 }}>
               {pickerOptions.length === 0 ? (
-                <Text style={[styles.emptyOptions, { color: colors.textMuted }]}>
-                  No {assignPicker === 'driver' ? 'drivers' : 'staff'} found for this company.
-                </Text>
+                <Text style={[styles.emptyOptions, { color: colors.textMuted }]}>No {assignPicker === 'driver' ? 'drivers' : 'staff'} found for this company.</Text>
               ) : (
                 pickerOptions.map((option) => (
-                  <TouchableOpacity
-                    key={option.id}
-                    style={[styles.optionRow, { borderBottomColor: colors.border }]}
-                    onPress={() => handleAssign(option)}
-                    disabled={assigning}
-                  >
+                  <TouchableOpacity key={option.id} style={[styles.optionRow, { borderBottomColor: colors.border }]} onPress={() => handleAssign(option)} disabled={assigning}>
                     <Text style={[styles.optionName, { color: colors.textPrimary }]}>{option.name}</Text>
                     {assigning ? <ActivityIndicator size="small" color={colors.primary} /> : <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />}
                   </TouchableOpacity>
@@ -527,6 +666,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
         </View>
       </Modal>
 
+      {/* Status picker */}
       <Modal visible={statusPickerOpen} animationType="slide" transparent onRequestClose={() => setStatusPickerOpen(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalSheet, { backgroundColor: colors.background, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl }]}>
@@ -538,18 +678,9 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
             </View>
             <ScrollView style={{ maxHeight: 420 }}>
               {ALL_STATUSES.map((status) => (
-                <TouchableOpacity
-                  key={status}
-                  style={[styles.optionRow, { borderBottomColor: colors.border }]}
-                  onPress={() => updateStatus(status)}
-                  disabled={updating}
-                >
+                <TouchableOpacity key={status} style={[styles.optionRow, { borderBottomColor: colors.border }]} onPress={() => updateStatus(status)} disabled={updating}>
                   <Text style={[styles.optionName, { color: colors.textPrimary }]}>{STATUS_LABELS[status] || status}</Text>
-                  {status === gr?.status ? (
-                    <Ionicons name="checkmark" size={18} color={colors.primary} />
-                  ) : updating ? null : (
-                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-                  )}
+                  {status === gr?.status ? <Ionicons name="checkmark" size={18} color={colors.primary} /> : updating ? null : <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />}
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -569,9 +700,7 @@ const AssignRow = ({ icon, label, value, onPress }: { icon: IoniconName; label: 
     <TouchableOpacity style={styles.assignRow} onPress={onPress} activeOpacity={0.7}>
       <Ionicons name={icon} size={16} color={theme.colors.textMuted} />
       <Text style={[styles.assignLabel, { color: theme.colors.textSecondary }]}>{label}</Text>
-      <Text style={[styles.assignValue, { color: value ? theme.colors.textPrimary : theme.colors.textMuted }]} numberOfLines={1}>
-        {value ?? 'Unassigned'}
-      </Text>
+      <Text style={[styles.assignValue, { color: value ? theme.colors.textPrimary : theme.colors.textMuted }]} numberOfLines={1}>{value ?? 'Unassigned'}</Text>
       <Ionicons name="chevron-forward" size={16} color={theme.colors.textMuted} />
     </TouchableOpacity>
   );
@@ -625,6 +754,27 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     emptyOptions: { textAlign: 'center', paddingVertical: 24, fontSize: theme.fonts.size.sm },
     optionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth },
     optionName: { fontSize: theme.fonts.size.md, fontWeight: '600' },
+    // Payment styles
+    paymentSummaryHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    paymentSummaryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
+    paymentSummaryItem: { flex: 1, alignItems: 'center' },
+    paymentSummaryValue: { fontSize: theme.fonts.size.lg, fontWeight: '800' },
+    paymentSummaryLabel: { fontSize: theme.fonts.size.xs, fontWeight: '600', marginTop: 2 },
+    paymentSummaryDivider: { width: 1, height: 40 },
+    receivePaymentBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, marginTop: 12 },
+    receivePaymentBtnText: { fontWeight: '800', fontSize: theme.fonts.size.md },
+    paymentList: { gap: 0 },
+    paymentRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+    paymentRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    paymentRowAmount: { fontSize: theme.fonts.size.md, fontWeight: '700' },
+    paymentRowDate: { fontSize: theme.fonts.size.xs, marginTop: 1 },
+    paymentRowNote: { fontSize: theme.fonts.size.xs, maxWidth: 120 },
+    paymentForm: { gap: 0 },
+    paymentFormRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
+    paymentFormLabel: { fontSize: theme.fonts.size.sm, fontWeight: '600' },
+    paymentFormValue: { fontSize: theme.fonts.size.md, fontWeight: '700' },
+    paymentFormSectionTitle: { fontSize: theme.fonts.size.sm, fontWeight: '700', marginTop: 16, marginBottom: 8 },
+    paymentInput: { paddingHorizontal: 14, paddingVertical: 12, fontSize: theme.fonts.size.md },
   });
 
 export default AdminGRDetailsScreen;

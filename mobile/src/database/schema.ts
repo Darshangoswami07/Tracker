@@ -9,7 +9,7 @@
  * Column names mirror `backend/app/models/order.py` so that a future online
  * sync can map rows 1:1 without transformation.
  */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 9;
 
 /**
  * DDL executed against a fresh database (user_version == 0). Kept as a plain
@@ -92,6 +92,10 @@ CREATE TABLE IF NOT EXISTS orders (
   transportGrn            TEXT,
   paymentMode             TEXT,
   grSourceLabel           TEXT,
+  -- Area assignment (added in v9 via migration). Stores the area name
+   -- (e.g. "Bageshwar", "Almora", "Garur Someshwar") to scope staff
+  -- access to GRs from their assigned region.
+  area                    TEXT,
   createdAt          TEXT NOT NULL,
   updatedAt          TEXT NOT NULL,
   isDeleted          INTEGER NOT NULL DEFAULT 0
@@ -101,6 +105,21 @@ CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_createdAt ON orders(createdAt);
 CREATE INDEX IF NOT EXISTS idx_orders_driverId ON orders(driverId);
 CREATE INDEX IF NOT EXISTS idx_orders_staffId ON orders(assignedStaffId);
+CREATE INDEX IF NOT EXISTS idx_orders_area ON orders(area);
+
+-- Payment records: individual payments against GR/Orders.
+CREATE TABLE IF NOT EXISTS payments (
+  id              TEXT PRIMARY KEY NOT NULL,
+  orderId         TEXT NOT NULL,
+  amount          REAL NOT NULL,
+  paymentMethod   TEXT,
+  notes           TEXT,
+  recordedBy      TEXT,
+  createdAt       TEXT NOT NULL,
+  FOREIGN KEY (orderId) REFERENCES orders(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_payments_orderId ON payments(orderId);
 
 -- Status history (each transition appended when the status changes).
 CREATE TABLE IF NOT EXISTS order_status_history (
@@ -157,19 +176,21 @@ CREATE TABLE IF NOT EXISTS sync_meta (
 -- Excel bulk-import run log (added in v6 via migration for installs that
 -- predate it; fresh databases get it inline here so a version-0 install
 -- doesn't skip straight to SCHEMA_VERSION without ever creating it).
-CREATE TABLE IF NOT EXISTS import_history (
-  id              TEXT PRIMARY KEY NOT NULL,
-  fileName        TEXT NOT NULL,
-  importedAt      TEXT NOT NULL,
-  importedByName  TEXT,
-  totalRows       INTEGER NOT NULL DEFAULT 0,
-  importedRows    INTEGER NOT NULL DEFAULT 0,
-  duplicateRows   INTEGER NOT NULL DEFAULT 0,
-  failedRows      INTEGER NOT NULL DEFAULT 0
-);
+    CREATE TABLE IF NOT EXISTS import_history (
+      id              TEXT PRIMARY KEY NOT NULL,
+      fileName        TEXT NOT NULL,
+      importedAt      TEXT NOT NULL,
+      importedByName  TEXT,
+      area            TEXT,
+      totalRows       INTEGER NOT NULL DEFAULT 0,
+      importedRows    INTEGER NOT NULL DEFAULT 0,
+      duplicateRows   INTEGER NOT NULL DEFAULT 0,
+      failedRows      INTEGER NOT NULL DEFAULT 0
+    );
 `;
 
 export const DROP_SCHEMA_SQL = `
+DROP TABLE IF EXISTS payments;
 DROP TABLE IF EXISTS import_history;
 DROP TABLE IF EXISTS order_attachments;
 DROP TABLE IF EXISTS order_status_history;

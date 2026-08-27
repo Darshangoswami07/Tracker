@@ -12,6 +12,7 @@ import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
 import { ActivityItem } from '../../components/ActivityItem';
 import { EmptyState } from '../../components/EmptyState';
+import { StatusBadge } from '../../components/StatusBadge';
 import { useAppNav } from '../../hooks/useAppNav';
 import { useTranslation } from 'react-i18next';
 import type { AppTheme } from '../../theme/types';
@@ -32,6 +33,14 @@ interface AdminStats {
   pendingApprovals: number;
   onlineUsers: number;
   systemHealth: 'healthy' | 'degraded' | 'critical';
+}
+
+interface ShipmentOverview {
+  total: number;
+  pending: number;
+  cleared: number;
+  uncleared: number;
+  delivered: number;
 }
 
 interface RecentActivity {
@@ -148,6 +157,8 @@ export const AdminDashboardScreen = () => {
   const [revenueStatus, setRevenueStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [activities, setActivities] = useState<RecentActivity[]>([]);
   const [activityStatus, setActivityStatus] = useState<'loading' | 'success' | 'error'>('loading');
+  const [shipmentOverview, setShipmentOverview] = useState<ShipmentOverview>({ total: 0, pending: 0, cleared: 0, uncleared: 0, delivered: 0 });
+  const [todayCollection, setTodayCollection] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(0));
@@ -198,13 +209,40 @@ export const AdminDashboardScreen = () => {
       console.error('Failed to load recent activity:', error);
       setActivityStatus('error');
     }
+  }, [t]);
+
+  const fetchShipmentOverview = useCallback(async () => {
+    try {
+      const result = await orderRepository.list({ page: 1, pageSize: 9999 });
+      const counts: ShipmentOverview = { total: result.total, pending: 0, cleared: 0, uncleared: 0, delivered: 0 };
+      for (const item of result.items) {
+        if (item.status === 'pending') counts.pending++;
+        else if (item.status === 'cleared') counts.cleared++;
+        else if (item.status === 'uncleared') counts.uncleared++;
+        else if (item.status === 'delivered') counts.delivered++;
+      }
+      setShipmentOverview(counts);
+    } catch (error) {
+      console.error('Failed to load shipment overview:', error);
+    }
+  }, []);
+
+  const fetchTodayCollection = useCallback(async () => {
+    try {
+      const amount = await orderRepository.getTodayCollection();
+      setTodayCollection(amount);
+    } catch (error) {
+      console.error('Failed to load today collection:', error);
+    }
   }, []);
 
   const fetchDashboardData = useCallback(() => {
     void fetchStats();
     void fetchRevenue();
     void fetchActivity();
-  }, [fetchStats, fetchRevenue, fetchActivity]);
+    void fetchShipmentOverview();
+    void fetchTodayCollection();
+  }, [fetchStats, fetchRevenue, fetchActivity, fetchShipmentOverview, fetchTodayCollection]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -212,6 +250,7 @@ export const AdminDashboardScreen = () => {
   }, [fetchDashboardData]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchDashboardData();
     Animated.parallel([
       Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: Platform.OS !== 'web' }),
@@ -334,7 +373,7 @@ export const AdminDashboardScreen = () => {
             <View style={styles.summaryRow}>
               <View style={[styles.healthDot, { backgroundColor: healthConfig.color }]} />
               <Text style={styles.welcomeSubtitle}>
-                {(stats?.totalOrders ?? 0).toLocaleString()} {t('dashboard.ordersCount')} · {stats?.onlineUsers ?? 0} {t('dashboard.onlineCount')} · {t('dashboard.systemLabel')} {healthConfig.label}
+                {shipmentOverview.total.toLocaleString()} {t('dashboard.ordersCount')} · {shipmentOverview.pending} pending · {shipmentOverview.delivered} delivered
               </Text>
             </View>
           </View>
@@ -395,7 +434,7 @@ export const AdminDashboardScreen = () => {
              * Admin), same reasoning as Staff Approvals/All Staff below. */}
             <TouchableOpacity
               style={[styles.secondaryAction, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
-              onPress={() => navigate('ExcelImport')}
+              onPress={() => navigate('Areas')}
               activeOpacity={0.85}
             >
               <View style={[styles.secondaryActionIcon, { backgroundColor: '#635BFF15', borderRadius: radii.md }]}>
@@ -454,6 +493,54 @@ export const AdminDashboardScreen = () => {
               <Text style={[styles.secondaryActionLabel, { color: colors.textPrimary }]}>{t('dashboard.allStaffLabel')}</Text>
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.secondaryAction, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
+              onPress={() => navigate('PaymentHistory')}
+              activeOpacity={0.85}
+            >
+              <View style={[styles.secondaryActionIcon, { backgroundColor: '#10B98115', borderRadius: radii.md }]}>
+                <Ionicons name="wallet-outline" size={20} color="#10B981" />
+              </View>
+              <Text style={[styles.secondaryActionLabel, { color: colors.textPrimary }]}>{t('payment.paymentHistory')}</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.quickActions}>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('summary.shipmentStatusOverview')}</Text>
+            <View style={styles.statusOverviewRow}>
+              <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments')} activeOpacity={0.85}>
+                <StatusBadge status="pending" size="md" />
+                <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.pending}</Text>
+                <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('status.pending')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments')} activeOpacity={0.85}>
+                <StatusBadge status="cleared" size="md" />
+                <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.cleared}</Text>
+                <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('status.cleared')}</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.statusOverviewRow}>
+              <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments')} activeOpacity={0.85}>
+                <StatusBadge status="uncleared" size="md" />
+                <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.uncleared}</Text>
+                <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('status.uncleared')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments')} activeOpacity={0.85}>
+                <StatusBadge status="delivered" size="md" />
+                <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.delivered}</Text>
+                <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('status.delivered')}</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.statusOverviewRow}>
+              <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm, flex: 1 }]} onPress={() => navigate('GRShipments')} activeOpacity={0.85}>
+                <Ionicons name="wallet-outline" size={22} color="#10B981" />
+                <Text style={[styles.statusOverviewCount, { color: '#10B981' }]}>{formatINR(todayCollection)}</Text>
+                <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('adminDashboard.todayCollection')}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           <View style={styles.sectionHeader}>
@@ -530,6 +617,10 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     sectionTitleShimmer: { width: 150, height: 24, borderRadius: theme.radii.sm },
     activityCardShimmer: { height: 80, borderRadius: theme.radii.lg, marginBottom: theme.spacing.md },
     activityList: { gap: theme.spacing.sm },
+    statusOverviewRow: { flexDirection: 'row', gap: theme.spacing.md, marginBottom: theme.spacing.md },
+    statusOverviewCard: { flex: 1, padding: 14, alignItems: 'center', gap: 4 },
+    statusOverviewCount: { fontSize: theme.fonts.size.xl, fontWeight: '800' },
+    statusOverviewLabel: { fontSize: theme.fonts.size.xs, fontWeight: '600' },
   });
 
 export default AdminDashboardScreen;

@@ -380,7 +380,7 @@ export const AdminEditGRScreen = ({ route }: any) => {
               <Field label="From" value={form.fromLocation} onChangeText={set('fromLocation')} placeholder="e.g. Haldwani" />
             </View>
             <View style={{ flex: 1 }}>
-              <Field label="To" value={form.toLocation} onChangeText={set('toLocation')} placeholder="e.g. Garur" />
+              <Field label="To" value={form.toLocation} onChangeText={set('toLocation')} placeholder="e.g. Garur Someshwar" />
             </View>
           </View>
         </Section>

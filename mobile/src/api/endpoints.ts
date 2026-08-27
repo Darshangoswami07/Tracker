@@ -93,4 +93,12 @@ export const ENDPOINTS = {
     uploadAttachment: (id: string) => `/orders/${id}/attachments`,
     attachmentFile: (id: string, attachmentId: string) => `/orders/${id}/attachments/${attachmentId}/file`,
   },
+  payments: {
+    create: '/payments',
+    listByOrder: (orderId: string) => `/payments/order/${orderId}`,
+    summary: (orderId: string) => `/payments/summary/${orderId}`,
+  },
+  customers: {
+    list: '/customers',
+  },
 } as const;

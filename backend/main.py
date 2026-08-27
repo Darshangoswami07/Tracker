@@ -29,6 +29,16 @@ from app.utils.responses import error
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
+
+    # Guard: on Windows, psycopg3 requires a SelectorEventLoop.
+    if sys.platform == "win32":
+        _loop = asyncio.get_running_loop()
+        if _loop.__class__.__name__ == "ProactorEventLoop":
+            logging.getLogger("app").error(
+                "Detected ProactorEventLoop — psycopg3 cannot use it on Windows. "
+                "Start the server with:  python run_server.py"
+            )
+
     await init_database()
     await init_ocr_client()
     yield

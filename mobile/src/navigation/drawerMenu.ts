@@ -76,10 +76,12 @@ export const getDrawerMenu = (role: Role): DrawerMenuSection[] => {
         { key: 'staff-management', labelKey: 'navigation.staffManagement', icon: 'people-circle-outline', screen: 'StaffManagement' },
         { key: 'staff-approvals', labelKey: 'navigation.staffApprovals', icon: 'checkmark-done-circle-outline', screen: 'StaffApprovals' },
         { key: 'gr-shipments', labelKey: 'navigation.grShipments', icon: 'reader-outline', screen: 'GRShipments' },
-        { key: 'customer-tracking', labelKey: 'navigation.customerTracking', icon: 'search-outline', screen: 'CustomerTracking' },
         { key: 'gr-tracker-classic', labelKey: 'navigation.grTrackerClassic', icon: 'time-outline', screen: 'GRTrackerClassic' },
       );
-      secondary.push(NOTIFICATIONS, PROFILE, SETTINGS);
+      secondary.push(
+        { key: 'customer-tracking', labelKey: 'navigation.customerTracking', icon: 'search-outline', screen: 'CustomerTracking' },
+        NOTIFICATIONS, PROFILE, SETTINGS,
+      );
       break;
 
     case ROLES.ADMIN:
@@ -92,10 +94,12 @@ export const getDrawerMenu = (role: Role): DrawerMenuSection[] => {
         { key: 'dashboard', labelKey: 'navigation.dashboard', icon: 'grid-outline', screen: 'AdminDashboard' },
         { key: 'staff-approvals', labelKey: 'navigation.staffApprovals', icon: 'checkmark-done-circle-outline', screen: 'StaffApprovals' },
         { key: 'gr-shipments', labelKey: 'navigation.grShipments', icon: 'reader-outline', screen: 'GRShipments' },
-        { key: 'customer-tracking', labelKey: 'navigation.customerTracking', icon: 'search-outline', screen: 'CustomerTracking' },
         { key: 'gr-tracker-classic', labelKey: 'navigation.grTrackerClassic', icon: 'time-outline', screen: 'GRTrackerClassic' },
       );
-      secondary.push(NOTIFICATIONS, PROFILE, SETTINGS);
+      secondary.push(
+        { key: 'customer-tracking', labelKey: 'navigation.customerTracking', icon: 'search-outline', screen: 'CustomerTracking' },
+        NOTIFICATIONS, PROFILE, SETTINGS,
+      );
       break;
   }
 

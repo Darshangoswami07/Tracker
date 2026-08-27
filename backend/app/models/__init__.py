@@ -15,6 +15,7 @@ from app.models.vehicle_image import VehicleImage
 from app.models.order import Order
 from app.models.order_status_history import OrderStatusHistory
 from app.models.order_attachment import OrderAttachment
+from app.models.payment import Payment
 from app.models.report import Report
 from app.models.driver_location import DriverLocation
 from app.models.notification import Notification
@@ -48,6 +49,7 @@ __all__ = [
     "Order",
     "OrderStatusHistory",
     "OrderAttachment",
+    "Payment",
     "Report",
     "DriverLocation",
     "Notification",

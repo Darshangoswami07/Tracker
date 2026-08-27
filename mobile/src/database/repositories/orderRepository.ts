@@ -17,6 +17,9 @@ export interface LocalGRListItem {
   /** How this GR was created: 'manual' | 'slip' | 'excel'. Drives the GR
    * list's subtle origin indicator ("Excel imported" vs "Slip uploaded"). */
   source: string;
+  /** Area assignment — e.g. "Bageshwar", "Almora", "Garur Someshwar". Null when imported before
+   * the area system was added or for manually created GRs. */
+  area: string | null;
 }
 
 /** Mirrors `GRAttachment` in `AdminGRDetailsScreen`. */
@@ -110,6 +113,7 @@ export interface LocalGRDetail extends GRExtendedFields {
   attachments: LocalAttachment[];
   timeline: LocalTimelineEvent[];
   source: string;
+  area: string | null;
 }
 
 export interface GRCreateInput extends GRExtendedFields {
@@ -152,6 +156,9 @@ export interface GRListParams {
   pageSize?: number;
   status?: string;
   search?: string;
+  area?: string;
+  /** Filter by exact consignor (shop owner) name. */
+  consignor?: string;
 }
 
 export interface GRListResult {
@@ -177,6 +184,59 @@ export interface ActivityEvent {
   createdAt: string;
 }
 
+/** A single payment record against a GR/Order. */
+export interface LocalPayment {
+  id: string;
+  orderId: string;
+  amount: number;
+  paymentMethod: string | null;
+  notes: string | null;
+  recordedBy: string | null;
+  createdAt: string;
+}
+
+/** A single GR enriched with payment data for the Receiving Details list. */
+export interface ReceivingListItem {
+  id: string;
+  orderNumber: string;
+  consigneeName: string | null;
+  consignorName: string | null;
+  pickupAddress: string;
+  deliveryAddress: string;
+  grStatus: string;
+  toPay: number;
+  totalPaid: number;
+  balance: number;
+  paymentStatus: string; // 'unpaid' | 'partial' | 'paid' | 'overpaid'
+  paymentCount: number;
+  createdAt: string;
+}
+
+/** Aggregate payment overview across all GRs for the Receiving Details summary. */
+export interface ReceivingOverview {
+  totalToPay: number;
+  totalPaid: number;
+  outstanding: number;
+  totalTransactions: number;
+  unpaidCount: number;
+  partialCount: number;
+  paidCount: number;
+  overpaidCount: number;
+  grCount: number;
+}
+
+/** Aggregated payment summary for an order. */
+export interface PaymentSummary {
+  orderId: string;
+  orderNumber: string;
+  toPay: number;
+  totalPaid: number;
+  balance: number;
+  paymentStatus: string; // "unpaid" | "partial" | "paid" | "overpaid"
+  paymentCount: number;
+  payments: LocalPayment[];
+}
+
 /** RFC-4122 v4 UUID without external deps (screens pass ids around as text). */
 const nowIso = (): string => new Date().toISOString();
 
@@ -193,6 +253,7 @@ const rowToListItem = (row: any): LocalGRListItem => ({
   createdAt: row.createdAt,
   hasSlip: Boolean(row.hasSlip),
   source: row.source ?? 'manual',
+  area: row.area ?? null,
 });
 
 /** Picks the extended-field columns off a raw SQLite row, converting `null`
@@ -228,6 +289,7 @@ const rowToDetail = (row: any): LocalGRDetail => ({
   attachments: [],
   timeline: [],
   source: row.source ?? 'manual',
+  area: row.area ?? null,
   ...rowToExtendedFields(row),
 });
 
@@ -278,6 +340,14 @@ export const orderRepository = {
       const like = `%${params.search}%`;
       bind.push(like, like, like);
     }
+    if (params.area) {
+      clauses.push('area = ?');
+      bind.push(params.area);
+    }
+    if (params.consignor) {
+      clauses.push('consignorName = ?');
+      bind.push(params.consignor);
+    }
 
     const where = `WHERE ${clauses.join(' AND ')}`;
 
@@ -292,6 +362,27 @@ export const orderRepository = {
     );
 
     return { items: rows.map(rowToListItem), total: countRow?.total ?? 0 };
+  },
+
+  /**
+   * Returns sorted unique consignor (shop owner) names from active GRs,
+   * optionally scoped by area. Used to populate the shop-owner filter
+   * dropdown without loading every GR row.
+   */
+  async getDistinctConsignors(area?: string): Promise<string[]> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    const clauses: string[] = ['isDeleted = 0', 'consignorName IS NOT NULL', "consignorName != ''"];
+    const bind: string[] = [];
+    if (area) {
+      clauses.push('area = ?');
+      bind.push(area);
+    }
+    const rows = await db.getAllAsync<{ consignorName: string }>(
+      `SELECT DISTINCT consignorName FROM orders WHERE ${clauses.join(' AND ')} ORDER BY consignorName ASC`,
+      bind
+    );
+    return rows.map((r) => r.consignorName);
   },
 
   /** Full GR record including its attachments and status timeline.
@@ -634,6 +725,91 @@ export const orderRepository = {
     }
   },
 
+  // ---- Payments ----
+
+  /** Record a new payment against an order. */
+  async addPayment(input: {
+    orderId: string;
+    amount: number;
+    paymentMethod?: string;
+    notes?: string;
+    recordedBy?: string;
+  }): Promise<LocalPayment> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    await db.runAsync('PRAGMA foreign_keys = ON');
+    const id = uuid();
+    const createdAt = nowIso();
+    await db.runAsync(
+      `INSERT INTO payments (id, orderId, amount, paymentMethod, notes, recordedBy, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, input.orderId, input.amount, input.paymentMethod ?? null, input.notes ?? null, input.recordedBy ?? null, createdAt]
+    );
+    return { id, ...input, paymentMethod: input.paymentMethod ?? null, notes: input.notes ?? null, recordedBy: input.recordedBy ?? null, createdAt };
+  },
+
+  /** List all payments for a given order, newest first. */
+  async listPayments(orderId: string): Promise<LocalPayment[]> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    const rows = await db.getAllAsync<any>(
+      'SELECT * FROM payments WHERE orderId = ? ORDER BY createdAt DESC',
+      [orderId]
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      orderId: r.orderId,
+      amount: r.amount,
+      paymentMethod: r.paymentMethod ?? null,
+      notes: r.notes ?? null,
+      recordedBy: r.recordedBy ?? null,
+      createdAt: r.createdAt,
+    }));
+  },
+
+  /** Aggregated payment summary for a single order. */
+  async getPaymentSummary(orderId: string): Promise<PaymentSummary | null> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    const order = await db.getFirstAsync<any>(
+      'SELECT id, orderNumber, toPay FROM orders WHERE id = ? AND isDeleted = 0',
+      [orderId]
+    );
+    if (!order) return null;
+
+    const toPay = Number(order.toPay ?? 0);
+    const totalPaid = Number(
+      (await db.getFirstAsync<{ total: number }>(
+        'SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE orderId = ?',
+        [orderId]
+      ))?.total ?? 0
+    );
+    const paymentCount = Number(
+      (await db.getFirstAsync<{ cnt: number }>(
+        'SELECT COUNT(*) AS cnt FROM payments WHERE orderId = ?',
+        [orderId]
+      ))?.cnt ?? 0
+    );
+    const payments = await this.listPayments(orderId);
+
+    let paymentStatus = 'unpaid';
+    if (toPay <= 0) paymentStatus = 'paid';
+    else if (totalPaid <= 0) paymentStatus = 'unpaid';
+    else if (totalPaid >= toPay) paymentStatus = totalPaid === toPay ? 'paid' : 'overpaid';
+    else paymentStatus = 'partial';
+
+    return {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      toPay,
+      totalPaid,
+      balance: toPay - totalPaid,
+      paymentStatus,
+      paymentCount,
+      payments,
+    };
+  },
+
   /** Revenue aggregation matching `backend/order_repository.get_revenue_overview()`.
    *  Revenue per GR = COALESCE(paymentAmount, 0) + COALESCE(toPay, 0).
    *  Date bucketing uses grDate if set, falling back to createdAt. */
@@ -711,5 +887,183 @@ export const orderRepository = {
       totalCollected: Number(row?.total_collected ?? 0),
       outstandingAmount: Number(row?.outstanding ?? 0),
     };
+  },
+
+  // ---- Receiving Details ----
+
+  /** A single GR enriched with its payment summary for the Receiving Details list. */
+  async listReceiving(params: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    paymentStatus?: string; // 'all' | 'unpaid' | 'partial' | 'paid' | 'overpaid'
+    customerId?: string;    // filter by consigneeName match
+    dateFrom?: string;      // ISO date string
+    dateTo?: string;        // ISO date string
+  } = {}): Promise<{ items: ReceivingListItem[]; total: number }> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    const page = params.page ?? 1;
+    const pageSize = params.pageSize ?? 20;
+
+    // Build a CTE that joins orders with aggregated payment data
+    const clauses: string[] = ['o.isDeleted = 0'];
+    const bind: (string | number)[] = [];
+
+    if (params.search) {
+      clauses.push('(o.orderNumber LIKE ? OR o.consigneeName LIKE ? OR o.consignorName LIKE ?)');
+      const like = `%${params.search}%`;
+      bind.push(like, like, like);
+    }
+    if (params.customerId) {
+      clauses.push('o.consigneeName = ?');
+      bind.push(params.customerId);
+    }
+    if (params.dateFrom) {
+      clauses.push("COALESCE(o.grDate, o.createdAt) >= ?");
+      bind.push(params.dateFrom);
+    }
+    if (params.dateTo) {
+      clauses.push("COALESCE(o.grDate, o.createdAt) <= ?");
+      bind.push(params.dateTo);
+    }
+
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+
+    // Payment status filter is applied after the CTE since it depends on computed columns
+    const havingClause = params.paymentStatus && params.paymentStatus !== 'all'
+      ? `HAVING payment_status = ?`
+      : '';
+    const havingBind = params.paymentStatus && params.paymentStatus !== 'all'
+      ? [params.paymentStatus]
+      : [];
+
+    const cte = `
+      WITH order_payments AS (
+        SELECT
+          o.id,
+          o.orderNumber,
+          o.consigneeName,
+          o.consignorName,
+          o.pickupAddress,
+          o.deliveryAddress,
+          o.status AS grStatus,
+          o.toPay,
+          o.createdAt,
+          COALESCE(SUM(p.amount), 0) AS totalPaid,
+          COUNT(p.id) AS paymentCount,
+          CASE
+            WHEN COALESCE(o.toPay, 0) <= 0 THEN 'paid'
+            WHEN COALESCE(SUM(p.amount), 0) <= 0 THEN 'unpaid'
+            WHEN COALESCE(SUM(p.amount), 0) >= COALESCE(o.toPay, 0) THEN
+              CASE WHEN COALESCE(SUM(p.amount), 0) = COALESCE(o.toPay, 0) THEN 'paid' ELSE 'overpaid' END
+            ELSE 'partial'
+          END AS payment_status
+        FROM orders o
+        LEFT JOIN payments p ON p.orderId = o.id
+        ${where}
+        GROUP BY o.id
+      )
+    `;
+
+    const countRow = await db.getFirstAsync<{ total: number }>(
+      `${cte} SELECT COUNT(*) AS total FROM order_payments ${havingClause}`,
+      [...bind, ...havingBind]
+    );
+
+    const rows = await db.getAllAsync<any>(
+      `${cte}
+       SELECT * FROM order_payments ${havingClause}
+       ORDER BY createdAt DESC LIMIT ? OFFSET ?`,
+      [...bind, ...havingBind, pageSize, (page - 1) * pageSize]
+    );
+
+    const items: ReceivingListItem[] = rows.map((r) => ({
+      id: r.id,
+      orderNumber: r.orderNumber,
+      consigneeName: r.consigneeName ?? null,
+      consignorName: r.consignorName ?? null,
+      pickupAddress: r.pickupAddress,
+      deliveryAddress: r.deliveryAddress,
+      grStatus: r.grStatus,
+      toPay: Number(r.toPay ?? 0),
+      totalPaid: Number(r.totalPaid ?? 0),
+      balance: Number(r.toPay ?? 0) - Number(r.totalPaid ?? 0),
+      paymentStatus: r.payment_status,
+      paymentCount: Number(r.paymentCount ?? 0),
+      createdAt: r.createdAt,
+    }));
+
+    return { items, total: countRow?.total ?? 0 };
+  },
+
+  /** Aggregate totals for the Receiving Details summary cards. */
+  async getReceivingOverview(): Promise<ReceivingOverview> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+
+    const row = await db.getFirstAsync<{
+      total_to_pay: number;
+      total_paid: number;
+      total_transactions: number;
+      unpaid_count: number;
+      partial_count: number;
+      paid_count: number;
+      overpaid_count: number;
+      gr_count: number;
+    }>(
+      `SELECT
+        SUM(COALESCE(o.toPay, 0)) AS total_to_pay,
+        COALESCE(SUM(paid.totalPaid), 0) AS total_paid,
+        COALESCE(SUM(paid.paymentCount), 0) AS total_transactions,
+        SUM(CASE WHEN paid.payment_status = 'unpaid' THEN 1 ELSE 0 END) AS unpaid_count,
+        SUM(CASE WHEN paid.payment_status = 'partial' THEN 1 ELSE 0 END) AS partial_count,
+        SUM(CASE WHEN paid.payment_status = 'paid' THEN 1 ELSE 0 END) AS paid_count,
+        SUM(CASE WHEN paid.payment_status = 'overpaid' THEN 1 ELSE 0 END) AS overpaid_count,
+        COUNT(o.id) AS gr_count
+      FROM orders o
+      LEFT JOIN (
+        SELECT
+          orderId,
+          SUM(amount) AS totalPaid,
+          COUNT(id) AS paymentCount,
+          CASE
+            WHEN SUM(amount) <= 0 THEN 'unpaid'
+            WHEN SUM(amount) >= (SELECT COALESCE(toPay, 0) FROM orders WHERE id = payments.orderId) THEN
+              CASE WHEN SUM(amount) = (SELECT COALESCE(toPay, 0) FROM orders WHERE id = payments.orderId) THEN 'paid' ELSE 'overpaid' END
+            ELSE 'partial'
+          END AS payment_status
+        FROM payments
+        GROUP BY orderId
+      ) paid ON paid.orderId = o.id
+      WHERE o.isDeleted = 0`
+    );
+
+    const totalToPay = Number(row?.total_to_pay ?? 0);
+    const totalPaid = Number(row?.total_paid ?? 0);
+
+    return {
+      totalToPay,
+      totalPaid,
+      outstanding: totalToPay - totalPaid,
+      totalTransactions: Number(row?.total_transactions ?? 0),
+      unpaidCount: Number(row?.unpaid_count ?? 0),
+      partialCount: Number(row?.partial_count ?? 0),
+      paidCount: Number(row?.paid_count ?? 0),
+      overpaidCount: Number(row?.overpaid_count ?? 0),
+      grCount: Number(row?.gr_count ?? 0),
+    };
+  },
+
+  /** Sum of payments received today. */
+  async getTodayCollection(): Promise<number> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    const today = new Date().toISOString().slice(0, 10);
+    const row = await db.getFirstAsync<{ total: number }>(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE createdAt >= ? AND createdAt < ?`,
+      [today, today + 'T23:59:59']
+    );
+    return Number(row?.total ?? 0);
   },
 };

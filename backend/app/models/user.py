@@ -45,6 +45,8 @@ class User(Base):
         ForeignKey("companies.id"), nullable=True, index=True
     )
     profileImage: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Assigned operational area for staff users. Null for admin/owner roles.
+    area: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[RegistrationStatus] = mapped_column(
         SqlEnum(
             RegistrationStatus,

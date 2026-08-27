@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { BackHandler, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { orderRepository } from '../../database/repositories/orderRepository';
+import type { LocalGRListItem } from '../../database/repositories/orderRepository';
 import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
 import { EmptyState } from '../../components/EmptyState';
@@ -14,25 +15,8 @@ import { useAppNav } from '../../hooks/useAppNav';
 import { useUserStore } from '../../store/userStore';
 import { useTranslation } from 'react-i18next';
 import { canDeleteGR as roleCanDeleteGR, canImportExcel as roleCanImportExcel } from '../../constants/roles';
+import { AREAS } from '../../constants/areas';
 import type { AppTheme } from '../../theme/types';
-
-/** GR/Shipment row shape returned by `GET /admin/orders` — matches
- * `admin/src/types/gr.ts` `GRListItem` on the web reference exactly. */
-interface GRListItem {
-  id: string;
-  orderNumber: string;
-  consignorName: string | null;
-  consigneeName: string | null;
-  pickupAddress: string;
-  deliveryAddress: string;
-  driverId: string | null;
-  assignedStaffId: string | null;
-  status: string;
-  createdAt: string;
-  hasSlip: boolean;
-  /** 'manual' | 'slip' | 'excel' — drives the subtle origin indicator below. */
-  source: string;
-}
 
 const PAGE_SIZE = 20;
 
@@ -54,35 +38,43 @@ const formatDate = (iso: string): string => {
 
 type LoadStatus = 'loading' | 'success' | 'error';
 
+const formatCurrency = (amount: number): string => {
+  return `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+};
+
+interface SummaryCounts {
+  total: number;
+  pending: number;
+  cleared: number;
+  uncleared: number;
+  delivered: number;
+  totalToPay: number;
+  totalReceived: number;
+  totalOutstanding: number;
+  todayCollection: number;
+}
+
+interface GRCardItem extends LocalGRListItem {
+  toPay: number;
+  totalPaid: number;
+  outstanding: number;
+  paymentCount: number;
+  paymentStatus: string;
+}
+
 /**
- * Mobile equivalent of the web Admin "GR / Shipments" page
- * (`admin/src/app/dashboard/orders/page.tsx`). In the local-first
- * architecture the GR list is read from the on-device SQLite repository
- * (`orderRepository.list`) instead of `GET /admin/orders`, so it works fully
- * offline. Search, status filter, and pagination behave the same as before;
- * tapping a card opens `AdminGRDetailsScreen` for the full record.
- *
- * The screen uses ONE load path (`fetchGRs`) guarded by an in-flight ref so
- * the mount effect, focus listener, and the search/filter debounce can never
- * run concurrently and leave `loading` stuck true. The skeleton is only shown
- * while the first load is in flight and there is no data yet; every later
- * reload (pull-to-refresh, search/filter change, return-from-detail) keeps the
- * existing list visible and swaps in fresh rows, so the screen never hangs on
- * a spinner.
+ * Mobile equivalent of the web Admin "GR / Shipments" page.
+ * Adds summary overview, financial info on cards, and a filter bottom sheet.
  */
 export const AdminGRShipmentsScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { t } = useTranslation();
   const { navigate, navigation } = useAppNav();
 
-  // Always navigate back to the Dashboard rather than relying on
-  // navigation.goBack(), which can land on an intermediate screen (e.g. the
-  // More tab or a stale Shipments-stack entry) instead of the Dashboard.
   const handleBack = useCallback(() => {
     navigate('AdminDashboard');
   }, [navigate]);
 
-  // Android hardware back button — same intent as the header back arrow.
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       handleBack();
@@ -93,7 +85,8 @@ export const AdminGRShipmentsScreen = () => {
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
-  const [items, setItems] = useState<GRListItem[]>([]);
+  const [items, setItems] = useState<GRCardItem[]>([]);
+  const [summary, setSummary] = useState<SummaryCounts>({ total: 0, pending: 0, cleared: 0, uncleared: 0, delivered: 0, totalToPay: 0, totalReceived: 0, totalOutstanding: 0, todayCollection: 0 });
   const [status, setStatus] = useState<LoadStatus>('loading');
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -102,26 +95,27 @@ export const AdminGRShipmentsScreen = () => {
   const [hasMore, setHasMore] = useState(true);
   const [search, setSearch] = useState('');
   const [statusTab, setStatusTab] = useState('All');
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [consignorFilter, setConsignorFilter] = useState<string | null>(null);
+  const [consignorOptions, setConsignorOptions] = useState<string[]>([]);
+  const [consignorSheetOpen, setConsignorSheetOpen] = useState(false);
+  const [areaFilter, setAreaFilter] = useState<string | null>(null);
+  const [areaSheetOpen, setAreaSheetOpen] = useState(false);
 
   const role = useUserStore((state) => state.user?.role);
+  const userArea = useUserStore((state) => state.user?.area ?? null);
   const canDeleteGR = roleCanDeleteGR(role);
   const canImportExcel = roleCanImportExcel(role);
 
-  // "+" header button: opens a small action sheet (Create GR / Import from
-  // Excel) for Admin, or goes straight to Create GR for roles that can't
-  // import (matches the button's previous single-purpose behavior for them).
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  // Admin/Owner/SuperAdmin can choose any area; staff is locked to their area
+  const isAdmin = role === 'admin' || role === 'owner' || role === 'super_admin';
+  const effectiveArea = isAdmin ? areaFilter : userArea;
 
-  // The GR whose "⋮" per-card menu (View GR / Delete GR) is open, if any.
-  const [menuTarget, setMenuTarget] = useState<GRListItem | null>(null);
-  // The GR pending delete confirmation, if any — set once the Admin taps
-  // "Delete GR" in the menu above, cleared on Cancel or after the request
-  // settles (success or failure).
-  const [deleteTarget, setDeleteTarget] = useState<GRListItem | null>(null);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [menuTarget, setMenuTarget] = useState<GRCardItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<GRCardItem | null>(null);
   const [deleting, setDeleting] = useState(false);
-  // Brief inline banner for the delete outcome — mirrors `errorText` banners
-  // used elsewhere in the app rather than `Alert.alert`, which is a no-op on
-  // web (react-native-web has no native alert/toast implementation).
   const [actionMessage, setActionMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
@@ -138,21 +132,13 @@ export const AdminGRShipmentsScreen = () => {
       setItems((prev) => prev.filter((gr) => gr.id !== deleteTarget.id));
       setActionMessage({ kind: 'success', text: t('gr.deletedSuccess') });
       setDeleteTarget(null);
-    } catch (err: any) {
-      console.warn('[GR Delete] Failed:', err?.message ?? err);
+    } catch {
       setActionMessage({ kind: 'error', text: t('gr.unableToDelete') });
-      // Deliberately do NOT remove the GR from `items` or close the dialog
-      // here — the Admin should see the failure and can retry, and the list
-      // must keep showing the GR since it was not actually deleted.
     } finally {
       setDeleting(false);
     }
   };
 
-  // Guards against overlapping fetches from mount/focus/debounce. When a
-  // request is already in flight, a new trigger is ignored — the in-flight
-  // one will render the latest data anyway because it reads the current
-  // `search`/`statusTab` values.
   const inFlightRef = useRef(false);
 
   const fetchGRs = useCallback(
@@ -168,15 +154,68 @@ export const AdminGRShipmentsScreen = () => {
           pageSize: PAGE_SIZE,
           status: FILTER_TO_STATUS[statusTab],
           search: search || undefined,
+          area: effectiveArea || undefined,
+          consignor: consignorFilter || undefined,
         });
-        const newItems: GRListItem[] = result.items;
-        setItems((prev) => (mode === 'more' ? [...prev, ...newItems] : newItems));
-        setHasMore(newItems.length === PAGE_SIZE);
+        const rawItems: LocalGRListItem[] = result.items;
+
+        // Fetch payment data for current page items
+        const enrichedItems: GRCardItem[] = await Promise.all(
+          rawItems.map(async (item) => {
+            try {
+              const summary = await orderRepository.getPaymentSummary(item.id);
+              return {
+                ...item,
+                toPay: summary?.toPay ?? 0,
+                totalPaid: summary?.totalPaid ?? 0,
+                outstanding: (summary?.toPay ?? 0) - (summary?.totalPaid ?? 0),
+                paymentCount: summary?.paymentCount ?? 0,
+                paymentStatus: summary?.paymentStatus ?? 'unpaid',
+              };
+            } catch {
+              return { ...item, toPay: 0, totalPaid: 0, outstanding: 0, paymentCount: 0, paymentStatus: 'unpaid' };
+            }
+          })
+        );
+
+        setItems((prev) => (mode === 'more' ? [...prev, ...enrichedItems] : enrichedItems));
+        setHasMore(enrichedItems.length === PAGE_SIZE);
         setPage(pageNum);
         setError(null);
         setStatus('success');
-      } catch (err: any) {
-        setError(err?.message ?? t('gr.couldNotLoadEntries'));
+
+        // Compute summary from all items (not just current page)
+        if (mode !== 'more') {
+          const allResults = await orderRepository.list({ page: 1, pageSize: 9999, search: search || undefined, area: effectiveArea || undefined, consignor: consignorFilter || undefined });
+          const counts: SummaryCounts = { total: allResults.total, pending: 0, cleared: 0, uncleared: 0, delivered: 0, totalToPay: 0, totalReceived: 0, totalOutstanding: 0, todayCollection: 0 };
+          for (const item of allResults.items) {
+            if (item.status === 'pending') counts.pending++;
+            else if (item.status === 'cleared') counts.cleared++;
+            else if (item.status === 'uncleared') counts.uncleared++;
+            else if (item.status === 'delivered') counts.delivered++;
+          }
+
+          // Financial totals computed from payment summaries (toPay isn't on LocalGRListItem)
+          let totalToPay = 0, totalReceived = 0, totalOutstanding = 0;
+          for (const item of allResults.items) {
+            const ps = await orderRepository.getPaymentSummary(item.id);
+            if (ps) {
+              totalToPay += ps.toPay;
+              totalReceived += ps.totalPaid;
+              totalOutstanding += ps.balance;
+            }
+          }
+          counts.totalToPay = totalToPay;
+          counts.totalReceived = totalReceived;
+          counts.totalOutstanding = totalOutstanding;
+
+          const todayCollection = await orderRepository.getTodayCollection();
+          counts.todayCollection = todayCollection;
+
+          setSummary(counts);
+        }
+    } catch {
+        setError(t('gr.couldNotLoadEntries'));
         setStatus('error');
       } finally {
         inFlightRef.current = false;
@@ -184,21 +223,17 @@ export const AdminGRShipmentsScreen = () => {
         setLoadingMore(false);
       }
     },
-    [search, statusTab]
+    [search, statusTab, consignorFilter, effectiveArea]
   );
 
   const didMount = useRef(false);
 
-  // Initial load.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchGRs(1, 'initial');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Refetch when returning from Create GR / GR Details so mutations made
-  // there (creation, status change, assignment, slip upload) are reflected in
-  // the list without a manual pull-to-refresh. Skips the first (mount) focus
-  // event since the effect above already fetches on mount.
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       if (!didMount.current) {
@@ -211,36 +246,34 @@ export const AdminGRShipmentsScreen = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
 
-  // Debounced reload on search / status filter changes. Keeps the existing
-  // list visible instead of showing the skeleton again, so typing never
-  // produces a stuck loading state.
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchGRs(1, 'reload');
     }, 400);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, statusTab]);
+  }, [search, statusTab, consignorFilter, effectiveArea]);
 
-  const onRefresh = () => {
-    fetchGRs(1, 'refresh');
-  };
+  // Load distinct consignor names for the shop-owner filter dropdown.
+  useEffect(() => {
+    let cancelled = false;
+    orderRepository.getDistinctConsignors(effectiveArea || undefined).then((names) => {
+      if (!cancelled) setConsignorOptions(names);
+    });
+    return () => { cancelled = true; };
+  }, [effectiveArea]);
+
+  const onRefresh = () => fetchGRs(1, 'refresh');
 
   const onAddPress = () => {
-    if (canImportExcel) {
-      setAddMenuOpen(true);
-    } else {
-      navigate('CreateGR');
-    }
+    if (canImportExcel) setAddMenuOpen(true);
+    else navigate('CreateGR');
   };
 
   const loadMore = () => {
-    if (!inFlightRef.current && !loadingMore && hasMore) {
-      fetchGRs(page + 1, 'more');
-    }
+    if (!inFlightRef.current && !loadingMore && hasMore) fetchGRs(page + 1, 'more');
   };
 
-  // Skeleton only while the very first load is in flight and nothing is shown.
   const showSkeleton = status === 'loading' && items.length === 0;
 
   if (showSkeleton) {
@@ -252,10 +285,11 @@ export const AdminGRShipmentsScreen = () => {
           rightAction={{ icon: 'add', onPress: onAddPress, accessibilityLabel: 'Create GR' }}
         />
         <ScrollView contentContainerStyle={styles.scrollContent}>
-          <ShimmerCard style={styles.searchShimmer} height={44} />
-          <ShimmerCard style={styles.filterShimmer} height={36} />
+          <ShimmerCard style={styles.shimmerBlock} height={100} />
+          <ShimmerCard style={styles.shimmerBlock} height={44} />
+          <ShimmerCard style={styles.shimmerBlock} height={36} />
           {[1, 2, 3, 4, 5].map((i) => (
-            <ShimmerCard key={i} style={styles.cardShimmer} height={110} />
+            <ShimmerCard key={i} style={styles.shimmerBlock} height={130} />
           ))}
         </ScrollView>
       </SafeAreaView>
@@ -271,46 +305,75 @@ export const AdminGRShipmentsScreen = () => {
       />
 
       <ScrollView
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#635BFF']} progressBackgroundColor={colors.surface} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#635BFF']} progressBackgroundColor={colors.surface} />}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         onScroll={({ nativeEvent }) => {
           const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
-          if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 200) {
-            loadMore();
-          }
+          if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 200) loadMore();
         }}
         scrollEventThrottle={200}
       >
         {actionMessage && (
-          <View
-            style={[
-              styles.actionBanner,
-              {
-                backgroundColor: actionMessage.kind === 'success' ? colors.successSoft : colors.errorSoft,
-                borderRadius: radii.lg,
-              },
-            ]}
-          >
-            <Ionicons
-              name={actionMessage.kind === 'success' ? 'checkmark-circle-outline' : 'alert-circle-outline'}
-              size={18}
-              color={actionMessage.kind === 'success' ? colors.success : colors.error}
-            />
-            <Text
-              style={[
-                styles.actionBannerText,
-                { color: actionMessage.kind === 'success' ? colors.success : colors.error },
-              ]}
-            >
-              {actionMessage.text}
-            </Text>
+          <View style={[styles.actionBanner, { backgroundColor: actionMessage.kind === 'success' ? colors.successSoft : colors.errorSoft, borderRadius: radii.lg }]}>
+            <Ionicons name={actionMessage.kind === 'success' ? 'checkmark-circle-outline' : 'alert-circle-outline'} size={18} color={actionMessage.kind === 'success' ? colors.success : colors.error} />
+            <Text style={[styles.actionBannerText, { color: actionMessage.kind === 'success' ? colors.success : colors.error }]}>{actionMessage.text}</Text>
           </View>
         )}
 
+        {/* Summary Cards */}
+        <View style={styles.summaryRow}>
+          <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+            <Text style={[styles.summaryValue, { color: colors.textPrimary }]}>{summary.total}</Text>
+            <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>{t('summary.totalGRs')}</Text>
+          </View>
+          <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+            <Text style={[styles.summaryValue, { color: '#10B981' }]}>{summary.cleared}</Text>
+            <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>{t('summary.cleared')}</Text>
+          </View>
+          <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+            <Text style={[styles.summaryValue, { color: '#F97316' }]}>{summary.uncleared}</Text>
+            <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>{t('summary.uncleared')}</Text>
+          </View>
+          <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+            <Text style={[styles.summaryValue, { color: '#10B981' }]}>{summary.delivered}</Text>
+            <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>{t('summary.delivered')}</Text>
+          </View>
+        </View>
+
+        {/* Financial Summary */}
+        <View style={styles.summaryRow}>
+          <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+            <Text style={[styles.summaryValue, { color: '#10B981' }]}>{formatCurrency(summary.todayCollection)}</Text>
+            <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>{t('adminGRShipments.todayCollection')}</Text>
+          </View>
+        </View>
+
+        {/* Location Filter */}
+        <TouchableOpacity
+          style={[styles.consignorFilterBtn, { backgroundColor: colors.surface, borderRadius: radii.md, borderColor: effectiveArea ? colors.primary : colors.border }]}
+          onPress={() => isAdmin ? setAreaSheetOpen(true) : undefined}
+          activeOpacity={isAdmin ? 0.7 : 1}
+          disabled={!isAdmin}
+        >
+          <Ionicons name="location-outline" size={16} color={effectiveArea ? colors.primary : colors.textMuted} />
+          <Text
+            style={[styles.consignorFilterText, { color: effectiveArea ? colors.primary : colors.textMuted }]}
+            numberOfLines={1}
+          >
+            {effectiveArea || t('gr.allLocations')}
+          </Text>
+          {effectiveArea && isAdmin ? (
+            <TouchableOpacity onPress={() => setAreaFilter(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={16} color={colors.primary} />
+            </TouchableOpacity>
+          ) : isAdmin ? (
+            <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+          ) : null}
+        </TouchableOpacity>
+
+        {/* Search + Filter */}
         <View style={styles.searchBar}>
           <Ionicons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
           <TextInput
@@ -321,6 +384,38 @@ export const AdminGRShipmentsScreen = () => {
             placeholderTextColor={colors.textMuted}
             returnKeyType="search"
           />
+          <TouchableOpacity onPress={() => setFilterSheetOpen(true)} style={[styles.filterBtn, { backgroundColor: colors.surface, borderRadius: radii.md }]}>
+            <Ionicons name="options-outline" size={18} color={colors.primary} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Shop Owner Filter */}
+        <TouchableOpacity
+          style={[styles.consignorFilterBtn, { backgroundColor: colors.surface, borderRadius: radii.md, borderColor: consignorFilter ? colors.primary : colors.border }]}
+          onPress={() => setConsignorSheetOpen(true)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="person-outline" size={16} color={consignorFilter ? colors.primary : colors.textMuted} />
+          <Text
+            style={[styles.consignorFilterText, { color: consignorFilter ? colors.primary : colors.textMuted }]}
+            numberOfLines={1}
+          >
+            {consignorFilter || t('gr.allShopOwners')}
+          </Text>
+          {consignorFilter ? (
+            <TouchableOpacity onPress={() => setConsignorFilter(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={16} color={colors.primary} />
+            </TouchableOpacity>
+          ) : (
+            <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+          )}
+        </TouchableOpacity>
+
+        {/* Result count */}
+        <View style={styles.resultCountRow}>
+          <Text style={[styles.resultCountText, { color: colors.textMuted }]}>
+            {summary.total} {summary.total === 1 ? t('gr.grShipmentsSingular') : t('gr.grShipmentsPlural')}
+          </Text>
         </View>
 
         <View style={styles.filters}>
@@ -342,13 +437,9 @@ export const AdminGRShipmentsScreen = () => {
           <EmptyState
             icon="reader-outline"
             title={t('gr.noEntries')}
-            subtitle={
-              search || statusTab !== 'All'
-                ? 'No GRs match your search or filter.'
-                : 'Shipments will appear here once created.'
-            }
-            actionLabel={t('gr.createGR')}
-            onActionPress={() => navigate('CreateGR')}
+            subtitle={search || statusTab !== 'All' || consignorFilter || effectiveArea ? t('gr.searchResultsEmpty') : t('gr.shipmentsWillAppear')}
+            actionLabel={consignorFilter || effectiveArea ? t('gr.clearFilter') : t('gr.createGR')}
+            onActionPress={consignorFilter || effectiveArea ? () => { setConsignorFilter(null); setAreaFilter(null); } : () => navigate('CreateGR')}
           />
         )}
 
@@ -366,12 +457,7 @@ export const AdminGRShipmentsScreen = () => {
                   <View style={styles.cardHeaderRight}>
                     <StatusBadge status={gr.status} size="sm" />
                     {canDeleteGR && (
-                      <TouchableOpacity
-                        onPress={() => setMenuTarget(gr)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        style={styles.menuButton}
-                        accessibilityLabel={`More actions for GR ${gr.orderNumber}`}
-                      >
+                      <TouchableOpacity onPress={() => setMenuTarget(gr)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.menuButton}>
                         <Ionicons name="ellipsis-vertical" size={16} color={colors.textMuted} />
                       </TouchableOpacity>
                     )}
@@ -386,6 +472,25 @@ export const AdminGRShipmentsScreen = () => {
                     {gr.pickupAddress} → {gr.deliveryAddress}
                   </Text>
                 </View>
+
+                {gr.toPay > 0 && (
+                  <View style={styles.financialRow}>
+                    <View style={styles.financialBlock}>
+                      <Text style={[styles.financialLabel, { color: colors.textMuted }]}>{t('receiving.toPay')}</Text>
+                      <Text style={[styles.financialValue, { color: colors.textPrimary }]}>{formatCurrency(gr.toPay)}</Text>
+                    </View>
+                    <View style={styles.financialBlock}>
+                      <Text style={[styles.financialLabel, { color: colors.textMuted }]}>{t('receiving.paid')}</Text>
+                      <Text style={[styles.financialValue, { color: '#10B981' }]}>{formatCurrency(gr.totalPaid)}</Text>
+                    </View>
+                    <View style={styles.financialBlock}>
+                      <Text style={[styles.financialLabel, { color: colors.textMuted }]}>{t('receiving.balance')}</Text>
+                      <Text style={[styles.financialValue, { color: gr.outstanding > 0 ? '#F97316' : '#10B981' }]}>
+                        {formatCurrency(gr.outstanding)}
+                      </Text>
+                    </View>
+                  </View>
+                )}
                 <View style={styles.cardFooter}>
                   <View style={styles.slipInfo}>
                     <Ionicons
@@ -393,12 +498,7 @@ export const AdminGRShipmentsScreen = () => {
                       size={14}
                       color={gr.source === 'excel' ? '#635BFF' : gr.hasSlip ? '#10B981' : colors.textMuted}
                     />
-                    <Text
-                      style={[
-                        styles.slipText,
-                        { color: gr.source === 'excel' ? '#635BFF' : gr.hasSlip ? '#10B981' : colors.textMuted },
-                      ]}
-                    >
+                    <Text style={[styles.slipText, { color: gr.source === 'excel' ? '#635BFF' : gr.hasSlip ? '#10B981' : colors.textMuted }]}>
                       {gr.source === 'excel' ? t('gr.excelImported') : gr.hasSlip ? t('gr.slipUploaded') : t('gr.noSlip')}
                     </Text>
                   </View>
@@ -406,37 +506,153 @@ export const AdminGRShipmentsScreen = () => {
                 </View>
               </TouchableOpacity>
             ))}
-            {loadingMore && <ShimmerCard style={styles.cardShimmer} height={110} />}
+            {loadingMore && <ShimmerCard style={styles.shimmerBlock} height={130} />}
           </View>
         )}
       </ScrollView>
 
-      {/* Per-card "⋮" action menu (View GR / Delete GR) — only rendered for
-       * roles `canDeleteGR` allows (the "⋮" button itself is hidden for
-       * everyone else, so `menuTarget` can never be set by an unauthorized
-       * user). Uses a `Modal`, not `Alert.alert`, so it actually renders on
-       * web (see `ConfirmDialog`'s own doc comment for why). */}
+      {/* Filter Bottom Sheet */}
+      <Modal visible={filterSheetOpen} transparent animationType="slide" onRequestClose={() => setFilterSheetOpen(false)}>
+        <Pressable style={[styles.menuBackdrop, { backgroundColor: colors.overlay }]} onPress={() => setFilterSheetOpen(false)}>
+          <View style={[styles.bottomSheet, { backgroundColor: colors.surface, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl }]}>
+            <View style={styles.sheetHandle} />
+            <Text style={[styles.sheetTitle, { color: colors.textPrimary }]}>{t('common.filter')}</Text>
+
+            <Text style={[styles.sheetLabel, { color: colors.textMuted }]}>{t('filters.dateRange')}</Text>
+            <View style={styles.sheetChipRow}>
+              {(['all', 'today', 'week', 'month'] as const).map((opt) => (
+                <TouchableOpacity
+                  key={opt}
+                  style={[styles.sheetChip, { borderRadius: radii.pill }, dateFilter === opt ? styles.sheetChipActive : { borderColor: colors.border }]}
+                  onPress={() => setDateFilter(opt)}
+                >
+                  <Text style={[styles.sheetChipText, { fontSize: fonts.size.sm }, dateFilter === opt ? styles.sheetChipTextActive : { color: colors.textMuted }]}>
+                    {opt === 'all' ? t('filters.all') : opt === 'today' ? t('filters.today') : opt === 'week' ? t('filters.thisWeek') : t('filters.thisMonth')}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.sheetApplyBtn, { backgroundColor: colors.primary, borderRadius: radii.lg }]}
+              onPress={() => setFilterSheetOpen(false)}
+            >
+              <Text style={[styles.sheetApplyText, { color: '#fff' }]}>{t('filters.applyFilters')}</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Shop Owner Filter Bottom Sheet */}
+      <Modal visible={consignorSheetOpen} transparent animationType="slide" onRequestClose={() => setConsignorSheetOpen(false)}>
+        <Pressable style={[styles.menuBackdrop, { backgroundColor: colors.overlay }]} onPress={() => setConsignorSheetOpen(false)}>
+          <View style={[styles.bottomSheet, { backgroundColor: colors.surface, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl }]}>
+            <View style={styles.sheetHandle} />
+            <Text style={[styles.sheetTitle, { color: colors.textPrimary }]}>{t('gr.filterByShopOwner')}</Text>
+
+            <ScrollView style={styles.consignorList} showsVerticalScrollIndicator={false}>
+              {/* All Shop Owners option */}
+              <TouchableOpacity
+                style={[styles.consignorOption, { borderColor: !consignorFilter ? colors.primary : colors.border, backgroundColor: !consignorFilter ? `${colors.primary}10` : 'transparent' }]}
+                onPress={() => { setConsignorFilter(null); setConsignorSheetOpen(false); }}
+              >
+                <View style={[styles.consignorRadio, { borderColor: !consignorFilter ? colors.primary : colors.border }]}>
+                  {!consignorFilter && <View style={[styles.consignorRadioInner, { backgroundColor: colors.primary }]} />}
+                </View>
+                <Text style={[styles.consignorOptionText, { color: !consignorFilter ? colors.primary : colors.textPrimary }]}>
+                  {t('gr.allShopOwners')}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Individual consignor options */}
+              {consignorOptions.map((name) => (
+                <TouchableOpacity
+                  key={name}
+                  style={[styles.consignorOption, { borderColor: consignorFilter === name ? colors.primary : colors.border, backgroundColor: consignorFilter === name ? `${colors.primary}10` : 'transparent' }]}
+                  onPress={() => { setConsignorFilter(name); setConsignorSheetOpen(false); }}
+                >
+                  <View style={[styles.consignorRadio, { borderColor: consignorFilter === name ? colors.primary : colors.border }]}>
+                    {consignorFilter === name && <View style={[styles.consignorRadioInner, { backgroundColor: colors.primary }]} />}
+                  </View>
+                  <Text style={[styles.consignorOptionText, { color: consignorFilter === name ? colors.primary : colors.textPrimary }]}>
+                    {name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+
+              {consignorOptions.length === 0 && (
+                <Text style={[styles.consignorEmpty, { color: colors.textMuted }]}>{t('gr.noShopOwners')}</Text>
+              )}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[styles.sheetApplyBtn, { backgroundColor: colors.primary, borderRadius: radii.lg }]}
+              onPress={() => setConsignorSheetOpen(false)}
+            >
+              <Text style={[styles.sheetApplyText, { color: '#fff' }]}>{t('filters.applyFilters')}</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Location Filter Bottom Sheet */}
+      <Modal visible={areaSheetOpen} transparent animationType="slide" onRequestClose={() => setAreaSheetOpen(false)}>
+        <Pressable style={[styles.menuBackdrop, { backgroundColor: colors.overlay }]} onPress={() => setAreaSheetOpen(false)}>
+          <View style={[styles.bottomSheet, { backgroundColor: colors.surface, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl }]}>
+            <View style={styles.sheetHandle} />
+            <Text style={[styles.sheetTitle, { color: colors.textPrimary }]}>{t('gr.filterByLocation')}</Text>
+
+            <ScrollView style={styles.consignorList} showsVerticalScrollIndicator={false}>
+              {/* All Locations option */}
+              <TouchableOpacity
+                style={[styles.consignorOption, { borderColor: !areaFilter ? colors.primary : colors.border, backgroundColor: !areaFilter ? `${colors.primary}10` : 'transparent' }]}
+                onPress={() => { setAreaFilter(null); setAreaSheetOpen(false); }}
+              >
+                <View style={[styles.consignorRadio, { borderColor: !areaFilter ? colors.primary : colors.border }]}>
+                  {!areaFilter && <View style={[styles.consignorRadioInner, { backgroundColor: colors.primary }]} />}
+                </View>
+                <Text style={[styles.consignorOptionText, { color: !areaFilter ? colors.primary : colors.textPrimary }]}>
+                  {t('gr.allLocations')}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Individual area options */}
+              {AREAS.map((area) => (
+                <TouchableOpacity
+                  key={area}
+                  style={[styles.consignorOption, { borderColor: areaFilter === area ? colors.primary : colors.border, backgroundColor: areaFilter === area ? `${colors.primary}10` : 'transparent' }]}
+                  onPress={() => { setAreaFilter(area); setAreaSheetOpen(false); }}
+                >
+                  <View style={[styles.consignorRadio, { borderColor: areaFilter === area ? colors.primary : colors.border }]}>
+                    {areaFilter === area && <View style={[styles.consignorRadioInner, { backgroundColor: colors.primary }]} />}
+                  </View>
+                  <Text style={[styles.consignorOptionText, { color: areaFilter === area ? colors.primary : colors.textPrimary }]}>
+                    {area}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[styles.sheetApplyBtn, { backgroundColor: colors.primary, borderRadius: radii.lg }]}
+              onPress={() => setAreaSheetOpen(false)}
+            >
+              <Text style={[styles.sheetApplyText, { color: '#fff' }]}>{t('filters.applyFilters')}</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Per-card menu */}
       <Modal visible={!!menuTarget} transparent animationType="fade" onRequestClose={() => setMenuTarget(null)}>
         <Pressable style={[styles.menuBackdrop, { backgroundColor: colors.overlay }]} onPress={() => setMenuTarget(null)}>
           <View style={[styles.menuCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.lg }]}>
             <Text style={[styles.menuTitle, { color: colors.textMuted }]}>GR {menuTarget?.orderNumber}</Text>
-            <TouchableOpacity
-              style={styles.menuRow}
-              onPress={() => {
-                if (menuTarget) navigate('GRDetails', { orderId: menuTarget.id });
-                setMenuTarget(null);
-              }}
-            >
+            <TouchableOpacity style={styles.menuRow} onPress={() => { if (menuTarget) navigate('GRDetails', { orderId: menuTarget.id }); setMenuTarget(null); }}>
               <Ionicons name="eye-outline" size={18} color={colors.textPrimary} />
               <Text style={[styles.menuRowText, { color: colors.textPrimary }]}>{t('gr.viewGR')}</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.menuRow}
-              onPress={() => {
-                setDeleteTarget(menuTarget);
-                setMenuTarget(null);
-              }}
-            >
+            <TouchableOpacity style={styles.menuRow} onPress={() => { setDeleteTarget(menuTarget); setMenuTarget(null); }}>
               <Ionicons name="trash-outline" size={18} color={colors.error} />
               <Text style={[styles.menuRowText, { color: colors.error }]}>{t('gr.deleteGR')}</Text>
             </TouchableOpacity>
@@ -444,30 +660,16 @@ export const AdminGRShipmentsScreen = () => {
         </Pressable>
       </Modal>
 
-      {/* "+" header action sheet — Create GR vs Import from Excel. Only
-       * opened for `canImportExcel` roles (`onAddPress` above); everyone
-       * else's "+" still goes straight to Create GR, unchanged. */}
+      {/* Add menu */}
       <Modal visible={addMenuOpen} transparent animationType="fade" onRequestClose={() => setAddMenuOpen(false)}>
         <Pressable style={[styles.menuBackdrop, { backgroundColor: colors.overlay }]} onPress={() => setAddMenuOpen(false)}>
           <View style={[styles.menuCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.lg }]}>
             <Text style={[styles.menuTitle, { color: colors.textMuted }]}>GR / Shipments</Text>
-            <TouchableOpacity
-              style={styles.menuRow}
-              onPress={() => {
-                setAddMenuOpen(false);
-                navigate('CreateGR');
-              }}
-            >
+            <TouchableOpacity style={styles.menuRow} onPress={() => { setAddMenuOpen(false); navigate('CreateGR'); }}>
               <Ionicons name="add-circle-outline" size={18} color={colors.textPrimary} />
               <Text style={[styles.menuRowText, { color: colors.textPrimary }]}>Create GR</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.menuRow}
-              onPress={() => {
-                setAddMenuOpen(false);
-                navigate('ExcelImport');
-              }}
-            >
+            <TouchableOpacity style={styles.menuRow} onPress={() => { setAddMenuOpen(false); navigate('ExcelImport'); }}>
               <Ionicons name="cloud-upload-outline" size={18} color={colors.textPrimary} />
               <Text style={[styles.menuRowText, { color: colors.textPrimary }]}>Import from Excel</Text>
             </TouchableOpacity>
@@ -484,9 +686,7 @@ export const AdminGRShipmentsScreen = () => {
         destructive
         confirmDisabled={deleting}
         onConfirm={confirmDeleteGR}
-        onCancel={() => {
-          if (!deleting) setDeleteTarget(null);
-        }}
+        onCancel={() => { if (!deleting) setDeleteTarget(null); }}
       />
     </SafeAreaView>
   );
@@ -496,14 +696,38 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
   StyleSheet.create({
     safe: { flex: 1 },
     scrollContent: { paddingBottom: 40, paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.md },
-    searchBar: { position: 'relative', justifyContent: 'center', marginBottom: theme.spacing.md },
+    shimmerBlock: { marginBottom: theme.spacing.md, borderRadius: theme.radii.lg },
+    summaryRow: { flexDirection: 'row', gap: 8, marginBottom: theme.spacing.lg },
+    summaryCard: { flex: 1, padding: 12, alignItems: 'center', gap: 2 },
+    summaryValue: { fontSize: theme.fonts.size.xl, fontWeight: '800' },
+    summaryLabel: { fontSize: theme.fonts.size.xs, fontWeight: '600', textAlign: 'center' },
+    searchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: theme.spacing.md },
     searchIcon: { position: 'absolute', left: 14, zIndex: 1 },
-    searchInput: { borderRadius: theme.radii.lg, paddingHorizontal: 40, paddingVertical: 12, fontSize: theme.fonts.size.md },
-    searchShimmer: { marginBottom: theme.spacing.md, borderRadius: theme.radii.lg },
+    searchInput: { flex: 1, borderRadius: theme.radii.lg, paddingHorizontal: 40, paddingVertical: 12, fontSize: theme.fonts.size.md },
+    filterBtn: { paddingHorizontal: 12, paddingVertical: 12, borderWidth: 1, borderColor: theme.colors.border },
+    consignorFilterBtn: {
+      flexDirection: 'row', alignItems: 'center', gap: 8,
+      paddingHorizontal: 14, paddingVertical: 10, marginBottom: theme.spacing.sm,
+      borderWidth: 1,
+    },
+    consignorFilterText: { flex: 1, fontSize: theme.fonts.size.sm, fontWeight: '600' },
+    resultCountRow: { marginBottom: theme.spacing.sm },
+    resultCountText: { fontSize: theme.fonts.size.xs, fontWeight: '600' },
+    consignorList: { maxHeight: 320, marginBottom: 16 },
+    consignorOption: {
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      paddingVertical: 12, paddingHorizontal: 14,
+      borderWidth: 1, borderRadius: theme.radii.md, marginBottom: 8,
+    },
+    consignorRadio: {
+      width: 18, height: 18, borderRadius: 9, borderWidth: 2,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    consignorRadioInner: { width: 10, height: 10, borderRadius: 5 },
+    consignorOptionText: { fontSize: theme.fonts.size.md, fontWeight: '600', flex: 1 },
+    consignorEmpty: { fontSize: theme.fonts.size.sm, fontWeight: '600', textAlign: 'center', paddingVertical: 20 },
     filters: { marginBottom: theme.spacing.lg },
-    filterShimmer: { width: 200, borderRadius: theme.radii.pill, marginBottom: theme.spacing.lg },
     list: { gap: theme.spacing.md },
-    cardShimmer: { marginBottom: theme.spacing.md, borderRadius: theme.radii.lg },
     card: { padding: 16, gap: 6 },
     cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -512,31 +736,38 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     consignorLine: { fontSize: theme.fonts.size.sm, fontWeight: '600' },
     routeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     routeLine: { fontSize: theme.fonts.size.xs, flex: 1 },
+    financialRow: {
+      flexDirection: 'row', gap: 12, marginTop: 6, paddingTop: 8,
+      borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border,
+    },
+    financialBlock: { flex: 1, alignItems: 'center' },
+    financialLabel: { fontSize: theme.fonts.size.xs, fontWeight: '600', marginBottom: 2 },
+    financialValue: { fontSize: theme.fonts.size.sm, fontWeight: '800' },
     cardFooter: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginTop: 6,
-      paddingTop: 8,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: theme.colors.border,
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      marginTop: 6, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border,
     },
     slipInfo: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     slipText: { fontSize: theme.fonts.size.xs, fontWeight: '700' },
     dateText: { fontSize: theme.fonts.size.xs, fontWeight: '600' },
-    actionBanner: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      padding: 12,
-      marginBottom: theme.spacing.md,
-    },
+    actionBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, marginBottom: theme.spacing.md },
     actionBannerText: { flex: 1, fontSize: theme.fonts.size.sm, fontWeight: '600' },
     menuBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
     menuCard: { width: '100%', maxWidth: 320, paddingVertical: 8 },
     menuTitle: { fontSize: theme.fonts.size.xs, fontWeight: '700', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4 },
     menuRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
     menuRowText: { fontSize: theme.fonts.size.md, fontWeight: '600' },
+    bottomSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 24, paddingBottom: 40, paddingTop: 8 },
+    sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: theme.colors.border, alignSelf: 'center', marginBottom: 16 },
+    sheetTitle: { fontSize: theme.fonts.size.lg, fontWeight: '800', marginBottom: 16 },
+    sheetLabel: { fontSize: theme.fonts.size.sm, fontWeight: '700', marginBottom: 8 },
+    sheetChipRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
+    sheetChip: { paddingHorizontal: 16, paddingVertical: 8, borderWidth: 1 },
+    sheetChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+    sheetChipText: { fontWeight: '700' },
+    sheetChipTextActive: { color: '#fff' },
+    sheetApplyBtn: { paddingVertical: 14, alignItems: 'center' },
+    sheetApplyText: { fontSize: theme.fonts.size.md, fontWeight: '800' },
   });
 
 export default AdminGRShipmentsScreen;
