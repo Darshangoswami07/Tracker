@@ -1,6 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { StyleSheet, Text, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { AnimatedHeader } from '../../components/AnimatedHeader';
 import { AuthScaffold } from '../../components/AuthScaffold';
 import { FormCheckbox } from '../../components/form/FormCheckbox';
@@ -15,7 +16,6 @@ import { TextLink } from '../../components/TextLink';
 import { useAuth } from '../../hooks/useAuth';
 import { useSessionStore } from '../../store/sessionStore';
 import { useAppTheme } from '../../theme/useAppTheme';
-import { STRINGS } from '../../constants/strings';
 import { loginSchema, type LoginValues } from '../../features/auth/schemas/authSchemas';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../../navigation/types';
@@ -27,16 +27,13 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
  *  Each account type still hits its own dedicated portal endpoint
  *  (`/auth/staff/login` vs `/auth/admin/login`), so the separation is
  *  backend-enforced, not just a label swap. */
-const LOGIN_HEADINGS: Record<'admin' | 'staff', string> = {
-  admin: STRINGS.adminLoginTitle,
-  staff: STRINGS.staffLoginTitle,
-};
 
 export const LoginScreen = ({ navigation, route }: Props) => {
+  const { t } = useTranslation();
   const { colors, spacing } = useAppTheme();
   const login = useAuth().login;
   const accountType = route.params?.accountType;
-  const headingTitle = accountType ? LOGIN_HEADINGS[accountType] : STRINGS.welcomeBack;
+  const headingTitle = accountType === 'admin' ? t('auth.adminLoginTitle') : accountType === 'staff' ? t('auth.staffLoginTitle') : t('auth.welcomeBack');
   const rememberedEmail = useSessionStore((state) => state.rememberedEmail);
   const rememberMe = useSessionStore((state) => state.rememberMe);
   const setRememberMe = useSessionStore((state) => state.setRememberMe);
@@ -97,16 +94,16 @@ export const LoginScreen = ({ navigation, route }: Props) => {
         <FormNotice error={login.error} />
 
         {showPendingMessage && (
-          <FormNotice message={isStaffPortal ? STRINGS.staffAccountPending : STRINGS.accountPending} />
+          <FormNotice message={isStaffPortal ? t('auth.staffAccountPending') : t('auth.accountPending')} />
         )}
 
         {showRejectedMessage && (
-          <FormNotice message={STRINGS.staffAccountRejected} />
+          <FormNotice message={t('auth.staffAccountRejected')} />
         )}
 
         {showApprovedMessage && (
           <>
-            <FormNotice message={STRINGS.accountApprovedOTP} />
+            <FormNotice message={t('auth.accountApprovedOTP')} />
             <PrimaryButton
               label="Enter OTP"
               onPress={() => {
@@ -138,9 +135,9 @@ export const LoginScreen = ({ navigation, route }: Props) => {
         <FormTextBox
           control={control}
           name="email"
-          label={STRINGS.email}
+          label={t('auth.email')}
           icon="mail-outline"
-          placeholder={STRINGS.emailPlaceholder}
+          placeholder={t('auth.emailPlaceholder')}
           keyboardType="email-address"
           autoCapitalize="none"
           autoComplete="email"
@@ -150,7 +147,7 @@ export const LoginScreen = ({ navigation, route }: Props) => {
         <FormPasswordField
           control={control}
           name="password"
-          label={STRINGS.password}
+          label={t('auth.password')}
           placeholder="Enter your password"
           textContentType="password"
           returnKeyType="done"
@@ -160,17 +157,17 @@ export const LoginScreen = ({ navigation, route }: Props) => {
         <View style={styles.rowBetween}>
           <View style={styles.rememberSection}>
             <FormCheckbox control={control} name="rememberMe">
-              {STRINGS.rememberMe}
+              {t('auth.rememberMe')}
             </FormCheckbox>
           </View>
           <View style={styles.forgotSection}>
-            <TextLink label={STRINGS.forgotPassword} onPress={() => navigation.navigate('ForgotPassword')} />
+            <TextLink label={t('auth.forgotPassword')} onPress={() => navigation.navigate('ForgotPassword')} />
           </View>
         </View>
       </View>
 
       <PrimaryButton
-        label={login.isPending ? STRINGS.loggingIn : STRINGS.login}
+        label={login.isPending ? t('auth.loggingIn') : t('auth.login')}
         loading={login.isPending}
         onPress={handleSubmit(onSubmit)}
         showArrow
@@ -178,7 +175,7 @@ export const LoginScreen = ({ navigation, route }: Props) => {
 
       <View style={[styles.footerRow, { marginTop: spacing.xxl }]}>
         <Text style={[styles.footerText, { color: colors.textSecondary }]}>
-          {isStaffPortal ? STRINGS.noStaffAccount : accountType === 'admin' ? STRINGS.noAdminAccount : STRINGS.noAccount}{' '}
+          {isStaffPortal ? t('auth.noStaffAccount') : accountType === 'admin' ? t('auth.noAdminAccount') : t('auth.noAccount')}{' '}
         </Text>
         <TextLink label="Sign Up" onPress={() => navigation.navigate('Register', { accountType })} />
       </View>

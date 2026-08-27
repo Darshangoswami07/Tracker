@@ -7,7 +7,7 @@ export type IoniconName = ComponentProps<typeof Ionicons>['name'];
 /** A single selectable row in the DeliveryHub drawer. */
 export interface DrawerMenuItem {
   key: string;
-  label: string;
+  labelKey: string;
   icon: IoniconName;
   /** Target screen inside the role's navigation stack. */
   screen?: string;
@@ -19,33 +19,33 @@ export interface DrawerMenuItem {
 
 export interface DrawerMenuSection {
   key: string;
-  title?: string;
+  titleKey?: string;
   items: DrawerMenuItem[];
 }
 
 const HELP: DrawerMenuItem = {
   key: 'help',
-  label: 'Help & Support',
+  labelKey: 'common.helpSupport',
   icon: 'help-circle-outline',
   screen: 'HelpSupport',
 };
-const LOGOUT: DrawerMenuItem = { key: 'logout', label: 'Logout', icon: 'log-out-outline', action: 'logout' };
+const LOGOUT: DrawerMenuItem = { key: 'logout', labelKey: 'navigation.logout', icon: 'log-out-outline', action: 'logout' };
 
 const NOTIFICATIONS: DrawerMenuItem = {
   key: 'notifications',
-  label: 'Notifications',
+  labelKey: 'navigation.notifications',
   icon: 'notifications-outline',
   screen: 'Notifications',
 };
 const PROFILE: DrawerMenuItem = {
   key: 'profile',
-  label: 'Profile',
+  labelKey: 'common.profile',
   icon: 'person-circle-outline',
   screen: 'Profile',
 };
 const SETTINGS: DrawerMenuItem = {
   key: 'settings',
-  label: 'Settings',
+  labelKey: 'navigation.settings',
   icon: 'settings-outline',
   screen: 'Settings',
 };
@@ -63,23 +63,25 @@ export const getDrawerMenu = (role: Role): DrawerMenuSection[] => {
   switch (role) {
     case ROLES.STAFF:
       main.push(
-        { key: 'dashboard', label: 'Dashboard', icon: 'grid-outline', screen: 'StaffDashboard' },
-        { key: 'deliveries', label: 'Deliveries', icon: 'reader-outline', screen: 'StaffDeliveries' },
+        { key: 'dashboard', labelKey: 'navigation.dashboard', icon: 'grid-outline', screen: 'StaffDashboard' },
+        { key: 'deliveries', labelKey: 'navigation.deliveries', icon: 'reader-outline', screen: 'StaffDeliveries' },
       );
       secondary.push(NOTIFICATIONS, PROFILE, SETTINGS);
       break;
 
     case ROLES.SUPER_ADMIN:
       main.push(
-        { key: 'dashboard', label: 'Dashboard', icon: 'grid-outline', screen: 'AdminDashboard' },
-        { key: 'pending-approvals', label: 'Pending Approvals', icon: 'time-outline', screen: 'PendingApprovals' },
-        { key: 'staff-management', label: 'Staff Management', icon: 'people-circle-outline', screen: 'StaffManagement' },
-        { key: 'staff-approvals', label: 'Staff Approvals', icon: 'checkmark-done-circle-outline', screen: 'StaffApprovals' },
-        { key: 'gr-shipments', label: 'GR / Shipments', icon: 'reader-outline', screen: 'GRShipments' },
-        { key: 'customer-tracking', label: 'Customer Tracking', icon: 'search-outline', screen: 'CustomerTracking' },
-        { key: 'gr-tracker-classic', label: 'GR Tracker (Classic)', icon: 'time-outline', screen: 'GRTrackerClassic' },
+        { key: 'dashboard', labelKey: 'navigation.dashboard', icon: 'grid-outline', screen: 'AdminDashboard' },
+        { key: 'pending-approvals', labelKey: 'navigation.pendingApprovals', icon: 'time-outline', screen: 'PendingApprovals' },
+        { key: 'staff-management', labelKey: 'navigation.staffManagement', icon: 'people-circle-outline', screen: 'StaffManagement' },
+        { key: 'staff-approvals', labelKey: 'navigation.staffApprovals', icon: 'checkmark-done-circle-outline', screen: 'StaffApprovals' },
+        { key: 'gr-shipments', labelKey: 'navigation.grShipments', icon: 'reader-outline', screen: 'GRShipments' },
+        { key: 'gr-tracker-classic', labelKey: 'navigation.grTrackerClassic', icon: 'time-outline', screen: 'GRTrackerClassic' },
       );
-      secondary.push(NOTIFICATIONS, PROFILE, SETTINGS);
+      secondary.push(
+        { key: 'customer-tracking', labelKey: 'navigation.customerTracking', icon: 'search-outline', screen: 'CustomerTracking' },
+        NOTIFICATIONS, PROFILE, SETTINGS,
+      );
       break;
 
     case ROLES.ADMIN:
@@ -89,19 +91,21 @@ export const getDrawerMenu = (role: Role): DrawerMenuSection[] => {
       // those stay locked server-side. Staff Approvals (the separate
       // self-service Staff portal's queue) is available to a plain Admin too.
       main.push(
-        { key: 'dashboard', label: 'Dashboard', icon: 'grid-outline', screen: 'AdminDashboard' },
-        { key: 'staff-approvals', label: 'Staff Approvals', icon: 'checkmark-done-circle-outline', screen: 'StaffApprovals' },
-        { key: 'gr-shipments', label: 'GR / Shipments', icon: 'reader-outline', screen: 'GRShipments' },
-        { key: 'customer-tracking', label: 'Customer Tracking', icon: 'search-outline', screen: 'CustomerTracking' },
-        { key: 'gr-tracker-classic', label: 'GR Tracker (Classic)', icon: 'time-outline', screen: 'GRTrackerClassic' },
+        { key: 'dashboard', labelKey: 'navigation.dashboard', icon: 'grid-outline', screen: 'AdminDashboard' },
+        { key: 'staff-approvals', labelKey: 'navigation.staffApprovals', icon: 'checkmark-done-circle-outline', screen: 'StaffApprovals' },
+        { key: 'gr-shipments', labelKey: 'navigation.grShipments', icon: 'reader-outline', screen: 'GRShipments' },
+        { key: 'gr-tracker-classic', labelKey: 'navigation.grTrackerClassic', icon: 'time-outline', screen: 'GRTrackerClassic' },
       );
-      secondary.push(NOTIFICATIONS, PROFILE, SETTINGS);
+      secondary.push(
+        { key: 'customer-tracking', labelKey: 'navigation.customerTracking', icon: 'search-outline', screen: 'CustomerTracking' },
+        NOTIFICATIONS, PROFILE, SETTINGS,
+      );
       break;
   }
 
   const sections: DrawerMenuSection[] = [{ key: 'main', items: main }];
   if (secondary.length > 0) {
-    sections.push({ key: 'general', title: 'General', items: secondary });
+    sections.push({ key: 'general', titleKey: 'common.general', items: secondary });
   }
   if (actions.length > 0) {
     sections.push({ key: 'actions', items: actions });

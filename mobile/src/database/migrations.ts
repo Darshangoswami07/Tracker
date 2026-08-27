@@ -174,6 +174,25 @@ export const runMigrations = async (db: SQLiteDatabase): Promise<void> => {
     version = 7;
   }
 
+  // v7 -> v8: Add payments table for tracking individual payment records
+  // against GR/Orders. Additive only: no existing rows touched.
+  if (version === 7) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS payments (
+        id              TEXT PRIMARY KEY NOT NULL,
+        orderId         TEXT NOT NULL,
+        amount          REAL NOT NULL,
+        paymentMethod   TEXT,
+        notes           TEXT,
+        recordedBy      TEXT,
+        createdAt       TEXT NOT NULL,
+        FOREIGN KEY (orderId) REFERENCES orders(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_payments_orderId ON payments(orderId);
+    `);
+    version = 8;
+  }
+
   // Unconditional final self-heal, independent of `version`. A version-0
   // install that ran `CREATE_SCHEMA_SQL` (which, before this table was added
   // to it, jumped straight from 0 to SCHEMA_VERSION) never passed through
@@ -193,6 +212,24 @@ export const runMigrations = async (db: SQLiteDatabase): Promise<void> => {
       failedRows      INTEGER NOT NULL DEFAULT 0
     );
   `);
+
+  // v8 -> v9: Add `area` column to orders and import_history for area-based
+  // staff access control. Additive only: existing rows get NULL (no area assigned).
+  if (version === 8) {
+    const orderColumns = new Set(
+      (await db.getAllAsync<{ name: string }>('PRAGMA table_info(orders)')).map((c) => c.name)
+    );
+    if (!orderColumns.has('area')) {
+      await db.execAsync('ALTER TABLE orders ADD COLUMN area TEXT');
+    }
+    const importColumns = new Set(
+      (await db.getAllAsync<{ name: string }>('PRAGMA table_info(import_history)')).map((c) => c.name)
+    );
+    if (!importColumns.has('area')) {
+      await db.execAsync('ALTER TABLE import_history ADD COLUMN area TEXT');
+    }
+    version = 9;
+  }
 
   await db.execAsync(`PRAGMA user_version = ${version}`);
 };

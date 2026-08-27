@@ -1,12 +1,12 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Linking, StyleSheet, Text, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { AnimatedHeader } from '../../components/AnimatedHeader';
 import { AuthScaffold } from '../../components/AuthScaffold';
 import { GhostButton } from '../../components/auth/GhostButton';
 import { StatusCard } from '../../components/auth/StatusCard';
 import { SuccessMark } from '../../components/auth/SuccessMark';
 import { PrimaryButton } from '../../components/PrimaryButton';
-import { STRINGS } from '../../constants/strings';
 import type { AuthStackParamList } from '../../navigation/types';
 import { useAppTheme } from '../../theme/useAppTheme';
 
@@ -19,6 +19,7 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'StaffRejected'>;
  * is never deleted server-side — this is purely informational.
  */
 export const StaffRejectedScreen = ({ navigation, route }: Props) => {
+  const { t } = useTranslation();
   const { colors, spacing, fonts } = useAppTheme();
   const reason = route.params?.reason;
 
@@ -35,16 +36,16 @@ export const StaffRejectedScreen = ({ navigation, route }: Props) => {
       </View>
 
       <Text style={[styles.title, { color: colors.textPrimary, fontSize: fonts.size.xxl, fontWeight: fonts.weight.heavy }]}>
-        Staff Account Rejected
+        {t('auth.staffAccountRejectedTitle')}
       </Text>
       <Text style={[styles.subtitle, { color: colors.textSecondary, fontSize: fonts.size.md }]}>
-        {STRINGS.staffAccountRejected}
+        {t('auth.staffAccountRejectedMessage')}
       </Text>
 
       {reason ? (
         <>
           <View style={{ height: spacing.xxl }} />
-          <StatusCard icon="alert-circle-outline" title="Message from the Admin">
+          <StatusCard icon="alert-circle-outline" title={t('auth.messageFromAdmin')}>
             <Text style={[styles.reason, { color: colors.textPrimary, fontSize: fonts.size.md }]}>{reason}</Text>
           </StatusCard>
         </>
@@ -52,11 +53,11 @@ export const StaffRejectedScreen = ({ navigation, route }: Props) => {
 
       <View style={{ height: spacing.xl }} />
 
-      <PrimaryButton label="Back to Role Selection" onPress={() => navigation.navigate('RoleSelection')} showArrow />
+      <PrimaryButton label={t('common.backToRoleSelection')} onPress={() => navigation.navigate('RoleSelection')} showArrow />
 
       <View style={{ height: spacing.md }} />
 
-      <GhostButton label="Contact Support" onPress={contactSupport} icon="mail-outline" />
+      <GhostButton label={t('common.contactSupport')} onPress={contactSupport} icon="mail-outline" />
     </AuthScaffold>
   );
 };

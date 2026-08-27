@@ -11,6 +11,7 @@ import { persistSlipImage, type PersistedSlip } from '../../services/slipStorage
 import { Header } from '../../components/Header';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { useAppNav } from '../../hooks/useAppNav';
+import { useTranslation } from 'react-i18next';
 import type { AppTheme } from '../../theme/types';
 
 /** Roles that pick a target company explicitly, matching the web Create GR
@@ -201,6 +202,7 @@ type Mode = 'choose' | 'manual' | 'slip';
 export const AdminCreateGRScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { goBack, navigate } = useAppNav();
+  const { t } = useTranslation();
   const role = useUserStore((state) => state.user?.role) ?? '';
   const isSuperAdminTier = SUPER_ADMIN_TIER_ROLES.includes(role);
 
@@ -332,14 +334,14 @@ export const AdminCreateGRScreen = () => {
           });
         }
       }
-      Alert.alert('GR Created', `GR ${created?.orderNumber ?? form.grNumber} was created successfully.`);
+      Alert.alert(t('createGR.createdTitle'), t('createGR.createdMessage', { number: created?.orderNumber ?? form.grNumber }));
       if (created?.id) {
         navigate('GRDetails', { orderId: created.id });
       } else {
         goBack();
       }
     } catch (err: any) {
-      setErrorText(err?.message ?? 'Could not create the GR. Please try again.');
+      setErrorText(err?.message ?? t('createGR.couldNotCreate'));
     } finally {
       setSubmitting(false);
     }
@@ -351,7 +353,7 @@ export const AdminCreateGRScreen = () => {
         const cam = await ImagePicker.requestCameraPermissionsAsync();
         if (!cam.granted) {
           if (cam.canAskAgain) {
-            Alert.alert('Permission Required', 'Camera permission is required to photograph a slip.');
+            Alert.alert(t('createGR.permissionRequired'), t('createGR.cameraPermission'));
           } else {
             Alert.alert(
               'Permission Required',
@@ -368,7 +370,7 @@ export const AdminCreateGRScreen = () => {
         const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (!lib.granted) {
           if (lib.canAskAgain) {
-            Alert.alert('Permission Required', 'Gallery permission is required to select a slip photo.');
+            Alert.alert(t('createGR.permissionRequired'), t('createGR.galleryPermission'));
           } else {
             Alert.alert(
               'Permission Required',
@@ -389,7 +391,7 @@ export const AdminCreateGRScreen = () => {
       if (result.canceled) return;
       const asset = result.assets[0];
       if (asset.fileSize && asset.fileSize > MAX_SLIP_FILE_SIZE_BYTES) {
-        Alert.alert('File Too Large', 'This file is too large. Please select an image or PDF up to 10 MB.');
+        Alert.alert(t('createGR.fileTooLarge'), t('createGR.fileTooLargeMessage'));
         return;
       }
       setSlipImage(asset.uri);
@@ -399,7 +401,7 @@ export const AdminCreateGRScreen = () => {
       // durable path, regardless of whether OCR succeeds.
       setPersistedSlip(await persistSlipImage(asset.uri, asset.mimeType ?? 'image/jpeg'));
     } catch (err: any) {
-      Alert.alert('Could not load image', err?.message ?? 'Please try again.');
+      Alert.alert(t('createGR.couldNotLoadImage'), err?.message ?? t('common.retry'));
     }
   };
 
@@ -425,7 +427,7 @@ export const AdminCreateGRScreen = () => {
       } else {
         setErrorText(
           err?.message ??
-            'Could not read the slip. Check your network / OCR configuration and try again, or switch to Manual entry.'
+            t('createGR.ocrFailed')
         );
       }
     } finally {
@@ -511,9 +513,9 @@ export const AdminCreateGRScreen = () => {
   const leaveDialog = (
     <ConfirmDialog
       visible={showLeaveDialog}
-      title="Leave Create GR?"
-      message="Your entered details will be discarded if you leave this screen."
-      confirmLabel="Discard"
+      title={t('createGR.leaveTitle')}
+      message={t('createGR.leaveMessage')}
+      confirmLabel={t('createGR.discard')}
       destructive
       onConfirm={() => {
         setShowLeaveDialog(false);
@@ -529,7 +531,7 @@ export const AdminCreateGRScreen = () => {
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
         <Header title="Create GR" leftAction={{ icon: 'chevron-back', onPress: handleBack }} />
         <ScrollView contentContainerStyle={styles.chooseContent}>
-          <Text style={[styles.chooseHint, { color: colors.textMuted }]}>How would you like to create this GR?</Text>
+          <Text style={[styles.chooseHint, { color: colors.textMuted }]}>{t('createGR.chooseHint')}</Text>
           <TouchableOpacity
             style={[styles.modeCard, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radii.lg, ...shadows.sm }]}
             onPress={startManual}
@@ -539,8 +541,8 @@ export const AdminCreateGRScreen = () => {
               <Ionicons name="create-outline" size={26} color={colors.primary} />
             </View>
             <View style={styles.modeBody}>
-              <Text style={[styles.modeTitle, { color: colors.textPrimary }]}>Manual Entry</Text>
-              <Text style={[styles.modeSubtitle, { color: colors.textSecondary }]}>Type all GR details yourself.</Text>
+              <Text style={[styles.modeTitle, { color: colors.textPrimary }]}>{t('createGR.manualEntry')}</Text>
+              <Text style={[styles.modeSubtitle, { color: colors.textSecondary }]}>{t('createGR.manualEntryDesc')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
           </TouchableOpacity>
@@ -554,9 +556,9 @@ export const AdminCreateGRScreen = () => {
               <Ionicons name="document-text-outline" size={26} color={colors.primary} />
             </View>
             <View style={styles.modeBody}>
-              <Text style={[styles.modeTitle, { color: colors.textPrimary }]}>Import From Slip</Text>
+              <Text style={[styles.modeTitle, { color: colors.textPrimary }]}>{t('createGR.importFromSlip')}</Text>
               <Text style={[styles.modeSubtitle, { color: colors.textSecondary }]}>
-                Photograph or select a transport slip; OCR pre-fills the fields.
+                {t('createGR.importFromSlipDesc')}
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
@@ -588,7 +590,7 @@ export const AdminCreateGRScreen = () => {
               <View style={[styles.slipPlaceholder, { borderColor: colors.border, borderRadius: radii.xl }]}>
                 <Ionicons name="document-text-outline" size={56} color={colors.textMuted} />
                 <Text style={[styles.slipPickHint, { color: colors.textSecondary }]}>
-                  Capture a photo of the transport slip or choose one from your gallery.
+                  {t('createGR.captureHint')}
                 </Text>
               </View>
               <View style={styles.slipPickButtons}>
@@ -598,7 +600,7 @@ export const AdminCreateGRScreen = () => {
                   activeOpacity={0.85}
                 >
                   <Ionicons name="camera-outline" size={20} color={colors.onPrimary} />
-                  <Text style={[styles.pickButtonText, { color: colors.onPrimary }]}>Take Photo</Text>
+                  <Text style={[styles.pickButtonText, { color: colors.onPrimary }]}>{t('createGR.takePhoto')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.pickButton, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: radii.md }]}
@@ -606,7 +608,7 @@ export const AdminCreateGRScreen = () => {
                   activeOpacity={0.85}
                 >
                   <Ionicons name="images-outline" size={20} color={colors.primary} />
-                  <Text style={[styles.pickButtonText, { color: colors.primary }]}>Choose Photo</Text>
+                  <Text style={[styles.pickButtonText, { color: colors.primary }]}>{t('createGR.choosePhoto')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -621,7 +623,7 @@ export const AdminCreateGRScreen = () => {
                   disabled={extracting}
                 >
                   <Ionicons name="refresh-outline" size={20} color={colors.primary} />
-                  <Text style={[styles.pickButtonText, { color: colors.primary }]}>Retake / Reselect</Text>
+                  <Text style={[styles.pickButtonText, { color: colors.primary }]}>{t('createGR.retakeReselect')}</Text>
                 </TouchableOpacity>
               </View>
               <TouchableOpacity
@@ -630,11 +632,11 @@ export const AdminCreateGRScreen = () => {
                 disabled={extracting}
                 activeOpacity={0.85}
               >
-                {extracting ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={[styles.submitText, { color: colors.onPrimary }]}>Extract Slip Details</Text>}
+                {extracting ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={[styles.submitText, { color: colors.onPrimary }]}>{t('createGR.extractDetails')}</Text>}
               </TouchableOpacity>
               {slipData && !extracting && (
                 <TouchableOpacity onPress={goToForm} style={{ marginTop: spacing.sm }}>
-                  <Text style={[styles.reviewLink, { color: colors.primary }]}>Review & Edit Fields →</Text>
+                  <Text style={[styles.reviewLink, { color: colors.primary }]}>{t('createGR.reviewEdit')}</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -654,7 +656,7 @@ export const AdminCreateGRScreen = () => {
           <View style={[styles.slipBanner, { backgroundColor: `${colors.primary}12`, borderRadius: radii.lg }]}>
             <Ionicons name="scan-outline" size={18} color={colors.primary} />
             <Text style={[styles.slipBannerText, { color: colors.primary }]}>
-              GR slip scanned successfully. Please review the extracted details before creating the GR.
+              {t('createGR.slipScanned')}
             </Text>
           </View>
         )}
@@ -668,7 +670,7 @@ export const AdminCreateGRScreen = () => {
         <Section title="GR Information" expanded>
           <Field label="GR Number" required value={form.grNumber} onChangeText={set('grNumber')} placeholder="e.g. GR100234" autoCapitalize="characters" />
           {slipData && !slipData.grNumber && !form.grNumber.trim() && (
-            <Text style={[styles.ocrHintText, { color: colors.error }]}>GR number could not be detected. Please enter it manually.</Text>
+            <Text style={[styles.ocrHintText, { color: colors.error }]}>{t('createGR.grNumberNotDetected')}</Text>
           )}
           <Field label="GR Date" value={form.grDate} onChangeText={set('grDate')} placeholder="YYYY-MM-DD" badge={ocrBadge(slipData?.grDate)} />
           <Field
@@ -735,7 +737,7 @@ export const AdminCreateGRScreen = () => {
 
         <Section title="Route" expanded>
           <Field label="From" required value={form.fromLocation} onChangeText={set('fromLocation')} placeholder="e.g. Haldwani" badge={ocrBadge(slipData?.fromAddress, true)} />
-          <Field label="To" required value={form.toLocation} onChangeText={set('toLocation')} placeholder="e.g. Garur" badge={ocrBadge(slipData?.toAddress, true)} />
+          <Field label="To" required value={form.toLocation} onChangeText={set('toLocation')} placeholder="e.g. Garur Someshwar" badge={ocrBadge(slipData?.toAddress, true)} />
         </Section>
 
         <Section title="Goods" expanded>
@@ -811,7 +813,7 @@ export const AdminCreateGRScreen = () => {
           disabled={!canSubmit}
           activeOpacity={0.85}
         >
-          {submitting ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={[styles.submitText, { color: colors.onPrimary }]}>Create GR</Text>}
+          {submitting ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={[styles.submitText, { color: colors.onPrimary }]}>{t('createGR.title')}</Text>}
         </TouchableOpacity>
       </ScrollView>
       {leaveDialog}

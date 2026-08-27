@@ -14,6 +14,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { useUserStore } from '../../store/userStore';
 import { canDeleteGR as roleCanDeleteGR } from '../../constants/roles';
+import { AREAS } from '../../constants/areas';
 import type { AppTheme } from '../../theme/types';
 
 interface GREntry {
@@ -55,7 +56,7 @@ export const StaffGRPanelScreen = () => {
   const { colors, spacing, radii, shadows } = theme;
   const { navigate, goToNotifications } = useAppNav();
   const route = useRoute();
-  const { statusFilter, title } = (route.params as StaffGRPanelParams | undefined) ?? {};
+  const { statusFilter: statusFilterParam, title } = (route.params as StaffGRPanelParams | undefined) ?? {};
 
   const styles = createStyles(theme);
 
@@ -66,9 +67,20 @@ export const StaffGRPanelScreen = () => {
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [statusPickerFor, setStatusPickerFor] = useState<GREntry | null>(null);
+  const [areaFilter, setAreaFilter] = useState<string | null>(null);
+  const [areaSheetOpen, setAreaSheetOpen] = useState(false);
+  const [consignorFilter, setConsignorFilter] = useState<string | null>(null);
+  const [consignorOptions, setConsignorOptions] = useState<string[]>([]);
+  const [consignorSheetOpen, setConsignorSheetOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string | null>(statusFilterParam ?? null);
+  const [statusSheetOpen, setStatusSheetOpen] = useState(false);
 
   const role = useUserStore((state) => state.user?.role);
+  const userArea = useUserStore((state) => state.user?.area ?? null);
   const canDeleteGR = roleCanDeleteGR(role);
+
+  const isAdmin = role === 'admin' || role === 'owner' || role === 'super_admin';
+  const effectiveArea = isAdmin ? areaFilter : userArea;
 
   // The GR whose "⋮" per-card menu (View GR / Delete GR) is open, if any.
   const [menuTarget, setMenuTarget] = useState<GREntry | null>(null);
@@ -89,15 +101,13 @@ export const StaffGRPanelScreen = () => {
   const fetchEntries = useCallback(
     async (_isRefresh = false) => {
       try {
-        // GR data is local-first (created on-device, never synced to the
-        // backend), so this reads the on-device SQLite database directly
-        // instead of `GET /employee/orders`, which only knows about
-        // backend-created orders.
         const { items } = await orderRepository.list({
           page: 1,
           pageSize: 50,
           search: search || undefined,
           status: statusFilter || undefined,
+          area: effectiveArea || undefined,
+          consignor: consignorFilter || undefined,
         });
         setEntries(
           items.map((o) => ({
@@ -118,12 +128,29 @@ export const StaffGRPanelScreen = () => {
         setRefreshing(false);
       }
     },
-    [search, statusFilter]
+    [search, statusFilter, effectiveArea, consignorFilter]
   );
 
   useEffect(() => {
     fetchEntries();
   }, [fetchEntries]);
+
+  // Debounce filter changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchEntries();
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [search, statusFilter, effectiveArea, consignorFilter]);
+
+  // Load distinct consignor names scoped to the effective area
+  useEffect(() => {
+    let cancelled = false;
+    orderRepository.getDistinctConsignors(effectiveArea || undefined).then((names) => {
+      if (!cancelled) setConsignorOptions(names);
+    });
+    return () => { cancelled = true; };
+  }, [effectiveArea]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -234,6 +261,64 @@ export const StaffGRPanelScreen = () => {
             onSubmitEditing={() => fetchEntries()}
           />
         </View>
+
+        {/* Location Filter */}
+        <TouchableOpacity
+          style={[styles.filterRow, { backgroundColor: colors.surface, borderColor: effectiveArea ? colors.primary : colors.border, borderRadius: radii.md }]}
+          onPress={() => isAdmin ? setAreaSheetOpen(true) : undefined}
+          activeOpacity={isAdmin ? 0.7 : 1}
+          disabled={!isAdmin}
+        >
+          <Ionicons name="location-outline" size={16} color={effectiveArea ? colors.primary : colors.textMuted} />
+          <Text style={[styles.filterRowText, { color: effectiveArea ? colors.primary : colors.textMuted }]} numberOfLines={1}>
+            {effectiveArea || 'All Locations'}
+          </Text>
+          {effectiveArea && isAdmin ? (
+            <TouchableOpacity onPress={() => setAreaFilter(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={16} color={colors.primary} />
+            </TouchableOpacity>
+          ) : isAdmin ? (
+            <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+          ) : null}
+        </TouchableOpacity>
+
+        {/* Shop Owner Filter */}
+        <TouchableOpacity
+          style={[styles.filterRow, { backgroundColor: colors.surface, borderColor: consignorFilter ? colors.primary : colors.border, borderRadius: radii.md }]}
+          onPress={() => setConsignorSheetOpen(true)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="person-outline" size={16} color={consignorFilter ? colors.primary : colors.textMuted} />
+          <Text style={[styles.filterRowText, { color: consignorFilter ? colors.primary : colors.textMuted }]} numberOfLines={1}>
+            {consignorFilter || 'All Shop Owners'}
+          </Text>
+          {consignorFilter ? (
+            <TouchableOpacity onPress={() => setConsignorFilter(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={16} color={colors.primary} />
+            </TouchableOpacity>
+          ) : (
+            <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+          )}
+        </TouchableOpacity>
+
+        {/* Status Filter */}
+        <TouchableOpacity
+          style={[styles.filterRow, { backgroundColor: colors.surface, borderColor: statusFilter ? colors.primary : colors.border, borderRadius: radii.md }]}
+          onPress={() => setStatusSheetOpen(true)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="flag-outline" size={16} color={statusFilter ? colors.primary : colors.textMuted} />
+          <Text style={[styles.filterRowText, { color: statusFilter ? colors.primary : colors.textMuted }]} numberOfLines={1}>
+            {statusFilter ? STATUS_LABELS[statusFilter] ?? statusFilter : 'All Statuses'}
+          </Text>
+          {statusFilter ? (
+            <TouchableOpacity onPress={() => setStatusFilter(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={16} color={colors.primary} />
+            </TouchableOpacity>
+          ) : (
+            <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+          )}
+        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -249,7 +334,7 @@ export const StaffGRPanelScreen = () => {
             <EmptyState
               icon="document-text-outline"
               title={statusFilter ? `No ${STATUS_LABELS[statusFilter] ?? statusFilter} slips` : 'No GR entries'}
-              subtitle="Entries assigned to your company will appear here."
+              subtitle={search || statusFilter || effectiveArea || consignorFilter ? 'No results match your filters.' : 'Entries assigned to your company will appear here.'}
             />
           ) : (
             entries.map((entry) => (
@@ -316,6 +401,108 @@ export const StaffGRPanelScreen = () => {
           )}
         </ScrollView>
       )}
+
+      {/* Location Filter Bottom Sheet */}
+      <Modal visible={areaSheetOpen} transparent animationType="slide" onRequestClose={() => setAreaSheetOpen(false)}>
+        <Pressable style={[styles.modalOverlay]} onPress={() => setAreaSheetOpen(false)}>
+          <View style={[styles.modalSheet, { backgroundColor: colors.surface, borderRadius: radii.xl }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Filter by Location</Text>
+              <TouchableOpacity onPress={() => setAreaSheetOpen(false)} hitSlop={8}>
+                <Ionicons name="close" size={22} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 420 }}>
+              <TouchableOpacity
+                style={[styles.optionRow, { borderBottomColor: colors.border }]}
+                onPress={() => { setAreaFilter(null); setAreaSheetOpen(false); }}
+              >
+                <Text style={styles.optionName}>All Locations</Text>
+                {!areaFilter && <Ionicons name="checkmark" size={18} color={colors.primary} />}
+              </TouchableOpacity>
+              {AREAS.map((area) => (
+                <TouchableOpacity
+                  key={area}
+                  style={[styles.optionRow, { borderBottomColor: colors.border }]}
+                  onPress={() => { setAreaFilter(area); setAreaSheetOpen(false); }}
+                >
+                  <Text style={styles.optionName}>{area}</Text>
+                  {areaFilter === area && <Ionicons name="checkmark" size={18} color={colors.primary} />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Shop Owner Filter Bottom Sheet */}
+      <Modal visible={consignorSheetOpen} transparent animationType="slide" onRequestClose={() => setConsignorSheetOpen(false)}>
+        <Pressable style={[styles.modalOverlay]} onPress={() => setConsignorSheetOpen(false)}>
+          <View style={[styles.modalSheet, { backgroundColor: colors.surface, borderRadius: radii.xl }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Filter by Shop Owner</Text>
+              <TouchableOpacity onPress={() => setConsignorSheetOpen(false)} hitSlop={8}>
+                <Ionicons name="close" size={22} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 420 }}>
+              <TouchableOpacity
+                style={[styles.optionRow, { borderBottomColor: colors.border }]}
+                onPress={() => { setConsignorFilter(null); setConsignorSheetOpen(false); }}
+              >
+                <Text style={styles.optionName}>All Shop Owners</Text>
+                {!consignorFilter && <Ionicons name="checkmark" size={18} color={colors.primary} />}
+              </TouchableOpacity>
+              {consignorOptions.map((name) => (
+                <TouchableOpacity
+                  key={name}
+                  style={[styles.optionRow, { borderBottomColor: colors.border }]}
+                  onPress={() => { setConsignorFilter(name); setConsignorSheetOpen(false); }}
+                >
+                  <Text style={styles.optionName}>{name}</Text>
+                  {consignorFilter === name && <Ionicons name="checkmark" size={18} color={colors.primary} />}
+                </TouchableOpacity>
+              ))}
+              {consignorOptions.length === 0 && (
+                <Text style={[styles.optionName, { textAlign: 'center', paddingVertical: 20, color: colors.textMuted }]}>No shop owners found.</Text>
+              )}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Status Filter Bottom Sheet */}
+      <Modal visible={statusSheetOpen} transparent animationType="slide" onRequestClose={() => setStatusSheetOpen(false)}>
+        <Pressable style={[styles.modalOverlay]} onPress={() => setStatusSheetOpen(false)}>
+          <View style={[styles.modalSheet, { backgroundColor: colors.surface, borderRadius: radii.xl }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Filter by Status</Text>
+              <TouchableOpacity onPress={() => setStatusSheetOpen(false)} hitSlop={8}>
+                <Ionicons name="close" size={22} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 420 }}>
+              <TouchableOpacity
+                style={[styles.optionRow, { borderBottomColor: colors.border }]}
+                onPress={() => { setStatusFilter(null); setStatusSheetOpen(false); }}
+              >
+                <Text style={styles.optionName}>All Statuses</Text>
+                {!statusFilter && <Ionicons name="checkmark" size={18} color={colors.primary} />}
+              </TouchableOpacity>
+              {ALL_STATUSES.map((status) => (
+                <TouchableOpacity
+                  key={status}
+                  style={[styles.optionRow, { borderBottomColor: colors.border }]}
+                  onPress={() => { setStatusFilter(status); setStatusSheetOpen(false); }}
+                >
+                  <Text style={styles.optionName}>{STATUS_LABELS[status]}</Text>
+                  {statusFilter === status && <Ionicons name="checkmark" size={18} color={colors.primary} />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
 
       <Modal visible={!!statusPickerFor} animationType="slide" transparent onRequestClose={() => setStatusPickerFor(null)}>
         <View style={styles.modalOverlay}>
@@ -402,6 +589,12 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     toolbar: { paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.md, paddingBottom: theme.spacing.sm },
     searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 4 },
     searchInput: { flex: 1, paddingVertical: 10, fontSize: theme.fonts.size.sm },
+    filterRow: {
+      flexDirection: 'row', alignItems: 'center', gap: 8,
+      paddingHorizontal: 14, paddingVertical: 10, marginTop: 8,
+      borderWidth: 1,
+    },
+    filterRowText: { flex: 1, fontSize: theme.fonts.size.sm, fontWeight: '600' },
     centerFill: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     scrollContent: { padding: theme.spacing.lg, paddingTop: theme.spacing.sm, gap: theme.spacing.md, paddingBottom: 60 },
     row: { padding: 16, gap: 6 },

@@ -3,6 +3,7 @@ import type { ComponentProps } from 'react';
 import { Animated, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useNavigation } from '@react-navigation/native';
 import { useAuthStore } from '../../store/authStore';
@@ -11,11 +12,13 @@ import { useProfileLocalStore } from '../../store/profileLocalStore';
 import { Header } from '../../components/Header';
 import { ActionButton } from '../../components/ActionButton';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { LanguagePickerModal } from '../../components/LanguagePickerModal';
 import { formatDateTime } from '../../utils/format';
 import { persistAvatarImage } from '../../services/slipStorage';
 import * as ImagePicker from 'expo-image-picker';
 
 export const ProfileScreen = () => {
+  const { t } = useTranslation();
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const user = useUserStore((state) => state.user);
   const signOut = useAuthStore((state) => state.clearSession);
@@ -56,6 +59,7 @@ export const ProfileScreen = () => {
   const displayPhone = phoneOverride ?? user?.phone ?? 'N/A';
   const [loading, setLoading] = useState(false);
   const [signOutDialogVisible, setSignOutDialogVisible] = useState(false);
+  const [languageModalVisible, setLanguageModalVisible] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(20));
 
@@ -69,7 +73,7 @@ export const ProfileScreen = () => {
   const pickAvatar = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission Required', 'Gallery permission is required to select photos');
+      Alert.alert(t('profile.permissionRequired'), t('profile.galleryPermissionRequired'));
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -91,7 +95,7 @@ export const ProfileScreen = () => {
   const takeAvatar = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission Required', 'Camera permission is required');
+      Alert.alert(t('profile.permissionRequired'), t('profile.cameraPermissionRequired'));
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
@@ -110,16 +114,16 @@ export const ProfileScreen = () => {
 
   const handleEditProfile = () => navigation.navigate('EditProfile' as never);
   const handleNotificationSettings = () => navigation.navigate('Settings' as never);
-  const handleLanguage = () => Alert.alert('Language', 'Language selection is coming soon.');
+  const handleLanguage = () => setLanguageModalVisible(true);
   const handleSecurity = () => navigation.navigate('Settings' as never);
   const handleAbout = () => navigation.navigate('About' as never);
 
   const showAvatarOptions = () => {
-    Alert.alert('Update Profile Photo', 'Choose an option', [
-      { text: 'Take Photo', onPress: takeAvatar },
-      { text: 'Choose from Gallery', onPress: pickAvatar },
-      { text: 'Remove Photo', onPress: () => setAvatarUri(null), style: 'destructive' },
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('profile.updateProfilePhoto'), t('profile.chooseOption'), [
+      { text: t('profile.takePhoto'), onPress: takeAvatar },
+      { text: t('profile.chooseFromGallery'), onPress: pickAvatar },
+      { text: t('profile.removePhoto'), onPress: () => setAvatarUri(null), style: 'destructive' },
+      { text: t('common.cancel'), style: 'cancel' },
     ]);
   };
 
@@ -131,7 +135,7 @@ export const ProfileScreen = () => {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <View style={styles.header}>
-        <Header title="Profile" leftAction={{ icon: 'chevron-back', onPress: () => navigation.goBack() }} />
+        <Header title={t('common.profile')} leftAction={{ icon: 'chevron-back', onPress: () => navigation.goBack() }} />
       </View>
 
       <ScrollView
@@ -179,31 +183,31 @@ export const ProfileScreen = () => {
             </View>
 
             <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Account Information</Text>
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('profile.accountInformation')}</Text>
               <View style={[styles.infoCard, { backgroundColor: colors.surface, borderRadius: radii.xl, ...shadows.sm }]}>
-                <InfoRow icon="id-card-outline" label="User ID" value={user?.id?.slice(0, 8) + '...' || 'N/A'} color="#635BFF" />
-                <InfoRow icon="calendar-outline" label="Joined" value={user?.createdAt ? formatDateTime(user.createdAt).split(',')[0] : 'N/A'} color="#06B6D4" />
-                <InfoRow icon="shield-outline" label="Status" value={user?.isActive ? 'Active' : 'Inactive'} color={user?.isActive ? '#10B981' : '#EF4444'} />
-                <InfoRow icon="lock-closed-outline" label="Verified" value={user?.isActive ? 'Yes' : 'No'} color={user?.isActive ? '#10B981' : '#F59E0B'} />
+                <InfoRow icon="id-card-outline" label={t('profile.userId')} value={user?.id?.slice(0, 8) + '...' || 'N/A'} color="#635BFF" />
+                <InfoRow icon="calendar-outline" label={t('profile.joined')} value={user?.createdAt ? formatDateTime(user.createdAt).split(',')[0] : 'N/A'} color="#06B6D4" />
+                <InfoRow icon="shield-outline" label={t('common.status')} value={user?.isActive ? t('common.active') : t('common.inactive')} color={user?.isActive ? '#10B981' : '#EF4444'} />
+                <InfoRow icon="lock-closed-outline" label={t('profile.verified')} value={user?.isActive ? t('common.yes') : t('common.no')} color={user?.isActive ? '#10B981' : '#F59E0B'} />
               </View>
             </View>
 
             <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Quick Actions</Text>
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('profile.quickActions')}</Text>
               <View style={styles.actionsList}>
-                <ActionItem icon="person-outline" label="Edit Profile" onPress={handleEditProfile} color="#635BFF" />
-                <ActionItem icon="lock-closed-outline" label="Change Password" onPress={() => navigation.navigate('ChangePassword' as never)} color="#8B5CF6" />
-                <ActionItem icon="notifications-outline" label="Notification Settings" onPress={handleNotificationSettings} color="#06B6D4" />
-                <ActionItem icon="language-outline" label="Language" onPress={handleLanguage} color="#F97316" />
-                <ActionItem icon="shield-outline" label="Security & Privacy" onPress={handleSecurity} color="#EF4444" />
-                <ActionItem icon="help-outline" label="Help & Support" onPress={handleContactSupport} color="#10B981" />
-                <ActionItem icon="information-circle-outline" label="About" onPress={handleAbout} color="#6B7280" />
+                <ActionItem icon="person-outline" label={t('common.editProfile')} onPress={handleEditProfile} color="#635BFF" />
+                <ActionItem icon="lock-closed-outline" label={t('common.changePassword')} onPress={() => navigation.navigate('ChangePassword' as never)} color="#8B5CF6" />
+                <ActionItem icon="notifications-outline" label={t('settings.notificationSettings')} onPress={handleNotificationSettings} color="#06B6D4" />
+                <ActionItem icon="language-outline" label={t('common.language')} onPress={handleLanguage} color="#F97316" />
+                <ActionItem icon="shield-outline" label={t('profile.securityPrivacy')} onPress={handleSecurity} color="#EF4444" />
+                <ActionItem icon="help-outline" label={t('common.helpSupport')} onPress={handleContactSupport} color="#10B981" />
+                <ActionItem icon="information-circle-outline" label={t('common.about')} onPress={handleAbout} color="#6B7280" />
               </View>
             </View>
 
             <View style={styles.section}>
               <ActionButton
-                label="Sign Out"
+                label={t('common.signOut')}
                 icon="log-out"
                 variant="danger"
                 size="lg"
@@ -220,12 +224,17 @@ export const ProfileScreen = () => {
 
       <ConfirmDialog
         visible={signOutDialogVisible}
-        title="Sign Out"
-        message="Are you sure you want to sign out?"
-        confirmLabel="Sign Out"
+        title={t('common.signOut')}
+        message={t('profile.confirmSignOut')}
+        confirmLabel={t('common.signOut')}
         destructive
         onConfirm={handleConfirmSignOut}
         onCancel={() => setSignOutDialogVisible(false)}
+      />
+
+      <LanguagePickerModal
+        visible={languageModalVisible}
+        onClose={() => setLanguageModalVisible(false)}
       />
     </SafeAreaView>
   );

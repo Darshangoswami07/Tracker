@@ -1,6 +1,7 @@
 import { Linking, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { AnimatedHeader } from '../../components/AnimatedHeader';
 import { AuthScaffold } from '../../components/AuthScaffold';
 import { ApprovalTimeline } from '../../components/auth/ApprovalTimeline';
@@ -37,6 +38,7 @@ interface DetailRow {
 }
 
 export const RegistrationPendingScreen = ({ navigation, route }: Props) => {
+  const { t } = useTranslation();
   const { colors, spacing, fonts } = useAppTheme();
   const clearRegistration = useRegistrationStore((state) => state.clear);
   const persistedRequest = useRegistrationStore((state) => state.request);
@@ -85,19 +87,19 @@ export const RegistrationPendingScreen = ({ navigation, route }: Props) => {
   }
 
   const steps = [
-    { key: 'submitted', label: 'Registration Submitted' },
-    { key: 'review', label: 'Waiting for Admin Approval', subtitle: 'Pending' },
-    { key: 'otp', label: 'OTP Verification', subtitle: 'Locked until approval' },
-    { key: 'active', label: 'Account Activated', subtitle: 'Locked' },
+    { key: 'submitted', label: t('auth.registrationSubmitted') },
+    { key: 'review', label: t('auth.waitingForAdminApproval'), subtitle: t('common.pending') },
+    { key: 'otp', label: t('auth.otpVerification'), subtitle: t('auth.lockedUntilApproval') },
+    { key: 'active', label: t('auth.accountActivated'), subtitle: t('common.locked') },
   ];
   const activeIndex = status === 'pending' ? 1 : status === 'approved_pending_otp' ? 2 : 0;
 
   const details: DetailRow[] = [
-    { label: 'Name', value: `${request.firstName} ${request.lastName}` },
-    { label: 'Company', value: request.companyName },
-    { label: 'Email', value: request.email },
-    { label: 'Phone', value: request.phone },
-    { label: 'Registration Time', value: formatTime(request.createdAt) },
+    { label: t('common.name'), value: `${request.firstName} ${request.lastName}` },
+    { label: t('common.company'), value: request.companyName },
+    { label: t('common.email'), value: request.email },
+    { label: t('common.phone'), value: request.phone },
+    { label: t('auth.registrationTime'), value: formatTime(request.createdAt) },
   ];
 
   const backToLogin = () => {
@@ -120,21 +122,21 @@ export const RegistrationPendingScreen = ({ navigation, route }: Props) => {
       </View>
 
       <Text style={[styles.title, { color: colors.textPrimary, fontSize: fonts.size.xxl, fontWeight: fonts.weight.heavy }]}>
-        Registration Submitted
+        {t('auth.registrationSubmitted')}
       </Text>
       <Text style={[styles.subtitle, { color: colors.textSecondary, fontSize: fonts.size.md }]}>
-        Your registration request has been received successfully.
+        {t('auth.registrationReceived')}
       </Text>
 
       <View style={{ height: spacing.xxl }} />
 
-      <StatusCard icon="time-outline" title="Approval Progress">
+      <StatusCard icon="time-outline" title={t('auth.approvalProgress')}>
         <ApprovalTimeline steps={steps} activeIndex={activeIndex} />
       </StatusCard>
 
       <View style={{ height: spacing.lg }} />
 
-      <StatusCard icon="document-text-outline" title="Registration Details">
+      <StatusCard icon="document-text-outline" title={t('auth.registrationDetails')}>
         <View>
           {details.map((row) => (
             <View key={row.label} style={styles.detailRow}>
@@ -151,11 +153,11 @@ export const RegistrationPendingScreen = ({ navigation, route }: Props) => {
 
       <NextStepsCard
         steps={[
-          { title: 'Our DeliveryHub Administration Team will review your application.' },
-          { title: 'If approved, an OTP will be sent to your registered email address.' },
-          { title: 'Enter the one-time passcode.' },
-          { title: 'Your account will become active.' },
-          { title: 'You will be automatically signed in.' },
+          { title: t('auth.step1ReviewApplication') },
+          { title: t('auth.step2OTPWillBeSent') },
+          { title: t('auth.step3EnterOTP') },
+          { title: t('auth.step4AccountActive') },
+          { title: t('auth.step5AutoSignIn') },
         ]}
       />
 
@@ -164,31 +166,31 @@ export const RegistrationPendingScreen = ({ navigation, route }: Props) => {
       <View style={styles.reviewNote}>
         <View style={[styles.dot, { backgroundColor: colors.warning }]} />
         <Text style={[styles.reviewText, { color: colors.textSecondary, fontSize: fonts.size.sm }]}>
-          {status === 'pending' ? 'Pending Review' : 'Updating…'}
+          {status === 'pending' ? t('common.pendingReview') : t('common.updating')}
         </Text>
       </View>
 
       {isError && error?.httpStatus !== 404 ? (
         <Text accessibilityLiveRegion="polite" style={[styles.warning, { color: colors.warning, fontSize: fonts.size.sm }]}>
-          {error?.message ?? 'Could not reach the server. Retrying automatically…'}
+          {error?.message ?? t('common.serverErrorRetrying')}
         </Text>
       ) : (
         <Text accessibilityLiveRegion="polite" style={[styles.warning, { color: colors.warning, fontSize: fonts.size.sm }]}>
-          {status === 'pending' ? 'Usually approved within 5–30 minutes.' : ''}
+          {status === 'pending' ? t('auth.approvalWithinMinutes') : ''}
         </Text>
       )}
 
       <View style={{ height: spacing.xl }} />
 
-      <PrimaryButton label="Check Approval Status" loading={isRefreshing} onPress={refetch} showArrow />
+      <PrimaryButton label={t('common.checkApprovalStatus')} loading={isRefreshing} onPress={refetch} showArrow />
 
       <View style={{ height: spacing.md }} />
 
-      <GhostButton label="Contact Support" onPress={contactSupport} icon="mail-outline" />
+      <GhostButton label={t('common.contactSupport')} onPress={contactSupport} icon="mail-outline" />
 
       <View style={{ height: spacing.md }} />
 
-      <GhostButton label="Back to Login" onPress={backToLogin} />
+      <GhostButton label={t('common.backToLogin')} onPress={backToLogin} />
     </AuthScaffold>
   );
 };

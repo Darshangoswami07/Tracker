@@ -375,6 +375,8 @@ class OrderRepository(BaseRepository[Order]):
         company_id: Optional[UUID] = None,
         driver_id: Optional[UUID] = None,
         customer_id: Optional[UUID] = None,
+        area: Optional[str] = None,
+        consignor: Optional[str] = None,
     ) -> Tuple[List[Order], int]:
         async with session_scope(self._session) as session:
             query = select(Order).where(Order.isActive == True)
@@ -389,6 +391,8 @@ class OrderRepository(BaseRepository[Order]):
                         Order.trackingCode.ilike(f"%{search}%"),
                         Order.pickupAddress.ilike(f"%{search}%"),
                         Order.deliveryAddress.ilike(f"%{search}%"),
+                        Order.consignorName.ilike(f"%{search}%"),
+                        Order.consigneeName.ilike(f"%{search}%"),
                     )
                 )
 
@@ -400,6 +404,12 @@ class OrderRepository(BaseRepository[Order]):
 
             if customer_id:
                 query = query.where(Order.customerId == customer_id)
+
+            if area:
+                query = query.where(Order.area == area)
+
+            if consignor:
+                query = query.where(Order.consignorName == consignor)
 
             count_query = select(func.count()).select_from(query.subquery())
             total_result = await session.execute(count_query)

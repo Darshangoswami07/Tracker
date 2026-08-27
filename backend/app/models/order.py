@@ -37,6 +37,11 @@ class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     vehicleId: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vehicles.id"), nullable=True, index=True)
     assignedStaffId: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("employees.id"), nullable=True, index=True)
 
+    # Area assignment for staff-based access control. Stores the area name
+    # (e.g. "Bageshwar", "Almora", "Garur Someshwar") to scope staff
+    # access to GRs from their assigned region.
+    area: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+
     # GR-specific fields (transport slip: consignor/consignee, particulars).
     consignorName: Mapped[str | None] = mapped_column(String(160), nullable=True)
     consigneeName: Mapped[str | None] = mapped_column(String(160), nullable=True)

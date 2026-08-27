@@ -124,6 +124,7 @@ class GROut(GRExtendedFields):
     driverId: Optional[UUID] = None
     vehicleId: Optional[UUID] = None
     assignedStaffId: Optional[UUID] = None
+    area: Optional[str] = None
     pickupAddress: str
     deliveryAddress: str
     pickupTime: datetime
@@ -155,6 +156,7 @@ class GRListItemOut(BaseModel):
     deliveryAddress: str
     driverId: Optional[UUID] = None
     assignedStaffId: Optional[UUID] = None
+    area: Optional[str] = None
     status: OrderStatus
     createdAt: datetime
     hasSlip: bool = False

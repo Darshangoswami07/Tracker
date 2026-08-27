@@ -3,6 +3,7 @@ import type { ComponentProps } from 'react';
 import { Animated, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAuthStore } from '../../store/authStore';
 import { api } from '../../api/client';
@@ -24,6 +25,7 @@ interface Notification {
 }
 
 export const NotificationsScreen = () => {
+  const { t } = useTranslation();
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const accessToken = useAuthStore((state) => state.accessToken);
   const { goBack } = useAppNav();
@@ -131,10 +133,10 @@ export const NotificationsScreen = () => {
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
 
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    if (days < 7) return `${days}d ago`;
+    if (minutes < 1) return t('notifications.justNow');
+    if (minutes < 60) return `${minutes}${t('notifications.minutesAgo')}`;
+    if (hours < 24) return `${hours}${t('notifications.hoursAgo')}`;
+    if (days < 7) return `${days}${t('notifications.daysAgo')}`;
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
@@ -142,7 +144,7 @@ export const NotificationsScreen = () => {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
         <View style={styles.header}>
-          <Header title="Notifications" leftAction={{ icon: 'chevron-back', onPress: goBack, accessibilityLabel: 'Go back' }} rightAction={{ icon: 'checkmark-circle', onPress: markAllAsRead }} />
+          <Header title={t('navigation.notifications')} leftAction={{ icon: 'chevron-back', onPress: goBack, accessibilityLabel: 'Go back' }} rightAction={{ icon: 'checkmark-circle', onPress: markAllAsRead }} />
         </View>
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <FilterChips filters={filters} activeFilter={filter} onFilterChange={setFilter} />
@@ -162,7 +164,7 @@ export const NotificationsScreen = () => {
       >
         <View style={styles.header}>
           <Header 
-            title={`Notifications${unreadCount > 0 ? ` (${unreadCount})` : ''}`} 
+            title={`${t('navigation.notifications')}${unreadCount > 0 ? ` (${unreadCount})` : ''}`} 
             leftAction={{ icon: 'chevron-back', onPress: goBack, accessibilityLabel: 'Go back' }} 
             rightAction={{ icon: unreadCount > 0 ? 'checkmark-circle' : 'checkmark-circle', onPress: () => { if (unreadCount > 0) void markAllAsRead(); } }}
           />
@@ -193,8 +195,8 @@ export const NotificationsScreen = () => {
         {notifications.length === 0 ? (
           <EmptyState
             icon="notifications-off-outline"
-            title="No notifications"
-            subtitle={filter !== 'all' ? `No ${filter} notifications` : 'You\'re all caught up!'}
+            title={t('notifications.empty')}
+            subtitle={filter !== 'all' ? t('notifications.noFilterNotifications', { filter }) : t('notifications.allCaughtUp')}
             iconColor={colors.textMuted}
           />
         ) : (

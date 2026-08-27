@@ -2,6 +2,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useState } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown, FadeInUp, Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { useTranslation } from 'react-i18next';
 import { AnimatedHeader } from '../../components/AnimatedHeader';
 import { AuthScaffold } from '../../components/AuthScaffold';
 import { GhostButton } from '../../components/auth/GhostButton';
@@ -34,6 +35,7 @@ const SUCCESS_DISPLAY_MS = 1200;
 type Props = NativeStackScreenProps<AuthStackParamList, 'OTPVerification'>;
 
 export const OTPVerificationScreen = ({ navigation, route }: Props) => {
+  const { t } = useTranslation();
   const { colors, spacing, fonts } = useAppTheme();
   const verifyOTP = useAuth().verifyOTP;
   const stageSession = useAuthStore((state) => state.stageSession);
@@ -147,7 +149,7 @@ export const OTPVerificationScreen = ({ navigation, route }: Props) => {
       <View style={{ height: spacing.xxl }} />
 
       <ScreenHeading
-        title={isPasswordReset ? 'Reset Password' : 'Verify Your Account'}
+        title={isPasswordReset ? t('auth.resetPassword') : t('auth.otpTitle')}
         subtitle={
           isPasswordReset
             ? "We've sent a one-time code to your email."
@@ -199,7 +201,7 @@ export const OTPVerificationScreen = ({ navigation, route }: Props) => {
         <View style={{ height: spacing.sm }} />
 
         <GhostButton
-          label={resending ? 'Sending…' : 'Resend OTP'}
+          label={resending ? t('auth.sendingReset') : t('auth.resendOTP')}
           onPress={handleResend}
           loading={resending}
           disabled={locked || resending}
@@ -215,9 +217,9 @@ export const OTPVerificationScreen = ({ navigation, route }: Props) => {
 
       {verifyOTP.isError && (
         <Animated.View entering={FadeIn.duration(300)} style={{ marginTop: spacing.md }}>
-          <StatusCard icon="alert-circle-outline" title="Verification failed">
+          <StatusCard icon="alert-circle-outline" title={t('auth.otpInvalid')}>
             <Text style={{ color: colors.textSecondary, fontSize: fonts.size.md }}>
-              {verifyError?.message ?? 'We could not verify this code. Please try again.'}
+              {verifyError?.message ?? t('auth.otpInvalid')}
             </Text>
           </StatusCard>
         </Animated.View>
@@ -226,7 +228,7 @@ export const OTPVerificationScreen = ({ navigation, route }: Props) => {
       <View style={{ height: spacing.xl }} />
 
       <PrimaryButton
-        label="Verify Now"
+        label={t('auth.verifyOTP')}
         loading={verifyOTP.isPending}
         onPress={() => handleVerify(otp)}
         disabled={otp.length < 6}

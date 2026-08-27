@@ -6,8 +6,19 @@ through to libpq — so ``DATABASE_URL`` is used as-is.
 """
 from __future__ import annotations
 
+import asyncio
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+
+# psycopg 3.x cannot use Windows' ProactorEventLoop for async mode.
+# Setting the policy here (at db.py import time) is a safety net; the real
+# fix is to start the server via ``python run_server.py`` which sets it
+# before uvicorn creates its own loop.
+if sys.platform == "win32" and not isinstance(
+    asyncio.get_event_loop_policy(), asyncio.WindowsSelectorEventLoopPolicy
+):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,

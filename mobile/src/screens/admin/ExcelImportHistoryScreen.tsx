@@ -91,6 +91,11 @@ export const ExcelImportHistoryScreen = () => {
                   {row.importedByName && (
                     <Text style={[styles.byLine, { color: colors.textMuted }]}>By {row.importedByName}</Text>
                   )}
+                  {row.area && (
+                    <View style={styles.areaBadge}>
+                      <Text style={[styles.areaBadgeText, { color: colors.primary }]}>📍 {row.area}</Text>
+                    </View>
+                  )}
                   <View style={styles.statsRow}>
                     <Text style={[styles.stat, { color: colors.textSecondary }]}>Total: {row.totalRows}</Text>
                     <Text style={[styles.stat, { color: colors.success }]}>Imported: {row.importedRows}</Text>
@@ -120,6 +125,8 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     fileName: { flex: 1, fontSize: theme.fonts.size.md, fontWeight: '700' },
     date: { fontSize: theme.fonts.size.xs, fontWeight: '600' },
     byLine: { fontSize: theme.fonts.size.xs },
+    areaBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+    areaBadgeText: { fontSize: theme.fonts.size.xs, fontWeight: '700' },
     statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 4 },
     stat: { fontSize: theme.fonts.size.xs, fontWeight: '700' },
   });

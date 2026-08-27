@@ -49,11 +49,16 @@ export type DashboardStackParamList = {
   AuditLogs: undefined;
   SystemHealth: undefined;
   CreateGR: undefined;
+  /** Area selection screen shown before Excel Import — picks which area
+   * the imported GRs belong to. */
+  Areas: undefined;
   /** Also registered here (in addition to `ShipmentsStackParamList`) so the
    * Dashboard's "Import GRs from Excel" quick action pushes onto THIS
-   * stack — same dual-registration reasoning as `CreateGR` above. */
-  ExcelImport: undefined;
+   * stack — same dual-registration reasoning as `CreateGR` above.
+   * `selectedArea` is set when navigating from the Areas screen. */
+  ExcelImport: { selectedArea?: string } | undefined;
   ExcelImportHistory: undefined;
+  PaymentHistory: undefined;
 };
 
 /** Screens reached from the Shipments tab. */
@@ -62,13 +67,16 @@ export type ShipmentsStackParamList = {
   CreateGR: undefined;
   GRDetails: { orderId: string };
   EditGR: { orderId: string };
-  ExcelImport: undefined;
+  Areas: undefined;
+  ExcelImport: { selectedArea?: string } | undefined;
   ExcelImportHistory: undefined;
+  PaymentHistory: undefined;
 };
 
-/** Screens reached from the Tracking tab. */
-export type TrackingStackParamList = {
-  CustomerTracking: { grNumber?: string } | undefined;
+/** Screens reached from the Receiving Details tab. */
+export type ReceivingDetailsStackParamList = {
+  ReceivingDetailsHome: undefined;
+  ReceivingDetail: { orderId: string };
 };
 
 /** Screens reached from the GR Tracker (classic) tab. */
@@ -97,12 +105,13 @@ export type MoreStackParamList = {
   VehicleManagement: undefined;
   OrderManagement: undefined;
   OrderDetails: { orderId: string };
+  CustomerTracking: { grNumber?: string } | undefined;
 };
 
 /** Union of every screen reachable inside the admin tab shell — kept for call sites that navigate by screen name without knowing which tab owns it. */
 export type AdminStackParamList = DashboardStackParamList &
   ShipmentsStackParamList &
-  TrackingStackParamList &
+  ReceivingDetailsStackParamList &
   GRTrackerStackParamList &
   MoreStackParamList;
 
@@ -112,7 +121,7 @@ export type AppStackParamList = AdminStackParamList;
 export type AdminTabParamList = {
   Dashboard: NavigatorScreenParams<DashboardStackParamList> | undefined;
   Shipments: NavigatorScreenParams<ShipmentsStackParamList> | undefined;
-  Tracking: NavigatorScreenParams<TrackingStackParamList> | undefined;
+  ReceivingDetails: NavigatorScreenParams<ReceivingDetailsStackParamList> | undefined;
   GRTracker: NavigatorScreenParams<GRTrackerStackParamList> | undefined;
   More: NavigatorScreenParams<MoreStackParamList> | undefined;
 };

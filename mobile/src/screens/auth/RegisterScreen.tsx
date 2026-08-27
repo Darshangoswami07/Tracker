@@ -1,6 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { StyleSheet, Text, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { AuthScaffold } from '../../components/AuthScaffold';
 import { FormCheckbox } from '../../components/form/FormCheckbox';
 import { FormPasswordField } from '../../components/form/FormPasswordField';
@@ -14,7 +15,6 @@ import { TextLink } from '../../components/TextLink';
 import { useAuth } from '../../hooks/useAuth';
 import { useRegistrationStore } from '../../store/registrationStore';
 import { useAppTheme } from '../../theme/useAppTheme';
-import { STRINGS } from '../../constants/strings';
 import {
   registerSchemaFor,
   type RegisterAccountType,
@@ -31,12 +31,8 @@ const ACCOUNT_TYPE_TO_ROLE: Record<'admin', RequestedRole> = {
   admin: 'admin',
 };
 
-const HEADING_FOR: Record<RegisterAccountType, string> = {
-  admin: STRINGS.createAccount,
-  staff: STRINGS.staffSignupTitle,
-};
-
 export const RegisterScreen = ({ navigation, route }: Props) => {
+  const { t } = useTranslation();
   const { colors, spacing } = useAppTheme();
   const { register, registerStaff } = useAuth();
   const saveRegistration = useRegistrationStore((state) => state.save);
@@ -44,6 +40,7 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
   // The role is fixed by the role-selection screen; the form must never re-ask.
   const accountType: RegisterAccountType = route.params?.accountType ?? 'admin';
   const isStaff = accountType === 'staff';
+  const headingTitle = isStaff ? t('auth.staffSignupTitle') : t('auth.createAccount');
 
   const { control, handleSubmit } = useForm<RegisterValues>({
     resolver: zodResolver(registerSchemaFor(accountType)),
@@ -114,7 +111,7 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
 
       <View style={{ height: spacing.xl }} />
 
-      <ScreenHeading title={HEADING_FOR[accountType]} align="center" />
+      <ScreenHeading title={headingTitle} align="center" />
 
       <View style={{ height: spacing.xxl - 4 }} />
 
@@ -124,9 +121,9 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
         <FormTextBox
           control={control}
           name="firstName"
-          label={STRINGS.firstName}
+          label={t('auth.firstName')}
           icon="person-outline"
-          placeholder={STRINGS.firstNamePlaceholder}
+          placeholder={t('auth.firstNamePlaceholder')}
           autoCapitalize="words"
           textContentType="givenName"
           returnKeyType="next"
@@ -134,9 +131,9 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
         <FormTextBox
           control={control}
           name="lastName"
-          label={STRINGS.lastName}
+          label={t('auth.lastName')}
           icon="person-outline"
-          placeholder={STRINGS.lastNamePlaceholder}
+          placeholder={t('auth.lastNamePlaceholder')}
           autoCapitalize="words"
           textContentType="familyName"
           returnKeyType="next"
@@ -145,9 +142,9 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
           <FormTextBox
             control={control}
             name="companyName"
-            label={STRINGS.companyName}
+            label={t('auth.companyName')}
             icon="business-outline"
-            placeholder={STRINGS.companyNamePlaceholder}
+            placeholder={t('auth.companyNamePlaceholder')}
             autoCapitalize="words"
             textContentType="organizationName"
             returnKeyType="next"
@@ -156,9 +153,9 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
         <FormTextBox
           control={control}
           name="email"
-          label={STRINGS.email}
+          label={t('auth.email')}
           icon="mail-outline"
-          placeholder={STRINGS.emailPlaceholder}
+          placeholder={t('auth.emailPlaceholder')}
           keyboardType="email-address"
           autoCapitalize="none"
           autoComplete="email"
@@ -168,9 +165,9 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
         <FormTextBox
           control={control}
           name="phone"
-          label={STRINGS.phone}
+          label={t('auth.phone')}
           icon="call-outline"
-          placeholder={STRINGS.phonePlaceholder}
+          placeholder={t('auth.phonePlaceholder')}
           keyboardType="phone-pad"
           textContentType="telephoneNumber"
           returnKeyType="next"
@@ -178,16 +175,16 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
         <FormPasswordField
           control={control}
           name="password"
-          label={STRINGS.password}
-          placeholder={STRINGS.passwordPlaceholder}
+          label={t('auth.password')}
+          placeholder={t('auth.passwordPlaceholder')}
           textContentType="newPassword"
           returnKeyType="next"
         />
         <FormPasswordField
           control={control}
           name="confirmPassword"
-          label={STRINGS.confirmPassword}
-          placeholder={STRINGS.confirmPasswordPlaceholder}
+          label={t('auth.confirmPassword')}
+          placeholder={t('auth.confirmPasswordPlaceholder')}
           textContentType="newPassword"
           returnKeyType="done"
           onSubmitEditing={handleSubmit(onSubmit)}
@@ -195,10 +192,10 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
 
         <FormCheckbox control={control} name="acceptTerms">
           <Text style={styles.termsText}>
-            {STRINGS.agreeTo}{' '}
-            <Text style={{ color: colors.primary, fontWeight: '700' }}>{STRINGS.terms}</Text>
-            {` ${STRINGS.andLabel} `}
-            <Text style={{ color: colors.primary, fontWeight: '700' }}>{STRINGS.privacy}</Text>.
+            {t('auth.agreeTo')}{' '}
+            <Text style={{ color: colors.primary, fontWeight: '700' }}>{t('auth.terms')}</Text>
+            {` ${t('auth.andLabel')} `}
+            <Text style={{ color: colors.primary, fontWeight: '700' }}>{t('auth.privacy')}</Text>.
           </Text>
         </FormCheckbox>
       </View>
@@ -206,16 +203,16 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
       <View style={{ height: spacing.md }} />
 
       <PrimaryButton
-        label={submitting ? STRINGS.registering : STRINGS.register}
+        label={submitting ? t('auth.registering') : t('auth.register')}
         loading={submitting}
         onPress={handleSubmit(onSubmit)}
         showArrow
       />
 
       <View style={[styles.footerRow, { marginTop: spacing.xl }]}>
-        <Text style={[styles.footerText, { color: colors.textSecondary }]}>{STRINGS.haveAccount} </Text>
+        <Text style={[styles.footerText, { color: colors.textSecondary }]}>{t('auth.haveAccount')} </Text>
         <TextLink
-          label={STRINGS.loginNow}
+          label={t('auth.loginNow')}
           onPress={() => navigation.navigate('Login', { accountType })}
         />
       </View>

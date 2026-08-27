@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
@@ -45,7 +45,8 @@ const readWebAssetAsBase64 = async (asset: DocumentPicker.DocumentPickerAsset): 
  * touched — duplicate GR numbers are skipped and reported, never
  * overwritten.
  */
-export const AdminExcelImportScreen = () => {
+export const AdminExcelImportScreen = ({ route }: any) => {
+  const selectedArea = (route?.params as { selectedArea?: string } | undefined)?.selectedArea ?? null;
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { goBack, navigate } = useAppNav();
   const fullName = useUserStore((state) => state.user?.fullName ?? null);
@@ -57,6 +58,7 @@ export const AdminExcelImportScreen = () => {
   const [parsed, setParsed] = useState<ParsedWorkbook | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
+  const [challanNo, setChallanNo] = useState('');
 
   const reset = () => {
     setStage('select');
@@ -165,7 +167,10 @@ export const AdminExcelImportScreen = () => {
     if (!parsed || !file) return;
     setStage('importing');
     try {
-      const result = await importRepository.bulkImportGRs(parsed.validRows, file.name, fullName);
+      const rowsToImport = challanNo.trim()
+        ? parsed.validRows.map((r) => ({ ...r, chalaanNo: challanNo.trim() }))
+        : parsed.validRows;
+      const result = await importRepository.bulkImportGRs(rowsToImport, file.name, fullName, selectedArea ?? undefined);
       setSummary(result);
       setStage('result');
     } catch (err: any) {
@@ -185,6 +190,15 @@ export const AdminExcelImportScreen = () => {
             <Text style={[styles.subtitle, { color: colors.textMuted }]}>
               Upload an Excel file containing GR records. Each valid row becomes one GR.
             </Text>
+
+            {selectedArea && (
+              <View style={[styles.areaBadge, { backgroundColor: `${colors.primary}15`, borderRadius: radii.md }]}>
+                <Ionicons name="location-outline" size={16} color={colors.primary} />
+                <Text style={[styles.areaBadgeText, { color: colors.primary }]}>
+                  Area: {selectedArea}
+                </Text>
+              </View>
+            )}
 
             {fileError && (
               <View style={[styles.errorBanner, { backgroundColor: colors.errorSoft, borderRadius: radii.md }]}>
@@ -219,12 +233,39 @@ export const AdminExcelImportScreen = () => {
 
         {stage === 'preview' && parsed && file && (
           <>
+            {selectedArea && (
+              <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+                <View style={styles.areaBadge}>
+                  <Ionicons name="location-outline" size={16} color={colors.primary} />
+                  <Text style={[styles.areaBadgeText, { color: colors.primary }]}>
+                    Importing to area: {selectedArea}
+                  </Text>
+                </View>
+              </View>
+            )}
+
             <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
               <View style={styles.fileRow}>
                 <Ionicons name="document-text-outline" size={20} color={colors.primary} />
                 <Text style={[styles.fileName, { color: colors.textPrimary }]} numberOfLines={1}>{file.name}</Text>
               </View>
               <Text style={[styles.subtitle, { color: colors.textMuted }]}>Rows detected: {parsed.totalRows}</Text>
+            </View>
+
+            <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Challan Number (optional)</Text>
+              <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+                Assign the same Challan Number to all GRs in this import. Leave blank to use Excel values.
+              </Text>
+              <TextInput
+                style={[styles.textInput, { borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.background }]}
+                placeholder="e.g. CHL-2026-001"
+                placeholderTextColor={colors.textMuted}
+                value={challanNo}
+                onChangeText={setChallanNo}
+                autoCapitalize="characters"
+                returnKeyType="done"
+              />
             </View>
 
             <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
@@ -402,6 +443,9 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     errorRowMessage: { fontSize: theme.fonts.size.xs, marginTop: 1 },
     resultIconWrap: { alignItems: 'center', marginBottom: 4 },
     dupList: { marginTop: 8 },
+    textInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, fontWeight: '600' },
+    areaBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 8, marginTop: 8 },
+    areaBadgeText: { fontSize: 13, fontWeight: '700' },
   });
 
 export default AdminExcelImportScreen;

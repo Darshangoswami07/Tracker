@@ -9,6 +9,8 @@ export interface User {
   role: Role;
   profileImage: string | null;
   isActive: boolean;
+  /** Assigned operational area (staff users only). Null for admin/owner roles. */
+  area: string | null;
   createdAt: string;
   updatedAt: string;
 }

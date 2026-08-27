@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { StorageKeys } from '../constants/storageKeys';
 import { initStorage } from '../services/storage';
 import { getLogger } from '../utils/logger';
+import i18n from '../i18n';
 
 const logger = getLogger('settingsStore');
 
@@ -11,7 +12,7 @@ const logger = getLogger('settingsStore');
  * client-side by design — features without a backend/native implementation
  * persist their intent locally instead of pretending a server setting changed.
  */
-export type LanguageCode = 'en' | 'hi' | 'gu';
+export type LanguageCode = 'en' | 'hi' | 'hinglish';
 
 export interface SettingsValues {
   pushNotifications: boolean;
@@ -35,7 +36,7 @@ const DEFAULTS: SettingsValues = {
   language: 'en',
 };
 
-const LANGUAGES: readonly LanguageCode[] = ['en', 'hi', 'gu'];
+const LANGUAGES: readonly LanguageCode[] = ['en', 'hi', 'hinglish'];
 
 interface SettingsState extends SettingsValues {
   setPushNotifications: (value: boolean) => void;
@@ -124,6 +125,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
   setLanguage: (language) => {
     set({ language });
+    i18n.changeLanguage(language);
     persist(get());
   },
 
@@ -132,7 +134,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const kv = await initStorage();
       const raw = kv.getString(StorageKeys.settingsPreferences);
       if (!raw) return;
-      set(sanitize(raw));
+      const parsed = sanitize(raw);
+      set(parsed);
+      i18n.changeLanguage(parsed.language);
     } catch (error) {
       logger.warn('[Settings] Failed to hydrate preferences', error);
     }
