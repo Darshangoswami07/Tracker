@@ -195,7 +195,7 @@ export const AdminExcelImportScreen = ({ route }: any) => {
               <View style={[styles.areaBadge, { backgroundColor: `${colors.primary}15`, borderRadius: radii.md }]}>
                 <Ionicons name="location-outline" size={16} color={colors.primary} />
                 <Text style={[styles.areaBadgeText, { color: colors.primary }]}>
-                  Area: {selectedArea}
+                  Fallback shop: {selectedArea}
                 </Text>
               </View>
             )}
@@ -238,7 +238,7 @@ export const AdminExcelImportScreen = ({ route }: any) => {
                 <View style={styles.areaBadge}>
                   <Ionicons name="location-outline" size={16} color={colors.primary} />
                   <Text style={[styles.areaBadgeText, { color: colors.primary }]}>
-                    Importing to area: {selectedArea}
+                    Fallback shop for unmatched rows: {selectedArea}
                   </Text>
                 </View>
               </View>
@@ -281,18 +281,24 @@ export const AdminExcelImportScreen = ({ route }: any) => {
                 <View style={styles.previewTable}>
                   <View style={[styles.previewHeaderRow, { borderBottomColor: colors.border }]}>
                     <Text style={[styles.previewHeaderCell, styles.colGr, { color: colors.textMuted }]}>GR No</Text>
-                    <Text style={[styles.previewHeaderCell, styles.colParty, { color: colors.textMuted }]}>Consignor</Text>
                     <Text style={[styles.previewHeaderCell, styles.colParty, { color: colors.textMuted }]}>Consignee</Text>
-                    <Text style={[styles.previewHeaderCell, styles.colFrom, { color: colors.textMuted }]}>From</Text>
+                    <Text style={[styles.previewHeaderCell, styles.colShop, { color: colors.textMuted }]}>Shop</Text>
                   </View>
-                  {parsed.validRows.slice(0, PREVIEW_ROW_LIMIT).map((row) => (
-                    <View key={row.rowNumber} style={[styles.previewRow, { borderBottomColor: colors.border }]}>
-                      <Text style={[styles.previewCell, styles.colGr, { color: colors.textPrimary }]}>{row.grNumber}</Text>
-                      <Text style={[styles.previewCell, styles.colParty, { color: colors.textSecondary }]} numberOfLines={1}>{row.consignorName || '—'}</Text>
-                      <Text style={[styles.previewCell, styles.colParty, { color: colors.textSecondary }]} numberOfLines={1}>{row.consigneeName || '—'}</Text>
-                      <Text style={[styles.previewCell, styles.colFrom, { color: colors.textSecondary }]} numberOfLines={1}>{row.fromLocation || '—'}</Text>
-                    </View>
-                  ))}
+                  {parsed.validRows.slice(0, PREVIEW_ROW_LIMIT).map((row) => {
+                    const shopLabel = row.resolvedArea ?? selectedArea ?? null;
+                    return (
+                      <View key={row.rowNumber} style={[styles.previewRow, { borderBottomColor: colors.border }]}>
+                        <Text style={[styles.previewCell, styles.colGr, { color: colors.textPrimary }]}>{row.grNumber}</Text>
+                        <Text style={[styles.previewCell, styles.colParty, { color: colors.textSecondary }]} numberOfLines={1}>{row.consigneeName || '—'}</Text>
+                        <Text
+                          style={[styles.previewCell, styles.colShop, { color: shopLabel ? colors.textPrimary : colors.textMuted, fontWeight: shopLabel ? '700' : '600' }]}
+                          numberOfLines={1}
+                        >
+                          {shopLabel ?? 'Unmatched'}
+                        </Text>
+                      </View>
+                    );
+                  })}
                   {parsed.validRows.length > PREVIEW_ROW_LIMIT && (
                     <Text style={[styles.hint, { color: colors.textMuted, marginTop: 8 }]}>
                       +{parsed.validRows.length - PREVIEW_ROW_LIMIT} more valid row(s) not shown.
@@ -438,6 +444,7 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     colGr: { width: 70 },
     colParty: { flex: 1 },
     colFrom: { flex: 1 },
+    colShop: { width: 100 },
     errorRow: { paddingVertical: 6 },
     errorRowLabel: { fontSize: theme.fonts.size.sm, fontWeight: '700' },
     errorRowMessage: { fontSize: theme.fonts.size.xs, marginTop: 1 },

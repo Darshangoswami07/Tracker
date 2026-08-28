@@ -510,6 +510,7 @@
     "pendingApprovalsLabel": "Pending Approvals",
     "staffApprovalsLabel": "Staff Approvals",
     "allStaffLabel": "All Staff",
+    "allShopsLabel": "All Shops",
     "recentActivity": "Recent Activity",
     "unableToLoadActivity": "Unable to load recent activity",
     "pullToRefresh": "Pull down to refresh and try again.",

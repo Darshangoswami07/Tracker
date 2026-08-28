@@ -5,6 +5,9 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAuthStore } from '../../store/authStore';
+import { useUserStore } from '../../store/userStore';
+import { api } from '../../api/client';
+import { ENDPOINTS } from '../../api/endpoints';
 import { orderRepository } from '../../database/repositories/orderRepository';
 import type { LocalPayment, PaymentSummary } from '../../database/repositories/orderRepository';
 import { syncLookupTables } from '../../database/sync';
@@ -122,6 +125,8 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const { goBack, navigate, navigation } = useAppNav();
   const { t } = useTranslation();
   const accessToken = useAuthStore((state) => state.accessToken);
+  const currentUser = useUserStore((state) => state.user);
+  const isStaffUser = currentUser?.role === 'staff';
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
@@ -146,6 +151,12 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [submittingPayment, setSubmittingPayment] = useState(false);
+  // "Collected By" — approved self-service Staff accounts (role=staff),
+  // separate from `staff` above (which lists the older company-invited
+  // "employee" role for GR assignment). Only Admin picks one; a Staff user
+  // recording their own collection is auto-attributed to themselves.
+  const [collectorOptions, setCollectorOptions] = useState<{ id: string; fullName: string; area: string | null }[]>([]);
+  const [collectedByStaffId, setCollectedByStaffId] = useState<string | null>(null);
 
   const fetchDetail = useCallback(async () => {
     try {
@@ -203,6 +214,24 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
       setStaff(staffRows.map((s) => ({ id: s.id, name: s.name })));
     })().catch(() => {});
   }, [accessToken]);
+
+  // Approved self-service Staff, for the Admin's "Collected By" picker.
+  // Staff users never see this list — they always collect as themselves.
+  useEffect(() => {
+    if (!accessToken || isStaffUser) return;
+    (async () => {
+      try {
+        const res = await api.get(ENDPOINTS.admin.users, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          params: { page: 1, pageSize: 100, role: 'staff', status: 'active' },
+        });
+        const items = (res.data?.data?.items ?? []) as { id: string; firstName: string; lastName: string; area: string | null }[];
+        setCollectorOptions(items.map((u) => ({ id: u.id, fullName: `${u.firstName} ${u.lastName}`.trim(), area: u.area ?? null })));
+      } catch {
+        // Non-critical — the picker just stays empty if this fails.
+      }
+    })();
+  }, [accessToken, isStaffUser]);
 
   const updateStatus = async (status: string) => {
     setStatusPickerOpen(false);
@@ -283,15 +312,24 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
           onPress: async () => {
             setSubmittingPayment(true);
             try {
+              // Staff always collect as themselves; Admin optionally
+              // attributes the collection to a specific approved Staff
+              // member via the "Collected By" picker (see Test 4/5/9 in the
+              // Staff Daily Work spec — collections must never be blended
+              // across staff or attributed to nobody in particular when a
+              // staff member actually did the work).
+              const recordedBy = isStaffUser ? currentUser?.id : collectedByStaffId ?? undefined;
               await orderRepository.addPayment({
                 orderId,
                 amount,
                 paymentMethod: 'cash',
                 notes: paymentNotes || undefined,
+                recordedBy,
               });
               setReceivePaymentOpen(false);
               setPaymentAmount('');
               setPaymentNotes('');
+              setCollectedByStaffId(null);
               await Promise.all([fetchDetail(), fetchPayments()]);
             } catch (err: any) {
               Alert.alert(t('createGR.errorTitle'), err?.message ?? t('payment.failed'));
@@ -603,6 +641,39 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
                 <Text style={[styles.paymentFormLabel, { color: colors.textMuted }]}>{t('payment.balance')}</Text>
                 <Text style={[styles.paymentFormValue, { color: '#F97316', fontWeight: '800' }]}>{formatCurrency(balance)}</Text>
               </View>
+              {isStaffUser ? (
+                <View style={styles.collectedByRow}>
+                  <Ionicons name="person-circle-outline" size={16} color={colors.primary} />
+                  <Text style={[styles.collectedByText, { color: colors.textSecondary }]}>
+                    {t('payment.collectedByYou', 'Collected by you')} ({currentUser?.fullName})
+                  </Text>
+                </View>
+              ) : collectorOptions.length > 0 ? (
+                <>
+                  <Text style={[styles.paymentFormSectionTitle, { color: colors.textMuted }]}>{t('payment.collectedBy', 'Collected By (optional)')}</Text>
+                  <View style={styles.collectorChipRow}>
+                    {collectorOptions.map((opt) => {
+                      const selected = collectedByStaffId === opt.id;
+                      return (
+                        <TouchableOpacity
+                          key={opt.id}
+                          style={[
+                            styles.collectorChip,
+                            { borderRadius: radii.pill, borderColor: selected ? colors.primary : colors.border },
+                            selected && { backgroundColor: colors.primary },
+                          ]}
+                          onPress={() => setCollectedByStaffId(selected ? null : opt.id)}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={[styles.collectorChipText, { color: selected ? colors.onPrimary : colors.textPrimary }]}>
+                            {opt.fullName}{opt.area ? ` · ${opt.area}` : ''}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </>
+              ) : null}
               <Text style={[styles.paymentFormSectionTitle, { color: colors.textMuted }]}>{t('payment.enterAmount')}</Text>
               <TextInput
                 style={[styles.paymentInput, { color: colors.textPrimary, backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border }]}
@@ -774,6 +845,11 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     paymentFormLabel: { fontSize: theme.fonts.size.sm, fontWeight: '600' },
     paymentFormValue: { fontSize: theme.fonts.size.md, fontWeight: '700' },
     paymentFormSectionTitle: { fontSize: theme.fonts.size.sm, fontWeight: '700', marginTop: 16, marginBottom: 8 },
+    collectedByRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 16 },
+    collectedByText: { fontSize: theme.fonts.size.sm, fontWeight: '600' },
+    collectorChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    collectorChip: { paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1 },
+    collectorChipText: { fontSize: theme.fonts.size.xs, fontWeight: '700' },
     paymentInput: { paddingHorizontal: 14, paddingVertical: 12, fontSize: theme.fonts.size.md },
   });
 

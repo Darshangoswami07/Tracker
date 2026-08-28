@@ -66,14 +66,19 @@ interface GRCardItem extends LocalGRListItem {
  * Mobile equivalent of the web Admin "GR / Shipments" page.
  * Adds summary overview, financial info on cards, and a filter bottom sheet.
  */
-export const AdminGRShipmentsScreen = () => {
+export const AdminGRShipmentsScreen = ({ route }: any) => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { t } = useTranslation();
   const { navigate, navigation } = useAppNav();
 
+  // When opened as a shop's detail page (All Shops → <shop name>), the area
+  // is fixed by the route param instead of user-selectable — reuses this
+  // same screen/list instead of a separate "Shop Detail" implementation.
+  const fixedArea = (route?.params as { fixedArea?: string } | undefined)?.fixedArea ?? null;
+
   const handleBack = useCallback(() => {
-    navigate('AdminDashboard');
-  }, [navigate]);
+    navigate(fixedArea ? 'AllShops' : 'AdminDashboard');
+  }, [navigate, fixedArea]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -100,7 +105,7 @@ export const AdminGRShipmentsScreen = () => {
   const [consignorFilter, setConsignorFilter] = useState<string | null>(null);
   const [consignorOptions, setConsignorOptions] = useState<string[]>([]);
   const [consignorSheetOpen, setConsignorSheetOpen] = useState(false);
-  const [areaFilter, setAreaFilter] = useState<string | null>(null);
+  const [areaFilter, setAreaFilter] = useState<string | null>(fixedArea);
   const [areaSheetOpen, setAreaSheetOpen] = useState(false);
 
   const role = useUserStore((state) => state.user?.role);
@@ -110,7 +115,7 @@ export const AdminGRShipmentsScreen = () => {
 
   // Admin/Owner/SuperAdmin can choose any area; staff is locked to their area
   const isAdmin = role === 'admin' || role === 'owner' || role === 'super_admin';
-  const effectiveArea = isAdmin ? areaFilter : userArea;
+  const effectiveArea = fixedArea ?? (isAdmin ? areaFilter : userArea);
 
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [menuTarget, setMenuTarget] = useState<GRCardItem | null>(null);
@@ -280,7 +285,7 @@ export const AdminGRShipmentsScreen = () => {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
         <Header
-          title={t('gr.grShipments')}
+          title={fixedArea ?? t('gr.grShipments')}
           leftAction={{ icon: 'chevron-back', onPress: handleBack }}
           rightAction={{ icon: 'add', onPress: onAddPress, accessibilityLabel: 'Create GR' }}
         />
@@ -299,7 +304,7 @@ export const AdminGRShipmentsScreen = () => {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <Header
-        title={t('gr.grShipments')}
+        title={fixedArea ?? t('gr.grShipments')}
         leftAction={{ icon: 'chevron-back', onPress: handleBack }}
         rightAction={{ icon: 'add', onPress: onAddPress, accessibilityLabel: 'Create GR' }}
       />
@@ -348,30 +353,45 @@ export const AdminGRShipmentsScreen = () => {
             <Text style={[styles.summaryValue, { color: '#10B981' }]}>{formatCurrency(summary.todayCollection)}</Text>
             <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>{t('adminGRShipments.todayCollection')}</Text>
           </View>
+          {fixedArea && (
+            <>
+              <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+                <Text style={[styles.summaryValue, { color: '#10B981' }]}>{formatCurrency(summary.totalReceived)}</Text>
+                <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>{t('summary.totalCollected', 'Total Collected')}</Text>
+              </View>
+              <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+                <Text style={[styles.summaryValue, { color: summary.totalOutstanding > 0 ? '#F97316' : '#10B981' }]}>{formatCurrency(summary.totalOutstanding)}</Text>
+                <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>{t('summary.outstanding', 'Outstanding')}</Text>
+              </View>
+            </>
+          )}
         </View>
 
-        {/* Location Filter */}
-        <TouchableOpacity
-          style={[styles.consignorFilterBtn, { backgroundColor: colors.surface, borderRadius: radii.md, borderColor: effectiveArea ? colors.primary : colors.border }]}
-          onPress={() => isAdmin ? setAreaSheetOpen(true) : undefined}
-          activeOpacity={isAdmin ? 0.7 : 1}
-          disabled={!isAdmin}
-        >
-          <Ionicons name="location-outline" size={16} color={effectiveArea ? colors.primary : colors.textMuted} />
-          <Text
-            style={[styles.consignorFilterText, { color: effectiveArea ? colors.primary : colors.textMuted }]}
-            numberOfLines={1}
+        {/* Location Filter — hidden on a fixed-shop detail page, where the
+            area is already pinned by the route param. */}
+        {!fixedArea && (
+          <TouchableOpacity
+            style={[styles.consignorFilterBtn, { backgroundColor: colors.surface, borderRadius: radii.md, borderColor: effectiveArea ? colors.primary : colors.border }]}
+            onPress={() => isAdmin ? setAreaSheetOpen(true) : undefined}
+            activeOpacity={isAdmin ? 0.7 : 1}
+            disabled={!isAdmin}
           >
-            {effectiveArea || t('gr.allLocations')}
-          </Text>
-          {effectiveArea && isAdmin ? (
-            <TouchableOpacity onPress={() => setAreaFilter(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="close-circle" size={16} color={colors.primary} />
-            </TouchableOpacity>
-          ) : isAdmin ? (
-            <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
-          ) : null}
-        </TouchableOpacity>
+            <Ionicons name="location-outline" size={16} color={effectiveArea ? colors.primary : colors.textMuted} />
+            <Text
+              style={[styles.consignorFilterText, { color: effectiveArea ? colors.primary : colors.textMuted }]}
+              numberOfLines={1}
+            >
+              {effectiveArea || t('gr.allLocations')}
+            </Text>
+            {effectiveArea && isAdmin ? (
+              <TouchableOpacity onPress={() => setAreaFilter(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close-circle" size={16} color={colors.primary} />
+              </TouchableOpacity>
+            ) : isAdmin ? (
+              <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+            ) : null}
+          </TouchableOpacity>
+        )}
 
         {/* Search + Filter */}
         <View style={styles.searchBar}>
@@ -437,9 +457,9 @@ export const AdminGRShipmentsScreen = () => {
           <EmptyState
             icon="reader-outline"
             title={t('gr.noEntries')}
-            subtitle={search || statusTab !== 'All' || consignorFilter || effectiveArea ? t('gr.searchResultsEmpty') : t('gr.shipmentsWillAppear')}
-            actionLabel={consignorFilter || effectiveArea ? t('gr.clearFilter') : t('gr.createGR')}
-            onActionPress={consignorFilter || effectiveArea ? () => { setConsignorFilter(null); setAreaFilter(null); } : () => navigate('CreateGR')}
+            subtitle={search || statusTab !== 'All' || consignorFilter || (!fixedArea && effectiveArea) ? t('gr.searchResultsEmpty') : t('gr.shipmentsWillAppear')}
+            actionLabel={consignorFilter || (!fixedArea && effectiveArea) ? t('gr.clearFilter') : t('gr.createGR')}
+            onActionPress={consignorFilter || (!fixedArea && effectiveArea) ? () => { setConsignorFilter(null); setAreaFilter(null); } : () => navigate('CreateGR')}
           />
         )}
 

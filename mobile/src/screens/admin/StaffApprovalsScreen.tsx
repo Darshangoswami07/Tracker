@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAuthStore } from '../../store/authStore';
 import { api } from '../../api/client';
@@ -37,6 +38,9 @@ interface PendingStaff {
   phone: string;
   status: string;
   createdAt: string;
+  /** Operational area picked at signup — null for accounts registered
+   * before the area field existed. */
+  area: string | null;
 }
 
 const formatTime = (iso: string): string => {
@@ -226,6 +230,12 @@ export const StaffApprovalsScreen = () => {
 
                   <Text style={[styles.detail, { color: colors.textSecondary }]}>{member.email}</Text>
                   <Text style={[styles.detail, { color: colors.textSecondary }]}>{member.phone}</Text>
+                  {member.area && (
+                    <View style={styles.areaRow}>
+                      <Ionicons name="location-outline" size={14} color={colors.primary} />
+                      <Text style={[styles.areaText, { color: colors.primary }]}>{member.area}</Text>
+                    </View>
+                  )}
                   <Text style={[styles.detail, { color: colors.textMuted }]}>Registered {formatTime(member.createdAt)}</Text>
 
                   {isRejecting ? (
@@ -325,6 +335,8 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     name: { fontSize: theme.fonts.size.md, fontWeight: '700' },
     detail: { fontSize: theme.fonts.size.sm },
+    areaRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    areaText: { fontSize: theme.fonts.size.sm, fontWeight: '700' },
     actionsRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
     actionButton: { flex: 1, paddingVertical: 10, borderRadius: theme.radii.md, alignItems: 'center', justifyContent: 'center' },
     cancelButton: { borderWidth: 1, backgroundColor: 'transparent' },

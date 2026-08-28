@@ -30,6 +30,8 @@ import { AdminAreasScreen } from '../screens/admin/AdminAreasScreen';
 import { AdminExcelImportScreen } from '../screens/admin/AdminExcelImportScreen';
 import { ExcelImportHistoryScreen } from '../screens/admin/ExcelImportHistoryScreen';
 import { PaymentHistoryScreen } from '../screens/admin/PaymentHistoryScreen';
+import { AdminAllShopsScreen } from '../screens/admin/AdminAllShopsScreen';
+import { AdminStaffDailyWorkScreen } from '../screens/admin/AdminStaffDailyWorkScreen';
 
 // Customer Tracking and GR Tracker (Classic) reuse the exact same components
 // already used by the Customer/Employee stacks for these roles — the GR
@@ -89,6 +91,8 @@ const DashboardTabStack = () => (
     <DashboardStack.Screen name="ExcelImport" component={AdminExcelImportScreen} />
     <DashboardStack.Screen name="ExcelImportHistory" component={ExcelImportHistoryScreen} />
     <DashboardStack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
+    <DashboardStack.Screen name="StaffDailyWork" component={AdminStaffDailyWorkScreen} />
+    <DashboardStack.Screen name="AllShops" component={AdminAllShopsScreen} />
   </DashboardStack.Navigator>
 );
 
@@ -102,6 +106,8 @@ const ShipmentsTabStack = () => (
     <ShipmentsStack.Screen name="ExcelImport" component={AdminExcelImportScreen} />
     <ShipmentsStack.Screen name="ExcelImportHistory" component={ExcelImportHistoryScreen} />
     <ShipmentsStack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
+    <ShipmentsStack.Screen name="StaffDailyWork" component={AdminStaffDailyWorkScreen} />
+    <ShipmentsStack.Screen name="AllShops" component={AdminAllShopsScreen} />
   </ShipmentsStack.Navigator>
 );
 

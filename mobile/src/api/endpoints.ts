@@ -25,6 +25,7 @@ export const ENDPOINTS = {
     users: '/admin/users',
     userDetail: (id: string) => `/admin/users/${id}`,
     userStatus: (id: string) => `/admin/users/${id}/status`,
+    userArea: (id: string) => `/admin/users/${id}/area`,
     resendUserOTP: (id: string) => `/admin/users/${id}/resend-otp`,
     approvalLogs: '/admin/approval-logs',
     /** Staff Approvals — separate from `pendingRequests` above (the

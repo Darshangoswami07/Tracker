@@ -184,6 +184,9 @@ class AdminUserOut(BaseModel):
     phone: str
     role: UserRole
     companyId: UUID | None = None
+    # Staff/employee operational area (see `app/utils/areas.py`) — null for
+    # admin/owner roles and for accounts registered before areas existed.
+    area: str | None = None
     status: RegistrationStatus
     isVerified: bool
     isApproved: bool
@@ -269,6 +272,24 @@ class UpdateUserStatusRequest(BaseModel):
     """Request to update user status."""
     status: RegistrationStatus
     reason: Optional[str] = None
+
+
+class UpdateUserAreaRequest(BaseModel):
+    """Admin's "Assign Location" / "Change Location" action on a Staff
+    account (All Staff page). `area` must be one of the fixed operational
+    areas — same list/normalization the Staff registration form and the
+    All Shops feature already use."""
+    area: str = Field(min_length=1, max_length=100)
+
+    @field_validator("area")
+    @classmethod
+    def area_must_be_known(cls, value: str) -> str:
+        from app.utils.areas import normalize_area
+
+        normalized = normalize_area(value)
+        if not normalized:
+            raise ValueError("Location must be one of the operational areas.")
+        return normalized
 
 
 # --- Audit Log Schemas ---

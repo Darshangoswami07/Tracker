@@ -41,6 +41,7 @@ const registerBaseSchema = z
       .min(1, { message: 'Last name is required.' })
       .max(60, { message: 'Last name is too long.' }),
     companyName: z.string().optional(),
+    area: z.string().optional(),
     email,
     phone,
     password,
@@ -62,18 +63,30 @@ export const registerSchemaFor = (accountType: RegisterAccountType) =>
   registerBaseSchema.superRefine((values, ctx) => {
     // Admin types their own company (the backend creates/finds it). Staff
     // has no company field — they're assigned one by the approving Admin.
-    if (accountType !== 'admin') return;
-    if (!values.companyName || values.companyName.trim().length === 0) {
+    if (accountType === 'admin') {
+      if (!values.companyName || values.companyName.trim().length === 0) {
+        ctx.addIssue({
+          path: ['companyName'],
+          code: 'custom',
+          message: 'Company name is required.',
+        });
+      } else if (values.companyName.trim().length > 160) {
+        ctx.addIssue({
+          path: ['companyName'],
+          code: 'custom',
+          message: 'Company name is too long.',
+        });
+      }
+      return;
+    }
+
+    // Staff must select a permanent operational area — no registration
+    // without one.
+    if (!values.area || values.area.trim().length === 0) {
       ctx.addIssue({
-        path: ['companyName'],
+        path: ['area'],
         code: 'custom',
-        message: 'Company name is required.',
-      });
-    } else if (values.companyName.trim().length > 160) {
-      ctx.addIssue({
-        path: ['companyName'],
-        code: 'custom',
-        message: 'Company name is too long.',
+        message: 'Please select your location.',
       });
     }
   });

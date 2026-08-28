@@ -444,6 +444,20 @@ export const AdminDashboardScreen = () => {
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </TouchableOpacity>
 
+            {/* All Shops — Bageshwar / Almora / Garur Someshwar, grouped from
+             * the same GRs Excel-imports already assign an area to. */}
+            <TouchableOpacity
+              style={[styles.secondaryAction, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
+              onPress={() => navigate('AllShops')}
+              activeOpacity={0.85}
+            >
+              <View style={[styles.secondaryActionIcon, { backgroundColor: '#EC489915', borderRadius: radii.md }]}>
+                <Ionicons name="storefront-outline" size={20} color="#EC4899" />
+              </View>
+              <Text style={[styles.secondaryActionLabel, { color: colors.textPrimary }]}>{t('dashboard.allShopsLabel')}</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+
             {isSuperAdmin && (
               <TouchableOpacity
                 style={[styles.secondaryAction, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}

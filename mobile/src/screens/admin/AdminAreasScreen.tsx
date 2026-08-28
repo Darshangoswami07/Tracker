@@ -23,9 +23,11 @@ const AREA_COLORS: Record<Area, string> = {
 /**
  * Admin → Import GRs from Excel → Select Area.
  *
- * Shows the three operational areas (Bageshwar, Almora, Garur Someshwar).
- * Selecting an area navigates to the Excel Import screen, which assigns
- * the chosen area to every imported GR.
+ * The shop/area for each imported GR is now auto-detected from the
+ * Consignee Name column (see `services/excelImport.ts#validateRows`), so
+ * this screen is an OPTIONAL fallback: picking an area here only applies to
+ * rows whose consignee name doesn't match a known shop. "Skip" proceeds
+ * straight to Excel Import with no fallback area.
  */
 export const AdminAreasScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
@@ -46,7 +48,10 @@ export const AdminAreasScreen = () => {
         <View style={[styles.infoCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
           <Ionicons name="information-circle-outline" size={20} color={colors.primary} />
           <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-            {t('areas.info', 'Select the area for which you want to import GRs. All imported GRs will be assigned to the selected area.')}
+            {t(
+              'areas.info',
+              "Each GR's shop is detected automatically from its Consignee Name. Only pick a fallback area here if you want unmatched rows assigned to one area — otherwise, skip this step."
+            )}
           </Text>
         </View>
 
@@ -66,6 +71,13 @@ export const AdminAreasScreen = () => {
             </TouchableOpacity>
           ))}
         </View>
+
+        <TouchableOpacity style={styles.skipLink} onPress={() => navigate('ExcelImport')}>
+          <Text style={[styles.skipLinkText, { color: colors.primary }]}>
+            {t('areas.skip', 'Skip — auto-detect shop from Excel')}
+          </Text>
+          <Ionicons name="arrow-forward" size={16} color={colors.primary} />
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -81,6 +93,8 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     areaCard: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md, padding: theme.spacing.lg },
     areaIconWrap: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
     areaName: { flex: 1, fontSize: theme.fonts.size.lg, fontWeight: '700' },
+    skipLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 14 },
+    skipLinkText: { fontSize: theme.fonts.size.md, fontWeight: '700' },
   });
 
 export default AdminAreasScreen;

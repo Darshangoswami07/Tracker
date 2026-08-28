@@ -3,6 +3,9 @@ import { BackHandler, RefreshControl, ScrollView, StyleSheet, Text, TextInput, T
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/useAppTheme';
+import { useAuthStore } from '../../store/authStore';
+import { api } from '../../api/client';
+import { ENDPOINTS } from '../../api/endpoints';
 import { orderRepository } from '../../database/repositories/orderRepository';
 import type { LocalPayment } from '../../database/repositories/orderRepository';
 import { Header } from '../../components/Header';
@@ -11,6 +14,14 @@ import { EmptyState } from '../../components/EmptyState';
 import { useAppNav } from '../../hooks/useAppNav';
 import { useTranslation } from 'react-i18next';
 import type { AppTheme } from '../../theme/types';
+
+interface StaffDailyCard {
+  id: string;
+  fullName: string;
+  area: string | null;
+  totalCollection: number;
+  totalGRs: number;
+}
 
 const formatDate = (iso: string | null): string => {
   if (!iso) return '—';
@@ -31,6 +42,7 @@ export const PaymentHistoryScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { t } = useTranslation();
   const { navigate, navigation } = useAppNav();
+  const accessToken = useAuthStore((state) => state.accessToken);
 
   const handleBack = useCallback(() => {
     navigate('AdminDashboard');
@@ -53,6 +65,43 @@ export const PaymentHistoryScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [summary, setSummary] = useState({ totalCollected: 0, totalBalance: 0, totalGRs: 0, paymentCount: 0 });
+  const [staffCards, setStaffCards] = useState<StaffDailyCard[]>([]);
+  const [staffLoading, setStaffLoading] = useState(true);
+
+  // Staff Daily Work — today's collection/GR totals per approved Staff
+  // member, kept separate from the overall totals above (which always cover
+  // every payment regardless of who recorded it — see `getStaffDailySummary`
+  // for the per-staff, per-day isolation this relies on).
+  const fetchStaffDailyWork = useCallback(async () => {
+    if (!accessToken) return;
+    setStaffLoading(true);
+    try {
+      const res = await api.get(ENDPOINTS.admin.users, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        params: { page: 1, pageSize: 100, role: 'staff', status: 'active' },
+      });
+      const items = (res.data?.data?.items ?? []) as { id: string; firstName: string; lastName: string; area: string | null }[];
+      const todayIso = new Date().toISOString();
+      const cards = await Promise.all(
+        items.map(async (u) => {
+          const daily = await orderRepository.getStaffDailySummary(u.id, todayIso);
+          return {
+            id: u.id,
+            fullName: `${u.firstName} ${u.lastName}`.trim(),
+            area: u.area ?? null,
+            totalCollection: daily.totalCollection,
+            totalGRs: daily.totalGRs,
+          };
+        })
+      );
+      cards.sort((a, b) => a.fullName.localeCompare(b.fullName));
+      setStaffCards(cards);
+    } catch {
+      setStaffCards([]);
+    } finally {
+      setStaffLoading(false);
+    }
+  }, [accessToken]);
 
   const fetchPayments = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
     if (mode === 'initial') setLoading(true);
@@ -98,11 +147,13 @@ export const PaymentHistoryScreen = () => {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchPayments('initial');
-  }, [fetchPayments]);
+    fetchStaffDailyWork();
+  }, [fetchPayments, fetchStaffDailyWork]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       fetchPayments('refresh');
+      fetchStaffDailyWork();
     });
     return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -187,6 +238,47 @@ export const PaymentHistoryScreen = () => {
               </View>
             </View>
 
+            {/* Staff Daily Work — drill-down into what each approved Staff
+                member individually collected today; distinct from the
+                overall totals above, which cover the whole system. */}
+            {(staffLoading || staffCards.length > 0) && (
+              <View style={styles.staffSection}>
+                <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Staff Daily Work</Text>
+                {staffLoading ? (
+                  <View style={styles.list}>
+                    {[1, 2].map((i) => (
+                      <ShimmerCard key={i} style={styles.shimmerBlock} height={90} />
+                    ))}
+                  </View>
+                ) : (
+                  <View style={styles.list}>
+                    {staffCards.map((s) => (
+                      <TouchableOpacity
+                        key={s.id}
+                        style={[styles.staffCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
+                        onPress={() => navigate('StaffDailyWork', { staffId: s.id, fullName: s.fullName, area: s.area })}
+                        activeOpacity={0.85}
+                      >
+                        <View style={styles.staffCardTop}>
+                          <View style={[styles.staffAvatar, { backgroundColor: `${colors.primary}15`, borderRadius: radii.pill }]}>
+                            <Ionicons name="person" size={18} color={colors.primary} />
+                          </View>
+                          <View style={styles.staffNameBlock}>
+                            <Text style={[styles.staffName, { color: colors.textPrimary }]}>{s.fullName}</Text>
+                            {s.area && <Text style={[styles.staffArea, { color: colors.textMuted }]}>{s.area}</Text>}
+                          </View>
+                          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                        </View>
+                        <Text style={[styles.staffStats, { color: colors.textSecondary }]}>
+                          {formatCurrency(s.totalCollection)} Collection · {s.totalGRs} {s.totalGRs === 1 ? 'GR' : 'GRs'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
+
             {/* Search */}
             <View style={styles.searchBar}>
               <Ionicons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
@@ -252,6 +344,15 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     summaryCard: { flex: 1, padding: 14, alignItems: 'center', gap: 2 },
     summaryValue: { fontSize: theme.fonts.size.lg, fontWeight: '800' },
     summaryLabel: { fontSize: theme.fonts.size.xs, fontWeight: '600', textAlign: 'center' },
+    staffSection: { marginBottom: theme.spacing.lg, gap: theme.spacing.sm },
+    sectionTitle: { fontSize: theme.fonts.size.md, fontWeight: '800' },
+    staffCard: { padding: 16, gap: 8 },
+    staffCardTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    staffAvatar: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+    staffNameBlock: { flex: 1, gap: 1 },
+    staffName: { fontSize: theme.fonts.size.md, fontWeight: '700' },
+    staffArea: { fontSize: theme.fonts.size.xs, fontWeight: '600' },
+    staffStats: { fontSize: theme.fonts.size.sm, fontWeight: '600' },
     searchBar: { marginBottom: theme.spacing.md, position: 'relative', justifyContent: 'center' },
     searchIcon: { position: 'absolute', left: 14, zIndex: 1 },
     searchInput: { borderRadius: theme.radii.lg, paddingHorizontal: 40, paddingVertical: 12, fontSize: theme.fonts.size.md },

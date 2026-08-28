@@ -47,6 +47,7 @@ class UserRepository(BaseRepository[User]):
         is_verified: bool = False,
         otp_verified: bool = False,
         company_id=None,
+        area: str | None = None,
     ) -> User:
         async with session_scope(self._session) as session:
             user = User(
@@ -62,6 +63,7 @@ class UserRepository(BaseRepository[User]):
                 isVerified=is_verified,
                 isApproved=is_approved,
                 otpVerified=otp_verified,
+                area=area,
             )
             session.add(user)
             await session.flush()
@@ -115,6 +117,20 @@ class UserRepository(BaseRepository[User]):
             record.isApproved = True
             record.isVerified = True
             record.companyId = company_id
+            return True
+
+    async def set_area(self, user_id: str, area: str) -> bool:
+        """Assigns/changes a Staff account's operational area — Admin's
+        "Assign Location"/"Change Location" action on the All Staff page.
+        Never touches any other field; `area` is already validated/normalized
+        by the request schema before reaching here."""
+        async with session_scope(self._session) as session:
+            from app.repositories.base import to_uuid
+
+            record = await session.get(User, to_uuid(user_id))
+            if record is None:
+                return False
+            record.area = area
             return True
 
     async def delete_by_id(self, user_id: str) -> bool:

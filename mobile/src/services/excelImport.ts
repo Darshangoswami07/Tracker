@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { matchArea, type Area } from '../constants/areas';
 
 /**
  * Pure parsing/validation logic for the Excel GR bulk-import feature. No
@@ -54,6 +55,11 @@ export interface ValidGRRow {
   chalaanDate: string | null;
   transportGrn: string | null;
   grSourceLabel: string | null;
+  /** Shop/area resolved from `consigneeName` against the fixed area list
+   * (see `constants/areas.ts#matchArea`). Null when the consignee name
+   * doesn't match a known area — the row still imports, just unassigned
+   * unless a fallback area was picked on the Areas screen. */
+  resolvedArea: Area | null;
 }
 
 export interface RowError {
@@ -418,6 +424,7 @@ export const validateRows = (rows: RawExcelRow[]): ParsedWorkbook => {
       chalaanDate: excelDateToIso(row.chalaanDateRaw),
       transportGrn: row.transportGrn,
       grSourceLabel: row.grSourceLabel,
+      resolvedArea: matchArea(row.consigneeName),
     });
   }
 

@@ -20,6 +20,7 @@ from app.schemas.approval import (
     CreateCompanyUserRequest,
     RejectRequest,
     ResendOTPRequest,
+    UpdateUserAreaRequest,
     UpdateUserStatusRequest,
 )
 from app.core.rbac import can_manage, is_super_admin
@@ -265,6 +266,36 @@ async def update_user_status(
         )
 
     return success({"updated": True}, message=f"User status updated to {payload.status.value}.")
+
+
+@router.patch("/users/{user_id}/area")
+async def update_user_area(
+    user_id: str,
+    payload: UpdateUserAreaRequest,
+    admin: CompanyAdminUser,
+) -> dict:
+    """Admin's "Assign Location" / "Change Location" action on the All Staff
+    page — Staff accounts only (area has no meaning for Admin/Owner roles).
+    Changing this immediately changes the account's data-access boundary:
+    every mobile GR/payment/shipment query is scoped by `orderRepository`
+    against the signed-in user's `area`, read fresh on every request, so a
+    Staff member's access follows this change on their very next screen
+    load/login — no separate "access" record to keep in sync.
+    """
+    target = await user_service.get_by_id(user_id)
+    if not target:
+        raise NotFoundError("User not found")
+    if target.role != UserRole.STAFF:
+        raise ForbiddenError("Only Staff accounts have an assignable location.")
+    if not can_manage(admin.role, target.role):
+        raise ForbiddenError("You are not permitted to modify this account.")
+    await assert_same_company(admin, target.companyId)
+
+    repo = UserRepository()
+    updated = await repo.set_area(user_id, payload.area)
+    if not updated:
+        raise NotFoundError("User not found")
+    return success({"area": payload.area}, message=f"Location assigned: {payload.area}.")
 
 
 @router.delete("/users/{user_id}")

@@ -43,6 +43,7 @@ async def staff_register(payload: StaffRegisterRequest) -> dict:
         email=payload.email,
         phone=payload.phone,
         password=payload.password,
+        area=payload.area,
     )
     return success(
         {"id": str(user.id), "status": "pending"},

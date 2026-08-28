@@ -32,6 +32,9 @@ export interface StaffRegisterPayload {
   email: string;
   phone: string;
   password: string;
+  /** One of the fixed operational areas (see `constants/areas.ts`) — the
+   * Staff account is permanently associated with this location. */
+  area: string;
 }
 
 export interface StaffRegisterResult {

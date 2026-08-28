@@ -21,6 +21,9 @@ class UserOut(BaseModel):
     companyId: str | None = None
     profileImage: str | None
     isActive: bool
+    # Operational area (Staff/employee accounts) — see `app/utils/areas.py`.
+    # Null for admin/owner roles and accounts registered before areas existed.
+    area: str | None = None
     status: RegistrationStatus
     createdAt: datetime
     updatedAt: datetime

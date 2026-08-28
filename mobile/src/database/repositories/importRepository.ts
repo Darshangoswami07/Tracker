@@ -32,6 +32,12 @@ const nowIso = (): string => new Date().toISOString();
  * initial status-history row" invariant, extended with the Excel-only
  * fields (`chalaanNo`, `paymentMode`, ...) and `source = 'excel'`.
  *
+ * Shop/area assignment: each row's `resolvedArea` (matched off its
+ * Consignee Name — see `services/excelImport.ts#validateRows`) is used when
+ * present; the `area` param (picked manually on the Areas screen, if any) is
+ * only a fallback for rows whose consignee name didn't match a known area.
+ * This lets a single file mix GRs from multiple shops.
+ *
  * Duplicate-handling rules (must be consistent with `orderRepository.create`):
  * - Active GR (`isDeleted = 0`) with same orderNumber → "Already Existing",
  *   skip the row.
@@ -138,7 +144,7 @@ export const importRepository = {
             row.chalaanDate ?? null,
             row.transportGrn ?? null,
             row.grSourceLabel ?? null,
-            area ?? null,
+            row.resolvedArea ?? area ?? null,
             createdAt,
             createdAt,
             0,

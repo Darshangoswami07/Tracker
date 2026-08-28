@@ -99,11 +99,13 @@ class UserService:
     }
 
     async def register_staff(
-        self, full_name: str, email: str, phone: str, password: str
+        self, full_name: str, email: str, phone: str, password: str, area: str
     ) -> User:
         """Self-service Staff signup. Creates the user directly on the
         ``users`` table — no ``RegistrationRequest`` row, no OTP, no email —
-        as ``PENDING`` until an Admin approves it (see ``approve_staff``)."""
+        as ``PENDING`` until an Admin approves it (see ``approve_staff``).
+        ``area`` permanently associates this Staff account with one of the
+        fixed operational areas (already normalized by the request schema)."""
         if await self.repository.find_by_email(email, UserRole.STAFF) is not None:
             raise EmailAlreadyRegisteredError(
                 "This email is already registered as Staff. Please sign in."
@@ -121,6 +123,7 @@ class UserService:
             is_verified=False,
             otp_verified=False,
             company_id=None,
+            area=area,
         )
 
     async def authenticate_portal(

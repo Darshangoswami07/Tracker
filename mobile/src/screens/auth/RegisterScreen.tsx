@@ -1,7 +1,8 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
-import { StyleSheet, Text, View } from 'react-native';
+import { Controller, useForm } from 'react-hook-form';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
+import { AREAS } from '../../constants/areas';
 import { AuthScaffold } from '../../components/AuthScaffold';
 import { FormCheckbox } from '../../components/form/FormCheckbox';
 import { FormPasswordField } from '../../components/form/FormPasswordField';
@@ -33,7 +34,7 @@ const ACCOUNT_TYPE_TO_ROLE: Record<'admin', RequestedRole> = {
 
 export const RegisterScreen = ({ navigation, route }: Props) => {
   const { t } = useTranslation();
-  const { colors, spacing } = useAppTheme();
+  const { colors, spacing, radii } = useAppTheme();
   const { register, registerStaff } = useAuth();
   const saveRegistration = useRegistrationStore((state) => state.save);
 
@@ -48,6 +49,7 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
       firstName: '',
       lastName: '',
       companyName: '',
+      area: '',
       email: '',
       phone: '',
       password: '',
@@ -69,6 +71,7 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
           email: values.email.trim().toLowerCase(),
           phone: values.phone.trim(),
           password: values.password,
+          area: values.area?.trim() ?? '',
         },
         {
           onSuccess: () => {
@@ -149,6 +152,41 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
             textContentType="organizationName"
             returnKeyType="next"
           />
+        )}
+        {isStaff && (
+          <View style={styles.areaField}>
+            <Text style={[styles.areaLabel, { color: colors.textSecondary }]}>{t('auth.location', 'Location')}</Text>
+            <Controller
+              control={control}
+              name="area"
+              render={({ field: { onChange, value }, fieldState: { error } }) => (
+                <>
+                  <View style={styles.areaChipRow}>
+                    {AREAS.map((area) => {
+                      const selected = value === area;
+                      return (
+                        <TouchableOpacity
+                          key={area}
+                          style={[
+                            styles.areaChip,
+                            { borderRadius: radii.pill, borderColor: selected ? colors.primary : colors.border },
+                            selected && { backgroundColor: colors.primary },
+                          ]}
+                          onPress={() => onChange(area)}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={[styles.areaChipText, { color: selected ? colors.onPrimary : colors.textPrimary }]}>
+                            {area}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  {error && <Text style={[styles.areaError, { color: colors.error }]}>{error.message}</Text>}
+                </>
+              )}
+            />
+          </View>
         )}
         <FormTextBox
           control={control}
@@ -240,6 +278,31 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: 14,
+  },
+  areaField: {
+    gap: 8,
+  },
+  areaLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  areaChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  areaChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+  },
+  areaChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  areaError: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
 

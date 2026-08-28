@@ -13,7 +13,11 @@ interface Overview {
   assigned: number;
   pending: number;
   completed: number;
+  outstanding: number;
 }
+
+const formatCurrency = (amount: number): string =>
+  `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
 const ASSIGNED_STATUSES = ['uncleared'];
 
@@ -28,19 +32,24 @@ export const StaffDashboardScreen = () => {
   const user = useUserStore((state) => state.user);
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
-  const [overview, setOverview] = useState<Overview>({ assigned: 0, pending: 0, completed: 0 });
+  const [overview, setOverview] = useState<Overview>({ assigned: 0, pending: 0, completed: 0, outstanding: 0 });
   const [refreshing, setRefreshing] = useState(false);
 
+  // Every call below is automatically scoped to this Staff member's own
+  // assigned area at the repository level (see `orderRepository`'s
+  // `resolveAreaScope`) — never the whole system's numbers.
   const loadOverview = useCallback(async () => {
     try {
-      const [pending, completed, ...assignedLists] = await Promise.all([
+      const [pending, completed, receiving, ...assignedLists] = await Promise.all([
         orderRepository.list({ status: 'pending', pageSize: 1 }),
         orderRepository.list({ status: 'delivered', pageSize: 1 }),
+        orderRepository.getReceivingOverview(),
         ...ASSIGNED_STATUSES.map((status) => orderRepository.list({ status, pageSize: 1 })),
       ]);
       setOverview({
         pending: pending.total,
         completed: completed.total,
+        outstanding: receiving.outstanding,
         assigned: assignedLists.reduce((sum, r) => sum + r.total, 0),
       });
     } catch (error) {
@@ -85,6 +94,19 @@ export const StaffDashboardScreen = () => {
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Completed</Text>
           </View>
         </View>
+
+        {user?.area && (
+          <View style={[styles.outstandingCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+            <View style={styles.outstandingLeft}>
+              <Ionicons name="location-outline" size={16} color={colors.primary} />
+              <Text style={[styles.outstandingArea, { color: colors.textSecondary }]}>{user.area}</Text>
+            </View>
+            <View>
+              <Text style={[styles.outstandingValue, { color: '#F97316' }]}>{formatCurrency(overview.outstanding)}</Text>
+              <Text style={[styles.outstandingLabel, { color: colors.textMuted }]}>Outstanding</Text>
+            </View>
+          </View>
+        )}
 
         <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Quick Actions</Text>
         <View style={styles.actionsGrid}>
@@ -147,6 +169,11 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     statCard: { flex: 1, alignItems: 'center', paddingVertical: theme.spacing.lg, gap: 4 },
     statValue: { fontSize: theme.fonts.size.xxl, fontWeight: '900' },
     statLabel: { fontSize: theme.fonts.size.xs, fontWeight: '600' },
+    outstandingCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: theme.spacing.lg, paddingVertical: theme.spacing.md },
+    outstandingLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    outstandingArea: { fontSize: theme.fonts.size.sm, fontWeight: '700' },
+    outstandingValue: { fontSize: theme.fonts.size.lg, fontWeight: '800', textAlign: 'right' },
+    outstandingLabel: { fontSize: theme.fonts.size.xs, fontWeight: '600', textAlign: 'right' },
     sectionTitle: { fontSize: theme.fonts.size.md, fontWeight: '800' },
     actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.md },
     actionCard: { flexGrow: 1, minWidth: 140, alignItems: 'center', paddingVertical: theme.spacing.lg, gap: theme.spacing.sm },

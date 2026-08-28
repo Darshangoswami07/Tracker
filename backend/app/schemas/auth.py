@@ -70,6 +70,11 @@ class StaffRegisterRequest(BaseModel):
     email: EmailStr
     phone: str = Field(min_length=10, max_length=15)
     password: str = Field(min_length=PASSWORD_MIN, max_length=PASSWORD_MAX)
+    # Required — every Staff account is permanently tied to one of the fixed
+    # operational areas at signup (see `app/utils/areas.py`), the same areas
+    # used by the "All Shops" GR feature. Normalized so casing/spacing
+    # differences in what the client sends never create near-duplicate areas.
+    area: str = Field(min_length=1, max_length=100)
 
     @field_validator("fullName")
     @classmethod
@@ -77,6 +82,16 @@ class StaffRegisterRequest(BaseModel):
         if not value.strip():
             raise ValueError("Full name cannot be blank")
         return value.strip()
+
+    @field_validator("area")
+    @classmethod
+    def area_must_be_known(cls, value: str) -> str:
+        from app.utils.areas import normalize_area
+
+        normalized = normalize_area(value)
+        if not normalized:
+            raise ValueError("Location must be one of the operational areas.")
+        return normalized
 
     @field_validator("phone", mode="before")
     @classmethod

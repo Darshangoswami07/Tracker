@@ -1,5 +1,73 @@
 import { ensureDatabaseReady, getDatabase } from '../database';
 import { uuid } from '../../utils/uuid';
+import { useUserStore } from '../../store/userStore';
+
+/**
+ * Location-based access control (see the "Staff Login Must Be Restricted to
+ * Their Assigned Location" requirement). GR/payment data is local-first
+ * SQLite queried in-process — there is no backend GR API for mobile to
+ * enforce at, so this repository (the single choke point every screen reads
+ * and writes through) is the actual security boundary: it is enforced here,
+ * not left to each screen to compute correctly, so a modified/buggy screen
+ * can never widen a Staff account's access by passing a different `area` or
+ * `orderId`.
+ *
+ * Only the `staff` role (the self-service portal) is scoped this way — Admin
+ * (and the older `employee` role) are never restricted.
+ */
+
+/** Matches no real row — used to fail CLOSED (see nothing) rather than
+ * silently falling back to "no filter" (see everything) if a Staff account
+ * somehow has no assigned area (should not happen once registration
+ * requires one, but a pre-existing/rejected/edge-case row is possible). */
+const STAFF_NO_AREA_SENTINEL = '__no_area_assigned__';
+
+/** Resolves the area a query is actually allowed to run against. For a Staff
+ * user this ALWAYS returns their own assigned area — the caller-supplied
+ * `requestedArea` is ignored entirely, so no screen can widen a Staff
+ * account's results by passing (or mis-computing) a different value.
+ * Non-Staff callers (Admin/Owner/Super Admin/legacy `employee`) pass through
+ * unchanged, undefined meaning "no area filter" as before. */
+const resolveAreaScope = (requestedArea?: string): string | undefined => {
+  const user = useUserStore.getState().user;
+  if (user?.role === 'staff') return user.area ?? STAFF_NO_AREA_SENTINEL;
+  return requestedArea;
+};
+
+/** Synchronous version of the same check for a row already in hand (avoids a
+ * second DB round-trip in `getById`/`getByOrderNumber`, which already have
+ * the row). Non-Staff callers always pass. */
+const orderRowInStaffScope = (row: { area?: string | null }): boolean => {
+  const user = useUserStore.getState().user;
+  if (user?.role !== 'staff') return true;
+  const scoped = user.area ?? STAFF_NO_AREA_SENTINEL;
+  return (row.area ?? null) === scoped;
+};
+
+/** For Staff Daily Work queries: a Staff user can only ever query their own
+ * id, regardless of what `requestedStaffId` a (currently Admin-only, but
+ * potentially future Staff-facing) screen passes. Non-Staff pass through. */
+const resolveStaffScope = (requestedStaffId: string): string => {
+  const user = useUserStore.getState().user;
+  if (user?.role === 'staff') return user.id;
+  return requestedStaffId;
+};
+
+/** Throws if the signed-in user is Staff and the given order does not belong
+ * to their assigned area — call before any read/write that takes a raw
+ * `orderId`, so a Staff account can never reach another location's GR by
+ * guessing/pasting its id, regardless of which screen or param got them
+ * there. No-op for non-Staff roles. */
+const assertStaffOrderAccess = async (orderId: string): Promise<void> => {
+  const user = useUserStore.getState().user;
+  if (user?.role !== 'staff') return;
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ area: string | null }>('SELECT area FROM orders WHERE id = ?', [orderId]);
+  const scoped = user.area ?? STAFF_NO_AREA_SENTINEL;
+  if (!row || row.area !== scoped) {
+    throw new Error('This GR does not belong to your assigned location.');
+  }
+};
 
 /** Mirrors `GRListItem` in `AdminGRShipmentsScreen` / web `admin/src/types/gr.ts`. */
 export interface LocalGRListItem {
@@ -149,6 +217,31 @@ export interface GRUpdateInput extends GRExtendedFields {
   /** Paid amount (`paymentAmount` column) — pre-existing column, previously
    * not editable anywhere. Excel's `Paid_Amt` maps onto this same column. */
   paymentAmount?: number;
+}
+
+/** Per-shop aggregate for the "All Shops" list — one row per fixed area
+ * (see `constants/areas.ts`), covering only active (non-deleted) GRs. */
+export interface ShopSummary {
+  area: string;
+  total: number;
+  pending: number;
+  cleared: number;
+  uncleared: number;
+  delivered: number;
+  totalToPay: number;
+  totalCollected: number;
+  outstanding: number;
+}
+
+/** One GR a staff member collected a payment on, for a given day —
+ * see `orderRepository.getStaffDailyGRs`. */
+export interface StaffDailyGR {
+  orderId: string;
+  orderNumber: string;
+  consignorName: string | null;
+  consigneeName: string | null;
+  status: string;
+  amountCollected: number;
 }
 
 export interface GRListParams {
@@ -340,9 +433,10 @@ export const orderRepository = {
       const like = `%${params.search}%`;
       bind.push(like, like, like);
     }
-    if (params.area) {
+    const scopedArea = resolveAreaScope(params.area);
+    if (scopedArea) {
       clauses.push('area = ?');
-      bind.push(params.area);
+      bind.push(scopedArea);
     }
     if (params.consignor) {
       clauses.push('consignorName = ?');
@@ -374,9 +468,10 @@ export const orderRepository = {
     const db = await getDatabase();
     const clauses: string[] = ['isDeleted = 0', 'consignorName IS NOT NULL', "consignorName != ''"];
     const bind: string[] = [];
-    if (area) {
+    const scopedArea = resolveAreaScope(area);
+    if (scopedArea) {
       clauses.push('area = ?');
-      bind.push(area);
+      bind.push(scopedArea);
     }
     const rows = await db.getAllAsync<{ consignorName: string }>(
       `SELECT DISTINCT consignorName FROM orders WHERE ${clauses.join(' AND ')} ORDER BY consignorName ASC`,
@@ -392,6 +487,7 @@ export const orderRepository = {
     const db = await getDatabase();
     const row = await db.getFirstAsync<any>('SELECT * FROM orders WHERE id = ? AND isDeleted = 0', id);
     if (!row) return null;
+    if (!orderRowInStaffScope(row)) return null;
     return this.hydrateDetail(row);
   },
 
@@ -407,6 +503,7 @@ export const orderRepository = {
       orderNumber
     );
     if (!row) return null;
+    if (!orderRowInStaffScope(row)) return null;
     return this.hydrateDetail(row);
   },
 
@@ -463,13 +560,17 @@ export const orderRepository = {
     const extendedCols = EXTENDED_FIELD_KEYS.join(', ');
     const extendedPlaceholders = EXTENDED_FIELD_KEYS.map(() => '?').join(', ');
     const extendedValues = EXTENDED_FIELD_KEYS.map((key) => (input[key] as string | number | undefined) ?? null);
+    // Stamp the creating user's area (Staff only — Admin/Owner have none) so
+    // a Staff-created GR is immediately visible in that Staff member's own
+    // area-scoped views instead of silently vanishing for lacking an area.
+    const creatorArea = useUserStore.getState().user?.area ?? null;
     await db.runAsync(
       `INSERT INTO orders (
         id, orderNumber, companyId, consignorName, consigneeName, particulars,
         packageCount, pickupAddress, deliveryAddress, pickupTime, weight,
-        priority, status, trackingCode, notes, hasSlip, slipData, source, ${extendedCols},
+        priority, status, trackingCode, notes, hasSlip, slipData, source, ${extendedCols}, area,
         createdAt, updatedAt, isDeleted
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${extendedPlaceholders}, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${extendedPlaceholders}, ?, ?, ?, ?)`,
       [
         id,
         input.grNumber,
@@ -490,6 +591,7 @@ export const orderRepository = {
         input.slipData ?? null,
         input.source ?? 'manual',
         ...extendedValues,
+        creatorArea,
         createdAt,
         createdAt,
         0,
@@ -507,6 +609,7 @@ export const orderRepository = {
   /** Editable fields. Equivalent of `PATCH /admin/orders/{id}`. */
   async update(id: string, input: GRUpdateInput): Promise<LocalGRDetail | null> {
     await ensureDatabaseReady();
+    await assertStaffOrderAccess(id);
     const db = await getDatabase();
     const fields: string[] = [];
     const bind: (string | number | null)[] = [];
@@ -544,6 +647,7 @@ export const orderRepository = {
    * web GR records — this only affects the local copy on this device. */
   async delete(id: string): Promise<void> {
     await ensureDatabaseReady();
+    await assertStaffOrderAccess(id);
     const db = await getDatabase();
     await db.runAsync('UPDATE orders SET isDeleted = 1, updatedAt = ? WHERE id = ?', [nowIso(), id]);
   },
@@ -551,6 +655,7 @@ export const orderRepository = {
   /** Appends a status-history row whenever the status changes. */
   async updateStatus(id: string, status: string): Promise<LocalGRDetail | null> {
     await ensureDatabaseReady();
+    await assertStaffOrderAccess(id);
     const db = await getDatabase();
     await db.runAsync('UPDATE orders SET status = ?, updatedAt = ? WHERE id = ?', [status, nowIso(), id]);
     await db.runAsync(
@@ -562,6 +667,7 @@ export const orderRepository = {
 
   async assignDriver(id: string, driverId: string): Promise<LocalGRDetail | null> {
     await ensureDatabaseReady();
+    await assertStaffOrderAccess(id);
     const db = await getDatabase();
     await db.runAsync('UPDATE orders SET driverId = ?, updatedAt = ? WHERE id = ?', [driverId, nowIso(), id]);
     return this.getById(id);
@@ -569,6 +675,7 @@ export const orderRepository = {
 
   async assignStaff(id: string, staffId: string): Promise<LocalGRDetail | null> {
     await ensureDatabaseReady();
+    await assertStaffOrderAccess(id);
     const db = await getDatabase();
     await db.runAsync('UPDATE orders SET assignedStaffId = ?, updatedAt = ? WHERE id = ?', [staffId, nowIso(), id]);
     return this.getById(id);
@@ -577,6 +684,7 @@ export const orderRepository = {
   /** Marks a GR deleted locally. Equivalent of a soft-delete. */
   async remove(id: string): Promise<void> {
     await ensureDatabaseReady();
+    await assertStaffOrderAccess(id);
     const db = await getDatabase();
     await db.runAsync('UPDATE orders SET isDeleted = 1, updatedAt = ? WHERE id = ?', [nowIso(), id]);
   },
@@ -587,6 +695,7 @@ export const orderRepository = {
     attachment: { originalFilename: string; mimeType: string; localUri: string; fileSizeBytes?: number }
   ): Promise<LocalAttachment | null> {
     await ensureDatabaseReady();
+    await assertStaffOrderAccess(orderId);
     const db = await getDatabase();
     const existing = await db.getFirstAsync<{ id: string }>('SELECT id FROM orders WHERE id = ?', orderId);
     if (!existing) return null;
@@ -610,21 +719,23 @@ export const orderRepository = {
     await ensureDatabaseReady();
     const db = await getDatabase();
     const historyWindow = Math.max(limit * 4, 40);
+    const scopedArea = resolveAreaScope(undefined);
+    const areaClause = scopedArea ? 'AND o.area = ?' : '';
 
     const [historyRows, attachmentRows] = await Promise.all([
       db.getAllAsync<any>(
         `SELECT h.id, h.orderId, h.status, h.note, h.createdAt, o.orderNumber
          FROM order_status_history h
-         JOIN orders o ON o.id = h.orderId AND o.isDeleted = 0
+         JOIN orders o ON o.id = h.orderId AND o.isDeleted = 0 ${areaClause}
          ORDER BY h.createdAt DESC LIMIT ?`,
-        [historyWindow]
+        [...(scopedArea ? [scopedArea] : []), historyWindow]
       ),
       db.getAllAsync<any>(
         `SELECT a.id, a.orderId, a.createdAt, o.orderNumber
          FROM order_attachments a
-         JOIN orders o ON o.id = a.orderId AND o.isDeleted = 0
+         JOIN orders o ON o.id = a.orderId AND o.isDeleted = 0 ${areaClause}
          ORDER BY a.createdAt DESC LIMIT ?`,
-        [limit]
+        [...(scopedArea ? [scopedArea] : []), limit]
       ),
     ]);
 
@@ -736,6 +847,7 @@ export const orderRepository = {
     recordedBy?: string;
   }): Promise<LocalPayment> {
     await ensureDatabaseReady();
+    await assertStaffOrderAccess(input.orderId);
     const db = await getDatabase();
     await db.runAsync('PRAGMA foreign_keys = ON');
     const id = uuid();
@@ -751,6 +863,7 @@ export const orderRepository = {
   /** List all payments for a given order, newest first. */
   async listPayments(orderId: string): Promise<LocalPayment[]> {
     await ensureDatabaseReady();
+    await assertStaffOrderAccess(orderId);
     const db = await getDatabase();
     const rows = await db.getAllAsync<any>(
       'SELECT * FROM payments WHERE orderId = ? ORDER BY createdAt DESC',
@@ -772,10 +885,11 @@ export const orderRepository = {
     await ensureDatabaseReady();
     const db = await getDatabase();
     const order = await db.getFirstAsync<any>(
-      'SELECT id, orderNumber, toPay FROM orders WHERE id = ? AND isDeleted = 0',
+      'SELECT id, orderNumber, toPay, area FROM orders WHERE id = ? AND isDeleted = 0',
       [orderId]
     );
     if (!order) return null;
+    if (!orderRowInStaffScope(order)) return null;
 
     const toPay = Number(order.toPay ?? 0);
     const totalPaid = Number(
@@ -846,6 +960,9 @@ export const orderRepository = {
     const prevMonthDate = new Date(Date.UTC(yyyy, mm, 0)); // last day of prev month
     const startPrevMonth = dayStart(prevMonthDate.getUTCFullYear(), prevMonthDate.getUTCMonth(), 1);
 
+    const scopedArea = resolveAreaScope(undefined);
+    const areaClause = scopedArea ? 'AND area = ?' : '';
+
     const row = await db.getFirstAsync<{
       today: number; yesterday: number; week: number; prev_week: number;
       month: number; prev_month: number; total_collected: number; outstanding: number;
@@ -866,7 +983,7 @@ export const orderRepository = {
          SUM(COALESCE(paymentAmount, 0)) AS total_collected,
          SUM(COALESCE(toPay, 0)) AS outstanding
        FROM orders
-       WHERE isDeleted = 0 AND isActive = 1`,
+       WHERE isDeleted = 0 AND isActive = 1 ${areaClause}`,
       [
         startToday, dayEnd(yyyy, mm, dd),
         startYesterday, startToday,
@@ -874,6 +991,7 @@ export const orderRepository = {
         startPrevWeek, startOfWeek,
         startOfMonth, dayEnd(yyyy, mm, dd),
         startPrevMonth, startOfMonth,
+        ...(scopedArea ? [scopedArea] : []),
       ],
     );
 
@@ -926,6 +1044,11 @@ export const orderRepository = {
     if (params.dateTo) {
       clauses.push("COALESCE(o.grDate, o.createdAt) <= ?");
       bind.push(params.dateTo);
+    }
+    const scopedArea = resolveAreaScope(undefined);
+    if (scopedArea) {
+      clauses.push('o.area = ?');
+      bind.push(scopedArea);
     }
 
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -1001,6 +1124,8 @@ export const orderRepository = {
   async getReceivingOverview(): Promise<ReceivingOverview> {
     await ensureDatabaseReady();
     const db = await getDatabase();
+    const scopedArea = resolveAreaScope(undefined);
+    const areaClause = scopedArea ? 'AND o.area = ?' : '';
 
     const row = await db.getFirstAsync<{
       total_to_pay: number;
@@ -1036,7 +1161,8 @@ export const orderRepository = {
         FROM payments
         GROUP BY orderId
       ) paid ON paid.orderId = o.id
-      WHERE o.isDeleted = 0`
+      WHERE o.isDeleted = 0 ${areaClause}`,
+      scopedArea ? [scopedArea] : []
     );
 
     const totalToPay = Number(row?.total_to_pay ?? 0);
@@ -1055,14 +1181,112 @@ export const orderRepository = {
     };
   },
 
+  // ---- Shops (Excel-assigned areas) ----
+
+  /** Aggregate GR counts/financials grouped by area, for the "All Shops"
+   * list. Only active GRs with a resolved area are included — GRs imported
+   * before the area system existed (or with an unmatched consignee name)
+   * are simply absent from every shop's totals, never miscounted. */
+  async getShopsOverview(): Promise<ShopSummary[]> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    const scopedArea = resolveAreaScope(undefined);
+    const rows = await db.getAllAsync<any>(
+      `SELECT
+         area,
+         COUNT(*) AS total,
+         SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+         SUM(CASE WHEN status = 'cleared' THEN 1 ELSE 0 END) AS cleared,
+         SUM(CASE WHEN status = 'uncleared' THEN 1 ELSE 0 END) AS uncleared,
+         SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) AS delivered,
+         SUM(COALESCE(toPay, 0)) AS totalToPay,
+         SUM(COALESCE(paymentAmount, 0)) AS totalCollected
+       FROM orders
+       WHERE isDeleted = 0 AND area IS NOT NULL AND area != '' ${scopedArea ? 'AND area = ?' : ''}
+       GROUP BY area`,
+      scopedArea ? [scopedArea] : []
+    );
+    return rows.map((r) => {
+      const totalToPay = Number(r.totalToPay ?? 0);
+      const totalCollected = Number(r.totalCollected ?? 0);
+      return {
+        area: r.area,
+        total: Number(r.total ?? 0),
+        pending: Number(r.pending ?? 0),
+        cleared: Number(r.cleared ?? 0),
+        uncleared: Number(r.uncleared ?? 0),
+        delivered: Number(r.delivered ?? 0),
+        totalToPay,
+        totalCollected,
+        outstanding: totalToPay - totalCollected,
+      };
+    });
+  },
+
+  // ---- Staff Daily Work (Payment History → Staff Daily Work) ----
+
+  /** Total collection + unique GR count for one staff member on one day.
+   * `staffId` matches `payments.recordedBy`, stamped when a Staff user (or
+   * an Admin on their behalf) records a collection — see
+   * `AdminGRDetailsScreen`'s "Collected By" picker. Collection sums every
+   * matching payment row; GR count is DISTINCT so a GR paid off across
+   * several partial payments by the same staff member on the same day is
+   * never double-counted. */
+  async getStaffDailySummary(staffId: string, dateIso: string): Promise<{ totalCollection: number; totalGRs: number }> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    const day = dateIso.slice(0, 10);
+    const scopedStaffId = resolveStaffScope(staffId);
+    const row = await db.getFirstAsync<{ totalCollection: number; totalGRs: number }>(
+      `SELECT COALESCE(SUM(p.amount), 0) AS totalCollection, COUNT(DISTINCT p.orderId) AS totalGRs
+       FROM payments p
+       JOIN orders o ON o.id = p.orderId AND o.isDeleted = 0
+       WHERE p.recordedBy = ? AND substr(p.createdAt, 1, 10) = ?`,
+      [scopedStaffId, day]
+    );
+    return { totalCollection: Number(row?.totalCollection ?? 0), totalGRs: Number(row?.totalGRs ?? 0) };
+  },
+
+  /** One row per GR that staff member collected on that day (amounts summed
+   * per GR, in case of multiple partial payments), for the Staff Detail
+   * page's GR list. */
+  async getStaffDailyGRs(staffId: string, dateIso: string): Promise<StaffDailyGR[]> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    const day = dateIso.slice(0, 10);
+    const scopedStaffId = resolveStaffScope(staffId);
+    const rows = await db.getAllAsync<any>(
+      `SELECT o.id AS orderId, o.orderNumber, o.consignorName, o.consigneeName, o.status,
+              SUM(p.amount) AS amountCollected, MAX(p.createdAt) AS lastPaymentAt
+       FROM payments p
+       JOIN orders o ON o.id = p.orderId AND o.isDeleted = 0
+       WHERE p.recordedBy = ? AND substr(p.createdAt, 1, 10) = ?
+       GROUP BY o.id
+       ORDER BY lastPaymentAt DESC`,
+      [scopedStaffId, day]
+    );
+    return rows.map((r) => ({
+      orderId: r.orderId,
+      orderNumber: r.orderNumber,
+      consignorName: r.consignorName ?? null,
+      consigneeName: r.consigneeName ?? null,
+      status: r.status,
+      amountCollected: Number(r.amountCollected ?? 0),
+    }));
+  },
+
   /** Sum of payments received today. */
   async getTodayCollection(): Promise<number> {
     await ensureDatabaseReady();
     const db = await getDatabase();
     const today = new Date().toISOString().slice(0, 10);
+    const scopedArea = resolveAreaScope(undefined);
     const row = await db.getFirstAsync<{ total: number }>(
-      `SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE createdAt >= ? AND createdAt < ?`,
-      [today, today + 'T23:59:59']
+      `SELECT COALESCE(SUM(p.amount), 0) AS total
+       FROM payments p
+       JOIN orders o ON o.id = p.orderId
+       WHERE p.createdAt >= ? AND p.createdAt < ? ${scopedArea ? 'AND o.area = ?' : ''}`,
+      [today, today + 'T23:59:59', ...(scopedArea ? [scopedArea] : [])]
     );
     return Number(row?.total ?? 0);
   },

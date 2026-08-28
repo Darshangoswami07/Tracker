@@ -47,6 +47,7 @@ const makeGR = (grNumber: string, overrides?: Partial<ValidGRRow>): ValidGRRow =
   chalaanDate: null,
   transportGrn: null,
   grSourceLabel: null,
+  resolvedArea: null,
   ...overrides,
 });
 
