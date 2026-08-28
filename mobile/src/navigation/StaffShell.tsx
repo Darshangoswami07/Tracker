@@ -59,6 +59,7 @@ const DashboardTabStack = () => (
       <DashboardStack.Screen name="CreateGR" component={AdminCreateGRScreen} />
       <DashboardStack.Screen name="StaffAllShops" component={StaffAllShopsScreen} />
       <DashboardStack.Screen name="StaffShopHistory" component={StaffShopHistoryScreen} />
+      <DashboardStack.Screen name="GRDetails" component={AdminGRDetailsScreen} />
     </DashboardStack.Navigator>
 );
 

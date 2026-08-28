@@ -53,8 +53,8 @@ interface StaffGRPanelParams {
 
 export const StaffGRPanelScreen = () => {
   const theme = useAppTheme();
-  const { colors, spacing, radii, shadows } = theme;
-  const { navigate, goToNotifications } = useAppNav();
+  const { colors, radii, shadows } = theme;
+  const { navigate, goBack, goToNotifications } = useAppNav();
   const route = useRoute();
   const { statusFilter: statusFilterParam, title } = (route.params as StaffGRPanelParams | undefined) ?? {};
 
@@ -132,7 +132,8 @@ export const StaffGRPanelScreen = () => {
   );
 
   useEffect(() => {
-    fetchEntries();
+    const timer = setTimeout(() => fetchEntries(), 0);
+    return () => clearTimeout(timer);
   }, [fetchEntries]);
 
   // Debounce filter changes
@@ -141,7 +142,7 @@ export const StaffGRPanelScreen = () => {
       fetchEntries();
     }, 400);
     return () => clearTimeout(timer);
-  }, [search, statusFilter, effectiveArea, consignorFilter]);
+  }, [search, statusFilter, effectiveArea, consignorFilter, fetchEntries]);
 
   // Load distinct consignor names scoped to the effective area
   useEffect(() => {
@@ -151,6 +152,20 @@ export const StaffGRPanelScreen = () => {
     });
     return () => { cancelled = true; };
   }, [effectiveArea]);
+
+  // The Deliveries tab stays mounted across navigations, so `statusFilter`
+  // initialized from `route.params` on first mount would go stale when the
+  // Dashboard's "Pending Slip"/"Delivered Slip" cards re-open this screen with
+  // a different filter. Re-sync the local filter (and clear any shop-owner
+  // filter) whenever the incoming param actually changes, so the correct
+  // status is always applied — even on a re-navigation that doesn't remount.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setStatusFilter(statusFilterParam ?? null);
+      setConsignorFilter(null);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [statusFilterParam]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -221,7 +236,12 @@ export const StaffGRPanelScreen = () => {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
-      <Header title={title ?? 'GR Tracker'} rightAction={{ icon: 'notifications-outline', onPress: goToNotifications }} />
+      <Header
+        title={title ?? 'GR Tracker'}
+        showBack={Boolean(statusFilterParam || title)}
+        onBack={goBack}
+        rightAction={{ icon: 'notifications-outline', onPress: goToNotifications }}
+      />
 
       <View style={styles.toolbar}>
         {actionMessage && (

@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { type NavigationProp } from '@react-navigation/native';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
@@ -19,6 +20,7 @@ import { useAppNav } from '../../hooks/useAppNav';
 import { useUserStore } from '../../store/userStore';
 import { orderRepository, type LocalGRListItem } from '../../database/repositories/orderRepository';
 import { matchArea } from '../../constants/areas';
+import type { StaffDashboardStackParamList } from '../../navigation/types';
 import type { AppTheme } from '../../theme/types';
 
 const PAGE_SIZE = 100;
@@ -54,7 +56,8 @@ const formatCurrency = (amount: number): string =>
  */
 export const StaffShopHistoryScreen = ({ route }: { route: { params: { shopName: string } } }) => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
-  const { navigate } = useAppNav();
+  const { navigation: rawNav, goBack } = useAppNav();
+  const navigation = rawNav as unknown as NavigationProp<StaffDashboardStackParamList>;
   const user = useUserStore((state) => state.user);
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
@@ -72,7 +75,14 @@ export const StaffShopHistoryScreen = ({ route }: { route: { params: { shopName:
 
   const load = useCallback(
     async (pageNum: number, mode: 'replace' | 'append') => {
-      if (!area) return;
+      if (!area) {
+        setItems([]);
+        setTotal(0);
+        setLoading(false);
+        return;
+      }
+      if (mode === 'replace') setLoading(true);
+      else setLoadingMore(true);
       try {
         const result = await orderRepository.list({
           page: pageNum,
@@ -95,17 +105,16 @@ export const StaffShopHistoryScreen = ({ route }: { route: { params: { shopName:
     [area, statusFilter, search, shopName]
   );
 
-  // Reload from page 1 whenever the shop, area, search, or status filter changes.
+  // Debounced reload from page 1 whenever the shop, area, search, or status
+  // filter changes. The 250ms debounce avoids a query per keystroke, and the
+  // load only mutates state inside the async call (not synchronously in the
+  // effect body).
   useEffect(() => {
-    if (!area) {
-      setItems([]);
-      setTotal(0);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    load(1, 'replace');
-  }, [area, load]);
+    const id = setTimeout(() => {
+      load(1, 'replace');
+    }, 250);
+    return () => clearTimeout(id);
+  }, [load]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -124,7 +133,7 @@ export const StaffShopHistoryScreen = ({ route }: { route: { params: { shopName:
     return (
       <TouchableOpacity
         style={[styles.row, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
-        onPress={() => navigate('GRDetails', { orderId: item.id })}
+        onPress={() => navigation.navigate('GRDetails', { orderId: item.id })}
         activeOpacity={0.85}
         accessibilityRole="button"
       >
@@ -156,7 +165,7 @@ export const StaffShopHistoryScreen = ({ route }: { route: { params: { shopName:
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-      <Header title={shopName} />
+      <Header title={shopName} showBack onBack={goBack} />
       {area && (
         <View style={styles.areaPill}>
           <Ionicons name="location-outline" size={14} color={colors.primary} />

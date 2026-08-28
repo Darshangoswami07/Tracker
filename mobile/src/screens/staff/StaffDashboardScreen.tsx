@@ -58,7 +58,8 @@ export const StaffDashboardScreen = () => {
   }, []);
 
   useEffect(() => {
-    loadOverview();
+    const timer = setTimeout(() => loadOverview(), 0);
+    return () => clearTimeout(timer);
   }, [loadOverview]);
 
   const onRefresh = async () => {
@@ -78,7 +79,7 @@ export const StaffDashboardScreen = () => {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#635BFF']} progressBackgroundColor={colors.surface} />}
       >
         <Text style={[styles.welcome, { color: colors.textPrimary }]}>Welcome, {firstName}</Text>
-        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Here's today's overview.</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Here&apos;s today&apos;s overview.</Text>
 
         <View style={styles.statsRow}>
           <View style={[styles.statCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
