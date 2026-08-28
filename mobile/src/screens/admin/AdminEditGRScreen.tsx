@@ -243,7 +243,10 @@ export const AdminEditGRScreen = ({ route }: any) => {
         doorDelivery: num(form.doorDelivery),
         taxGst: num(form.taxGst),
         netAmount: num(form.netAmount),
-        paymentAmount: num(form.paymentAmount),
+        // Paid Amount is deliberately NOT sent here — it must only ever
+        // change via a recorded payment transaction (GR Details → Receive
+        // Payment), never a free-text edit, so `payments` stays the single
+        // source of truth for how much has actually been collected.
         toPay: num(form.toPay),
         proprietorName: str(form.proprietorName),
         proprietorPhone: str(form.proprietorPhone),
@@ -432,15 +435,11 @@ export const AdminEditGRScreen = ({ route }: any) => {
               <Field label="Tax (GST)" value={form.taxGst} onChangeText={set('taxGst')} placeholder="0" keyboardType="decimal-pad" />
             </View>
           </View>
-          <View style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <Field label="Net Amount" value={form.netAmount} onChangeText={set('netAmount')} placeholder="0" keyboardType="decimal-pad" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Field label="Paid Amount" value={form.paymentAmount} onChangeText={set('paymentAmount')} placeholder="0" keyboardType="decimal-pad" />
-            </View>
-          </View>
-          <Field label="To Pay" value={form.toPay} onChangeText={set('toPay')} placeholder="0" keyboardType="decimal-pad" />
+          <Field label="Net Amount" value={form.netAmount} onChangeText={set('netAmount')} placeholder="0" keyboardType="decimal-pad" />
+          <Field label="Total Bill (To Pay)" value={form.toPay} onChangeText={set('toPay')} placeholder="0" keyboardType="decimal-pad" />
+          <Text style={[styles.hint, { color: colors.textMuted }]}>
+            Paid Amount is no longer edited here — record collections from GR Details → Receive Payment so every payment stays a traceable transaction.
+          </Text>
         </Section>
 
         <Section title="Transport Details" expanded={expandedSections.transport} onToggle={() => toggleSection('transport')}>
@@ -543,6 +542,7 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     errorCard: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, marginBottom: theme.spacing.sm },
     errorText: { flex: 1, fontSize: theme.fonts.size.sm, fontWeight: '600' },
     fieldGroup: { marginBottom: theme.spacing.md },
+    hint: { fontSize: theme.fonts.size.xs, fontWeight: '600', marginTop: -4, marginBottom: theme.spacing.sm },
     label: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 },
     input: { borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, fontSize: theme.fonts.size.md },
     inputMultiline: { minHeight: 70, textAlignVertical: 'top' },

@@ -231,6 +231,28 @@ export const runMigrations = async (db: SQLiteDatabase): Promise<void> => {
     version = 9;
   }
 
+  // v9 -> v10: GR Details payment tracking. `payments` (the running,
+  // multi-transaction ledger) becomes the single source of truth for "Paid
+  // Amount" — `orders.paymentAmount` was a static column set once at
+  // creation/Excel-import and never updated by `addPayment`, so an order
+  // with a nonzero legacy `paymentAmount` but zero `payments` rows would
+  // otherwise show "Paid: 0" once the UI switches to reading the ledger.
+  // Backfilling it as one real payment record (idempotent — only touches
+  // orders that have no payments rows yet) preserves that history instead
+  // of losing it, without ever double-counting a GR that already has real
+  // payment rows.
+  if (version === 9) {
+    await db.execAsync(`
+      INSERT INTO payments (id, orderId, amount, paymentMethod, notes, recordedBy, createdAt)
+      SELECT lower(hex(randomblob(16))), o.id, o.paymentAmount, o.paymentMode,
+             'Initial payment (migrated from GR record)', NULL, o.createdAt
+      FROM orders o
+      WHERE COALESCE(o.paymentAmount, 0) > 0
+        AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.orderId = o.id)
+    `);
+    version = 10;
+  }
+
   await db.execAsync(`PRAGMA user_version = ${version}`);
 };
 

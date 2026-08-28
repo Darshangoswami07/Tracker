@@ -9,7 +9,7 @@
  * Column names mirror `backend/app/models/order.py` so that a future online
  * sync can map rows 1:1 without transformation.
  */
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 /**
  * DDL executed against a fresh database (user_version == 0). Kept as a plain

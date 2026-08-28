@@ -19,6 +19,7 @@ import { AttachmentViewerModal, type ViewableAttachment } from '../../components
 import { persistSlipImage } from '../../services/slipStorage';
 import { useAppNav } from '../../hooks/useAppNav';
 import { useTranslation } from 'react-i18next';
+import { PAYMENT_MODES, formatPaymentMode } from '../../constants/paymentModes';
 import type { AppTheme } from '../../theme/types';
 
 interface GRAttachment {
@@ -149,8 +150,10 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const [payments, setPayments] = useState<LocalPayment[]>([]);
   const [receivePaymentOpen, setReceivePaymentOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentMode, setPaymentMode] = useState<string>('cash');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [submittingPayment, setSubmittingPayment] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
   // "Collected By" — approved self-service Staff accounts (role=staff),
   // separate from `staff` above (which lists the older company-invited
   // "employee" role for GR assignment). Only Admin picks one; a Staff user
@@ -289,57 +292,59 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
     }
   };
 
+  const openReceivePayment = () => {
+    setPaymentError(null);
+    setReceivePaymentOpen(true);
+  };
+
+  const closeReceivePayment = () => {
+    setPaymentError(null);
+    setReceivePaymentOpen(false);
+  };
+
   const handleReceivePayment = async () => {
     if (!paymentAmount || submittingPayment) return;
+    setPaymentError(null);
     const amount = parseFloat(paymentAmount);
     if (isNaN(amount) || amount <= 0) {
-      Alert.alert(t('payment.invalidAmount'), t('payment.enterValidAmount'));
+      setPaymentError(t('payment.enterValidAmount'));
       return;
     }
     const balance = paymentSummary?.balance ?? 0;
     if (amount > balance) {
-      Alert.alert(t('payment.insufficientBalance'), t('payment.insufficientBalance'));
+      setPaymentError(`Payment cannot exceed the remaining amount of ${formatCurrency(balance)}.`);
       return;
     }
 
-    Alert.alert(
-      t('payment.confirmReceive'),
-      t('payment.confirmReceiveDesc', { amount: formatCurrency(amount), number: gr?.orderNumber ?? '' }),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('common.confirm'),
-          onPress: async () => {
-            setSubmittingPayment(true);
-            try {
-              // Staff always collect as themselves; Admin optionally
-              // attributes the collection to a specific approved Staff
-              // member via the "Collected By" picker (see Test 4/5/9 in the
-              // Staff Daily Work spec — collections must never be blended
-              // across staff or attributed to nobody in particular when a
-              // staff member actually did the work).
-              const recordedBy = isStaffUser ? currentUser?.id : collectedByStaffId ?? undefined;
-              await orderRepository.addPayment({
-                orderId,
-                amount,
-                paymentMethod: 'cash',
-                notes: paymentNotes || undefined,
-                recordedBy,
-              });
-              setReceivePaymentOpen(false);
-              setPaymentAmount('');
-              setPaymentNotes('');
-              setCollectedByStaffId(null);
-              await Promise.all([fetchDetail(), fetchPayments()]);
-            } catch (err: any) {
-              Alert.alert(t('createGR.errorTitle'), err?.message ?? t('payment.failed'));
-            } finally {
-              setSubmittingPayment(false);
-            }
-          },
-        },
-      ]
-    );
+    setSubmittingPayment(true);
+    try {
+      // Staff always collect as themselves; Admin optionally attributes the
+      // collection to a specific approved Staff member via the "Collected
+      // By" picker (see Test 4/5/9 in the Staff Daily Work spec —
+      // collections must never be blended across staff or attributed to
+      // nobody in particular when a staff member actually did the work).
+      const recordedBy = isStaffUser ? currentUser?.id : collectedByStaffId ?? undefined;
+      await orderRepository.addPayment({
+        orderId,
+        amount,
+        paymentMethod: paymentMode,
+        notes: paymentNotes || undefined,
+        recordedBy,
+      });
+      setReceivePaymentOpen(false);
+      setPaymentAmount('');
+      setPaymentMode('cash');
+      setPaymentNotes('');
+      setCollectedByStaffId(null);
+      await Promise.all([fetchDetail(), fetchPayments()]);
+    } catch (err: any) {
+      // `Alert.alert` is a no-op on web (react-native-web has no native
+      // alert implementation) — this MUST surface inline or a failure here
+      // (or the validation above) looks like nothing happened at all.
+      setPaymentError(err?.message ?? t('payment.failed'));
+    } finally {
+      setSubmittingPayment(false);
+    }
   };
 
   if (loading) {
@@ -388,6 +393,18 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const assignedDriverName = gr.driverId ? drivers.find((d) => d.id === gr.driverId)?.name ?? 'Assigned' : null;
   const assignedStaffName = gr.assignedStaffId ? staff.find((s) => s.id === gr.assignedStaffId)?.name ?? 'Assigned' : null;
   const pickerOptions = assignPicker === 'driver' ? drivers : staff;
+
+  /** Resolves a `payments.recordedBy` id (a Staff account's user id) to a
+   * display name for the Payment History list — "You" for the signed-in
+   * user's own payments, looked up against the "Collected By" picker's
+   * already-fetched Staff list otherwise, falling back to a generic label
+   * rather than a raw id if that staff account isn't in the loaded list. */
+  const resolveRecorderName = (recordedBy: string | null | undefined): string | null => {
+    if (!recordedBy) return null;
+    if (recordedBy === currentUser?.id) return `You${currentUser?.fullName ? ` (${currentUser.fullName})` : ''}`;
+    const match = collectorOptions.find((o) => o.id === recordedBy);
+    return match ? match.fullName : 'Staff';
+  };
 
   const totalPaid = paymentSummary?.totalPaid ?? 0;
   const balance = paymentSummary?.balance ?? (gr.toPay ?? 0);
@@ -439,7 +456,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
             {balance > 0 && (
               <TouchableOpacity
                 style={[styles.receivePaymentBtn, { backgroundColor: colors.primary, borderRadius: radii.md }]}
-                onPress={() => setReceivePaymentOpen(true)}
+                onPress={openReceivePayment}
                 activeOpacity={0.85}
               >
                 <Ionicons name="wallet-outline" size={16} color="#fff" />
@@ -510,11 +527,48 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
           </View>
         )}
 
-        {(gr.rate != null || gr.goodsValue != null || gr.grCharge != null || gr.freight != null || gr.labour != null || gr.pf != null || gr.doorDelivery != null || gr.taxGst != null || gr.netAmount != null || gr.toPay != null || gr.paymentAmount != null || gr.paymentMode) && (
-          <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
-            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>CHARGES</Text>
-            <View style={styles.grid}>
-              {gr.paymentMode && <Field label="Payment Mode" value={gr.paymentMode} />}
+        <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>CHARGES</Text>
+
+          <View style={styles.billSummaryRow}>
+            <View style={styles.billSummaryBlock}>
+              <Text style={[styles.billSummaryLabel, { color: colors.textMuted }]}>TOTAL BILL</Text>
+              <Text style={[styles.billSummaryValue, { color: colors.textPrimary }]}>{formatCurrency(gr.toPay ?? 0)}</Text>
+            </View>
+            <TouchableOpacity style={styles.billSummaryBlock} onPress={openReceivePayment} activeOpacity={0.7}>
+              <Text style={[styles.billSummaryLabel, { color: colors.textMuted }]}>PAID AMOUNT</Text>
+              <Text style={[styles.billSummaryValue, { color: '#10B981' }]}>{formatCurrency(totalPaid)}</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={[styles.remainingRow, { borderTopColor: colors.border }]}>
+            {balance > 0 ? (
+              <>
+                <Text style={[styles.billSummaryLabel, { color: colors.textMuted }]}>REMAINING / TO PAY</Text>
+                <Text style={[styles.remainingValue, { color: '#F97316' }]}>{formatCurrency(balance)}</Text>
+              </>
+            ) : (
+              <View style={styles.fullyPaidRow}>
+                <Ionicons name="checkmark-circle" size={18} color="#10B981" />
+                <Text style={[styles.fullyPaidText, { color: '#10B981' }]}>Fully Paid — ₹0 Remaining</Text>
+              </View>
+            )}
+          </View>
+
+          {balance > 0 && (
+            <TouchableOpacity
+              style={[styles.receivePaymentInlineBtn, { backgroundColor: colors.primary, borderRadius: radii.md }]}
+              onPress={openReceivePayment}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="add" size={16} color={colors.onPrimary} />
+              <Text style={[styles.receivePaymentInlineBtnText, { color: colors.onPrimary }]}>{t('payment.receivePayment')}</Text>
+            </TouchableOpacity>
+          )}
+
+          {(gr.paymentMode || gr.rate != null || gr.goodsValue != null || gr.grCharge != null || gr.freight != null || gr.labour != null || gr.pf != null || gr.doorDelivery != null || gr.taxGst != null || gr.netAmount != null) && (
+            <View style={[styles.grid, { marginTop: 14 }]}>
+              {gr.paymentMode && <Field label="Payment Mode" value={formatPaymentMode(gr.paymentMode)} />}
               {gr.rate != null && <Field label="Rate" value={String(gr.rate)} />}
               {gr.goodsValue != null && <Field label="Goods Value" value={String(gr.goodsValue)} />}
               {gr.grCharge != null && <Field label="GR Charge" value={String(gr.grCharge)} />}
@@ -524,29 +578,33 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
               {gr.doorDelivery != null && <Field label="Door Delivery" value={String(gr.doorDelivery)} />}
               {gr.taxGst != null && <Field label="Tax (GST)" value={String(gr.taxGst)} />}
               {gr.netAmount != null && <Field label="Net Amount" value={String(gr.netAmount)} />}
-              {gr.paymentAmount != null && <Field label="Paid Amount" value={String(gr.paymentAmount)} />}
-              {gr.toPay != null && <Field label="To Pay" value={String(gr.toPay)} />}
             </View>
-          </View>
-        )}
+          )}
+        </View>
 
         {/* Payment History */}
         {payments.length > 0 && (
           <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
             <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>{t('payment.paymentHistory')} ({paymentCount})</Text>
             <View style={styles.paymentList}>
-              {payments.map((p) => (
-                <View key={p.id} style={[styles.paymentRow, { borderBottomColor: colors.border }]}>
-                  <View style={styles.paymentRowLeft}>
-                    <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-                    <View>
-                      <Text style={[styles.paymentRowAmount, { color: colors.textPrimary }]}>{formatCurrency(p.amount)}</Text>
-                      <Text style={[styles.paymentRowDate, { color: colors.textMuted }]}>{formatDate(p.createdAt)}</Text>
+              {payments.map((p) => {
+                const recorderName = resolveRecorderName(p.recordedBy);
+                return (
+                  <View key={p.id} style={[styles.paymentRow, { borderBottomColor: colors.border }]}>
+                    <View style={styles.paymentRowLeft}>
+                      <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+                      <View>
+                        <Text style={[styles.paymentRowAmount, { color: colors.textPrimary }]}>{formatCurrency(p.amount)}</Text>
+                        <Text style={[styles.paymentRowMeta, { color: colors.textSecondary }]}>
+                          {formatPaymentMode(p.paymentMethod)}{recorderName ? ` · Recorded by ${recorderName}` : ''}
+                        </Text>
+                        <Text style={[styles.paymentRowDate, { color: colors.textMuted }]}>{formatDate(p.createdAt)}</Text>
+                      </View>
                     </View>
+                    {p.notes && <Text style={[styles.paymentRowNote, { color: colors.textMuted }]} numberOfLines={1}>{p.notes}</Text>}
                   </View>
-                  {p.notes && <Text style={[styles.paymentRowNote, { color: colors.textMuted }]} numberOfLines={1}>{p.notes}</Text>}
-                </View>
-              ))}
+                );
+              })}
             </View>
           </View>
         )}
@@ -619,16 +677,22 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
       <AttachmentViewerModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
 
       {/* Receive Payment Bottom Sheet */}
-      <Modal visible={receivePaymentOpen} transparent animationType="slide" onRequestClose={() => setReceivePaymentOpen(false)}>
+      <Modal visible={receivePaymentOpen} transparent animationType="slide" onRequestClose={closeReceivePayment}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalSheet, { backgroundColor: colors.background, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>{t('payment.receivePayment')}</Text>
-              <TouchableOpacity onPress={() => setReceivePaymentOpen(false)} hitSlop={8}>
+              <TouchableOpacity onPress={closeReceivePayment} hitSlop={8}>
                 <Ionicons name="close" size={22} color={colors.textPrimary} />
               </TouchableOpacity>
             </View>
             <View style={styles.paymentForm}>
+              {paymentError && (
+                <View style={[styles.paymentErrorBanner, { backgroundColor: colors.errorSoft, borderRadius: radii.md }]}>
+                  <Ionicons name="alert-circle-outline" size={16} color={colors.error} />
+                  <Text style={[styles.paymentErrorText, { color: colors.error }]}>{paymentError}</Text>
+                </View>
+              )}
               <View style={styles.paymentFormRow}>
                 <Text style={[styles.paymentFormLabel, { color: colors.textMuted }]}>{t('payment.totalAmount')}</Text>
                 <Text style={[styles.paymentFormValue, { color: colors.textPrimary }]}>{formatCurrency(gr.toPay ?? 0)}</Text>
@@ -684,6 +748,28 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
                 keyboardType="numeric"
                 autoFocus
               />
+              <Text style={[styles.paymentFormSectionTitle, { color: colors.textMuted }]}>{t('payment.paymentMode', 'Payment Mode')}</Text>
+              <View style={styles.collectorChipRow}>
+                {PAYMENT_MODES.map((mode) => {
+                  const selected = paymentMode === mode.value;
+                  return (
+                    <TouchableOpacity
+                      key={mode.value}
+                      style={[
+                        styles.collectorChip,
+                        { borderRadius: radii.pill, borderColor: selected ? colors.primary : colors.border },
+                        selected && { backgroundColor: colors.primary },
+                      ]}
+                      onPress={() => setPaymentMode(mode.value)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.collectorChipText, { color: selected ? colors.onPrimary : colors.textPrimary }]}>
+                        {t(mode.labelKey, mode.label)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
               <TextInput
                 style={[styles.paymentInput, { color: colors.textPrimary, backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, marginTop: 12 }]}
                 placeholder={t('payment.notes')}
@@ -838,13 +924,26 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     paymentRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
     paymentRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     paymentRowAmount: { fontSize: theme.fonts.size.md, fontWeight: '700' },
+    paymentRowMeta: { fontSize: theme.fonts.size.xs, fontWeight: '600', marginTop: 1 },
     paymentRowDate: { fontSize: theme.fonts.size.xs, marginTop: 1 },
+    billSummaryRow: { flexDirection: 'row', marginTop: 10 },
+    billSummaryBlock: { flex: 1, gap: 2 },
+    billSummaryLabel: { fontSize: theme.fonts.size.xs, fontWeight: '700', letterSpacing: 0.5 },
+    billSummaryValue: { fontSize: theme.fonts.size.xl, fontWeight: '800' },
+    remainingRow: { marginTop: 14, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, gap: 2 },
+    remainingValue: { fontSize: theme.fonts.size.xl, fontWeight: '800' },
+    fullyPaidRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    fullyPaidText: { fontSize: theme.fonts.size.md, fontWeight: '800' },
+    receivePaymentInlineBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, marginTop: 14 },
+    receivePaymentInlineBtnText: { fontSize: theme.fonts.size.sm, fontWeight: '700' },
     paymentRowNote: { fontSize: theme.fonts.size.xs, maxWidth: 120 },
     paymentForm: { gap: 0 },
     paymentFormRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
     paymentFormLabel: { fontSize: theme.fonts.size.sm, fontWeight: '600' },
     paymentFormValue: { fontSize: theme.fonts.size.md, fontWeight: '700' },
     paymentFormSectionTitle: { fontSize: theme.fonts.size.sm, fontWeight: '700', marginTop: 16, marginBottom: 8 },
+    paymentErrorBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, marginBottom: 12 },
+    paymentErrorText: { flex: 1, fontSize: theme.fonts.size.sm, fontWeight: '600' },
     collectedByRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 16 },
     collectedByText: { fontSize: theme.fonts.size.sm, fontWeight: '600' },
     collectorChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
