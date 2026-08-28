@@ -147,6 +147,8 @@ export type AdminTabParamList = {
 export type StaffDashboardStackParamList = {
   StaffDashboard: undefined;
   CreateGR: undefined;
+  StaffAllShops: undefined;
+  StaffShopHistory: { shopName: string };
 };
 
 /** Screens reached from the Staff shell's Deliveries tab (reuses the
