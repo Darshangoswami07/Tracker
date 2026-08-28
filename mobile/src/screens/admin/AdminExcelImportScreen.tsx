@@ -386,6 +386,25 @@ export const AdminExcelImportScreen = ({ route }: any) => {
               </View>
             )}
 
+            {summary.failures.length > 0 && (
+              <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+                <Text style={[styles.sectionTitle, { color: colors.error }]}>Failed Rows</Text>
+                {summary.failures.slice(0, ERROR_LIST_LIMIT).map((f, i) => (
+                  <View key={`${f.rowNumber}-${i}`} style={styles.errorRow}>
+                    <Text style={[styles.errorRowLabel, { color: colors.textPrimary }]}>
+                      GR {f.grNumber || `(row ${f.rowNumber})`}
+                    </Text>
+                    <Text style={[styles.errorRowMessage, { color: colors.textMuted }]}>{f.message}</Text>
+                  </View>
+                ))}
+                {summary.failures.length > ERROR_LIST_LIMIT && (
+                  <Text style={[styles.hint, { color: colors.textMuted, marginTop: 4 }]}>
+                    +{summary.failures.length - ERROR_LIST_LIMIT} more failure(s) not shown.
+                  </Text>
+                )}
+              </View>
+            )}
+
             <TouchableOpacity
               style={[styles.primaryButton, { backgroundColor: colors.primary, borderRadius: radii.lg, marginTop: 16 }]}
               onPress={() => navigate('GRShipments')}

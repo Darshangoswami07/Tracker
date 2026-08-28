@@ -2,6 +2,12 @@ import { ensureDatabaseReady, getDatabase } from '../database';
 import { uuid } from '../../utils/uuid';
 import type { ValidGRRow } from '../../services/excelImport';
 
+export interface ImportFailure {
+  rowNumber: number;
+  grNumber: string;
+  message: string;
+}
+
 export interface ImportSummary {
   totalRows: number;
   importedRows: number;
@@ -10,6 +16,10 @@ export interface ImportSummary {
   /** GR numbers skipped because they already exist — surfaced in the
    * post-import summary ("GR 6993 already exists — skipped."). */
   duplicateGRNumbers: string[];
+  /** Per-row failure reasons, so a future import failure can be diagnosed
+   * without guessing. Never contains sensitive backend stack traces — only a
+   * safe, human-readable reason for each row that could not be inserted. */
+  failures: ImportFailure[];
 }
 
 export interface ImportHistoryRow {
@@ -83,6 +93,7 @@ export const importRepository = {
     let importedRows = 0;
     let failedRows = 0;
     const duplicateGRNumbers: string[] = [];
+    const failures: ImportFailure[] = [];
 
     for (const row of rows) {
       // Scenario B — active GR already exists: skip (count as duplicate).
@@ -128,7 +139,7 @@ export const importRepository = {
             row.toLocation || fallbackAddress,
             nowIso(),
             row.weight ?? null,
-            null,
+            'normal',
             'pending',
             null,
             null,
@@ -162,7 +173,9 @@ export const importRepository = {
         activeNumbers.add(row.grNumber);
         importedRows += 1;
       } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error while inserting this GR.';
         console.warn('[Excel Import] Failed to import row', row.rowNumber, err);
+        failures.push({ rowNumber: row.rowNumber, grNumber: row.grNumber, message });
         failedRows += 1;
       }
     }
@@ -179,6 +192,7 @@ export const importRepository = {
       duplicateRows: duplicateGRNumbers.length,
       failedRows,
       duplicateGRNumbers,
+      failures,
     };
   },
 

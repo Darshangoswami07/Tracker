@@ -114,7 +114,7 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
   const canImportExcel = roleCanImportExcel(role);
 
   // Admin/Owner/SuperAdmin can choose any area; staff is locked to their area
-  const isAdmin = role === 'admin' || role === 'owner' || role === 'super_admin';
+  const isAdmin = role === 'admin' || role === 'business_owner' || role === 'super_admin';
   const effectiveArea = fixedArea ?? (isAdmin ? areaFilter : userArea);
 
   const [addMenuOpen, setAddMenuOpen] = useState(false);

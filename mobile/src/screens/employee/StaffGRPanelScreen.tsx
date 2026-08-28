@@ -79,7 +79,7 @@ export const StaffGRPanelScreen = () => {
   const userArea = useUserStore((state) => state.user?.area ?? null);
   const canDeleteGR = roleCanDeleteGR(role);
 
-  const isAdmin = role === 'admin' || role === 'owner' || role === 'super_admin';
+  const isAdmin = role === 'admin' || role === 'business_owner' || role === 'super_admin';
   const effectiveArea = isAdmin ? areaFilter : userArea;
 
   // The GR whose "⋮" per-card menu (View GR / Delete GR) is open, if any.
