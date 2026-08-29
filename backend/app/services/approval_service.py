@@ -96,14 +96,17 @@ class ApprovalService:
         ``ApprovalAlreadyCompletedError`` (409) instead of returning a
         validation error.
         """
+        logger.info("[APPROVAL_START] request_id=%s admin_id=%s", request_id, admin_id)
         logger.info(
             "[Admin Approval Started] request_id=%s admin_id=%s", request_id, admin_id
         )
         request = await self.request_repo.find_by_id(request_id)
         if not request:
             raise UserNotFoundError()
+        logger.info("[EMAIL_RESOLVED] request_id=%s recipient=%s", request_id, request.email)
 
         _assert_can_manage_request(actor_role, request)
+        logger.info("[ADMIN_RESOLVED] request_id=%s admin_id=%s", request_id, admin_id)
 
         if request.status != "pending":
             if request.isApproved or request.status in ("approved_pending_otp", "approved"):
@@ -119,6 +122,7 @@ class ApprovalService:
         if not approved_request:
             return False, "Failed to approve request", None
 
+        logger.info("[ADMIN_APPROVED] request_id=%s status=approved_pending_otp", request_id)
         logger.info(
             "[Admin Approved] request_id=%s status=approved_pending_otp", request_id
         )
@@ -138,8 +142,9 @@ class ApprovalService:
             otp, _ = await otp_service.create_approval_otp(
                 request_id, admin_id, send_email=False
             )
+            logger.info("[OTP_CREATED] request_id=%s", request_id)
             logger.info("[OTP Generated] request_id=%s", request_id)
-            logger.info("[OTP Persisted] request_id=%s", request_id)
+            logger.info("[OTP_PERSISTED] request_id=%s", request_id)
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "[OTP] Failed to create/persist approval OTP for request %s: %s",
@@ -153,7 +158,9 @@ class ApprovalService:
         # delivery failure surfaces an honest error (the OTP is already
         # persisted and recoverable via Resend OTP).
         if otp:
+            logger.info("[OTP_EMAIL_SEND_STARTED] request_id=%s", request_id)
             await self.send_approval_otp_email(request_id, otp)
+            logger.info("[APPROVAL_COMPLETE] request_id=%s", request_id)
 
         return True, "Request approved successfully.", otp
 
@@ -193,6 +200,7 @@ class ApprovalService:
                 exc,
             )
             raise EmailSendFailedError() from exc
+        logger.info("[OTP_EMAIL_SEND_COMPLETED] request_id=%s recipient=%s", request_id, request.email)
         logger.info(
             "[OTP Email Dispatch Successful] request_id=%s recipient=%s",
             request_id,
