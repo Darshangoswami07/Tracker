@@ -18,7 +18,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useAppTheme } from '../../theme/useAppTheme';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../../navigation/types';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'ForgotPassword'>;
 
@@ -26,6 +26,7 @@ export const ForgotPasswordScreen = ({ navigation }: Props) => {
   const { t } = useTranslation();
   const { spacing } = useAppTheme();
   const requestOTP = useAuth().forgotPasswordOTP;
+  const [submittedEmail, setSubmittedEmail] = useState('');
 
   const { control, handleSubmit } = useForm<ForgotPasswordValues>({
     resolver: zodResolver(forgotPasswordSchema),
@@ -35,17 +36,19 @@ export const ForgotPasswordScreen = ({ navigation }: Props) => {
   const isSent = requestOTP.isSuccess;
 
   const onSubmit = (values: ForgotPasswordValues) => {
-    requestOTP.mutate({ email: values.email.trim().toLowerCase() });
+    const email = values.email.trim().toLowerCase();
+    setSubmittedEmail(email);
+    requestOTP.mutate({ email });
   };
 
   useEffect(() => {
-    if (isSent) {
-      navigation.navigate('OTPVerification', { 
-        requestId: 'placeholder', 
-        isPasswordReset: true 
+    if (isSent && submittedEmail) {
+      navigation.navigate('OTPVerification', {
+        isPasswordReset: true,
+        email: submittedEmail,
       });
     }
-  }, [isSent, navigation]);
+  }, [isSent, submittedEmail, navigation]);
 
   return (
     <AuthScaffold>

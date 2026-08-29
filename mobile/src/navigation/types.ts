@@ -10,16 +10,21 @@ export type AuthStackParamList = {
   Privacy: undefined;
   ForgotPassword: undefined;
   OTPVerification: {
-    requestId: string;
+    /** Required for the admin-approval flow; unused for password reset. */
+    requestId?: string;
     isApproval?: boolean;
     isPasswordReset?: boolean;
+    /** Required for the password-reset flow (identifies which account's OTP
+     *  to verify); unused for the admin-approval flow. */
     email?: string;
   };
   ApprovalPending: undefined;
   RegistrationPending: { request: RegistrationRequestResult };
   RegistrationRejected: { requestId: string; reason: string; accountType?: RegisterAccountType };
   RegistrationSuccess: undefined;
-  ResetPassword: { requestId: string };
+  /** Password-reset OTP + email carried forward so this screen can call the
+   *  combined verify+set-password endpoint in one request. */
+  ResetPassword: { email: string; otp: string };
   /** Shown right after Staff signup, and when a PENDING Staff account tries
    * to log in. No requestId — the self-service Staff flow doesn't use the
    * `registration_requests` table at all. */

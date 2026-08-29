@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAuthStore } from '../../store/authStore';
-import { api } from '../../api/client';
+import { useAuth } from '../../hooks/useAuth';
 import { toAppError } from '../../services/errorMapper';
 import { Header } from '../../components/Header';
 import { PasswordField } from '../../components/PasswordField';
@@ -14,11 +14,12 @@ import { TextLink } from '../../components/TextLink';
 import { Logo } from '../../components/Logo';
 import type { AppTheme } from '../../theme/types';
 
-export const ResetPasswordScreen = ({ route }: any) => {
+export const ResetPasswordScreen = ({ route, navigation }: any) => {
   const { t } = useTranslation();
-  const { requestId } = route.params;
+  const { email, otp } = route.params;
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const clearSession = useAuthStore((state) => state.clearSession);
+  const verifyPasswordResetOTP = useAuth().verifyPasswordResetOTP;
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
@@ -39,10 +40,6 @@ export const ResetPasswordScreen = ({ route }: any) => {
   const validatePassword = (pwd: string): string | undefined => {
     if (!pwd) return t('auth.passwordRequired');
     if (pwd.length < 8) return t('auth.passwordMinLength');
-    if (!/[A-Z]/.test(pwd)) return t('auth.passwordUppercase');
-    if (!/[a-z]/.test(pwd)) return t('auth.passwordLowercase');
-    if (!/[0-9]/.test(pwd)) return t('auth.passwordNumber');
-    if (!/[!@#$%^&*]/.test(pwd)) return t('auth.passwordSpecial');
     return undefined;
   };
 
@@ -73,12 +70,9 @@ export const ResetPasswordScreen = ({ route }: any) => {
 
     setSubmitting(true);
     try {
-      await api.post('/auth/reset-password', {
-        requestId,
-        newPassword: password,
-      });
+      await verifyPasswordResetOTP.mutateAsync({ email, otp, password });
       Alert.alert(t('common.success'), t('auth.passwordResetSuccess'));
-      clearSession();
+      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
     } catch (error) {
       console.error('Reset password failed:', error);
       const message = toAppError(error).message;
@@ -127,10 +121,6 @@ export const ResetPasswordScreen = ({ route }: any) => {
                 />
                 <View style={styles.passwordRequirements}>
                   <Requirement met={password.length >= 8} text={t('auth.atLeast8Characters')} />
-                  <Requirement met={/[A-Z]/.test(password)} text={t('auth.oneUppercase')} />
-                  <Requirement met={/[a-z]/.test(password)} text={t('auth.oneLowercase')} />
-                  <Requirement met={/[0-9]/.test(password)} text={t('auth.oneNumber')} />
-                  <Requirement met={/[!@#$%^&*]/.test(password)} text={t('auth.oneSpecialCharacter')} />
                 </View>
               </View>
 

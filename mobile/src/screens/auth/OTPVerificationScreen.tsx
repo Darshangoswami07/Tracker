@@ -44,7 +44,9 @@ export const OTPVerificationScreen = ({ navigation, route }: Props) => {
 
   const isPasswordReset = route.params?.isPasswordReset === true;
   const requestId = route.params?.requestId ?? persistedRequest?.id ?? '';
-  const email = isPasswordReset ? '' : (route.params?.email ?? persistedRequest?.email ?? '');
+  const email = isPasswordReset
+    ? (route.params?.email ?? '')
+    : (route.params?.email ?? persistedRequest?.email ?? '');
 
   const [otp, setOtp] = useState('');
   const [remain, setRemain] = useState(RESEND_SECONDS);
@@ -74,26 +76,35 @@ export const OTPVerificationScreen = ({ navigation, route }: Props) => {
 
   const handleVerify = (code: string) => {
     if (code.length < 6 || verifyOTP.isPending) return;
+
+    if (isPasswordReset) {
+      // The backend verifies the OTP and sets the new password in a single
+      // call (`POST /otp/verify-password-reset`), which also needs the new
+      // password itself — collected on the next screen. So this screen only
+      // carries the code forward; nothing is verified against the server yet.
+      setShowSuccess(true);
+      setTimeout(() => {
+        navigation.replace('ResetPassword', { email, otp: code });
+      }, SUCCESS_DISPLAY_MS);
+      return;
+    }
+
     verifyOTP.mutate(
-      { otp: code, requestId, isPasswordReset },
+      { otp: code, requestId },
       {
         onSuccess: (result) => {
-          if (!isPasswordReset) {
-            // Bind this physical device to the account right after activation so
-            // it can operate offline. Best-effort: a failure here must not block
-            // the (already-successful) activation from proceeding.
-            deviceService.registerCurrentDevice();
-          }
-          if (!isPasswordReset && result.user.role !== 'admin') {
+          // Bind this physical device to the account right after activation so
+          // it can operate offline. Best-effort: a failure here must not block
+          // the (already-successful) activation from proceeding.
+          deviceService.registerCurrentDevice();
+          if (result.user.role !== 'admin') {
             // Persist the session silently so "Account Activated" can render first.
             stageSession(result.tokens, result.user);
           }
           clearRegistration();
           setShowSuccess(true);
           setTimeout(() => {
-            if (isPasswordReset) {
-              navigation.replace('ResetPassword', { requestId });
-            } else if (result.user.role === 'admin') {
+            if (result.user.role === 'admin') {
               // Admins are not auto-signed-in; they log in explicitly with the
               // password chosen at registration.
               navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
@@ -110,17 +121,18 @@ export const OTPVerificationScreen = ({ navigation, route }: Props) => {
     if (resending) return;
     setResendError(null);
     setResendSuccess(null);
-    if (!requestId) {
+    const identifier = isPasswordReset ? email : requestId;
+    if (!identifier) {
       setResendError('We could not resend the code. Please try signing in again.');
       return;
     }
     setResending(true);
     try {
       if (isPasswordReset) {
-        setResendError('Password reset resending is not available on this route yet.');
-        return;
+        await registrationService.resendPasswordResetOTP(email);
+      } else {
+        await registrationService.resendApprovalOTP(requestId);
       }
-      await registrationService.resendApprovalOTP(requestId);
       setOtp('');
       if (verifyOTP.isError) verifyOTP.reset();
       setRemain(RESEND_SECONDS);
