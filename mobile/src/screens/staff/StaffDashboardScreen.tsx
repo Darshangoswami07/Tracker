@@ -58,7 +58,8 @@ export const StaffDashboardScreen = () => {
   }, []);
 
   useEffect(() => {
-    loadOverview();
+    const timer = setTimeout(() => loadOverview(), 0);
+    return () => clearTimeout(timer);
   }, [loadOverview]);
 
   const onRefresh = async () => {
@@ -78,7 +79,7 @@ export const StaffDashboardScreen = () => {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#635BFF']} progressBackgroundColor={colors.surface} />}
       >
         <Text style={[styles.welcome, { color: colors.textPrimary }]}>Welcome, {firstName}</Text>
-        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Here's today's overview.</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Here&apos;s today&apos;s overview.</Text>
 
         <View style={styles.statsRow}>
           <View style={[styles.statCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
@@ -112,13 +113,13 @@ export const StaffDashboardScreen = () => {
         <View style={styles.actionsGrid}>
           <TouchableOpacity
             style={[styles.actionCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
-            onPress={() => navigate('CreateGR')}
+            onPress={() => navigate('StaffAllShops')}
             accessibilityRole="button"
           >
-            <View style={[styles.actionIcon, { backgroundColor: '#10B98118' }]}>
-              <Ionicons name="add-circle-outline" size={22} color="#10B981" />
+            <View style={[styles.actionIcon, { backgroundColor: '#635BFF18' }]}>
+              <Ionicons name="storefront-outline" size={22} color="#635BFF" />
             </View>
-            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>Create GR / Shipment</Text>
+            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>All Shops</Text>
           </TouchableOpacity>
 
           <TouchableOpacity

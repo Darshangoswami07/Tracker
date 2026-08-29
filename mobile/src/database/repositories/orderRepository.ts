@@ -88,6 +88,10 @@ export interface LocalGRListItem {
   /** Area assignment — e.g. "Bageshwar", "Almora", "Garur Someshwar". Null when imported before
    * the area system was added or for manually created GRs. */
   area: string | null;
+  /** Amount to be collected on this GR (0 for delivery-type GRs). */
+  toPay: number;
+  /** Amount already collected against this GR. */
+  paymentAmount: number;
 }
 
 /** Mirrors `GRAttachment` in `AdminGRDetailsScreen`. */
@@ -233,6 +237,14 @@ export interface ShopSummary {
   outstanding: number;
 }
 
+/** A single shop (consignor) and its live active-GR count, for the Staff
+ * "All Shops" list. Scoped to the signed-in Staff member's own assigned area
+ * at the repository level (see `getShopsWithCounts`). */
+export interface ShopCount {
+  name: string;
+  grCount: number;
+}
+
 /** One GR a staff member collected a payment on, for a given day —
  * see `orderRepository.getStaffDailyGRs`. */
 export interface StaffDailyGR {
@@ -347,6 +359,8 @@ const rowToListItem = (row: any): LocalGRListItem => ({
   hasSlip: Boolean(row.hasSlip),
   source: row.source ?? 'manual',
   area: row.area ?? null,
+  toPay: Number(row.toPay ?? 0),
+  paymentAmount: Number(row.paymentAmount ?? 0),
 });
 
 /** Picks the extended-field columns off a raw SQLite row, converting `null`
@@ -1221,6 +1235,38 @@ export const orderRepository = {
         outstanding: totalToPay - totalCollected,
       };
     });
+  },
+
+  /** Distinct shops (consignor names) with their active-GR counts, for the
+   * Staff "All Shops" list. Scoped to the signed-in Staff member's assigned
+   * area via `resolveAreaScope` — a Staff user can ONLY ever see shops that
+   * have GRs in their own area, and an unassigned Staff member (no area)
+   * resolves to the sentinel area that matches nothing, so the result is
+   * always empty rather than leaking every shop in the system. `search`
+   * optionally narrows by shop name (LIKE, case-sensitive SQLite). */
+  async getShopsWithCounts(search?: string): Promise<ShopCount[]> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    const scopedArea = resolveAreaScope(undefined);
+    const clauses = ['isDeleted = 0', 'consignorName IS NOT NULL', "consignorName != ''"];
+    const bind: string[] = [];
+    if (scopedArea) {
+      clauses.push('area = ?');
+      bind.push(scopedArea);
+    }
+    if (search && search.trim()) {
+      clauses.push('consignorName LIKE ?');
+      bind.push(`%${search.trim()}%`);
+    }
+    const rows = await db.getAllAsync<{ name: string; grCount: number }>(
+      `SELECT consignorName AS name, COUNT(*) AS grCount
+       FROM orders
+       WHERE ${clauses.join(' AND ')}
+       GROUP BY consignorName
+       ORDER BY consignorName ASC`,
+      bind
+    );
+    return rows.map((r) => ({ name: r.name, grCount: Number(r.grCount ?? 0) }));
   },
 
   // ---- Staff Daily Work (Payment History → Staff Daily Work) ----

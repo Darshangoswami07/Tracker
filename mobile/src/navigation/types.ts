@@ -147,6 +147,13 @@ export type AdminTabParamList = {
 export type StaffDashboardStackParamList = {
   StaffDashboard: undefined;
   CreateGR: undefined;
+  StaffAllShops: undefined;
+  StaffShopHistory: { shopName: string };
+  /** Reuses the shared `AdminGRDetailsScreen`. Registered here (not just in the
+   * Deliveries stack) so a GR opened from the All-Shops → Shop-History flow
+   * stays inside the Dashboard stack — keeping `goBack` return to the shop's GR
+   * list instead of jumping to the Deliveries tab. */
+  GRDetails: { orderId: string };
 };
 
 /** Screens reached from the Staff shell's Deliveries tab (reuses the
