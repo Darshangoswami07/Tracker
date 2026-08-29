@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { orderRepository } from '../../database/repositories/orderRepository';
@@ -55,13 +56,18 @@ export const ReceivingDetailsScreen = () => {
     navigate('AdminDashboard');
   }, [navigate]);
 
-  useEffect(() => {
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      handleBack();
-      return true;
-    });
-    return () => subscription.remove();
-  }, [handleBack]);
+  // useFocusEffect, not plain useEffect — see AdminGRShipmentsScreen for why
+  // (native-stack keeps this screen mounted under anything pushed on top, so
+  // an unconditional listener would keep hijacking Android back there too).
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        handleBack();
+        return true;
+      });
+      return () => subscription.remove();
+    }, [handleBack])
+  );
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 

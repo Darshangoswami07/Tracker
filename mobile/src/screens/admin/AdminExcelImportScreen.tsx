@@ -7,6 +7,7 @@ import { File as ExpoFile } from 'expo-file-system';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useUserStore } from '../../store/userStore';
 import { Header } from '../../components/Header';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { useAppNav } from '../../hooks/useAppNav';
 import { parseWorkbook, validateRows, type ParsedWorkbook } from '../../services/excelImport';
 import { importRepository, type ImportSummary } from '../../database/repositories/importRepository';
@@ -59,6 +60,7 @@ export const AdminExcelImportScreen = ({ route }: any) => {
   const [fileError, setFileError] = useState<string | null>(null);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [challanNo, setChallanNo] = useState('');
+  const [fallbackConfirmOpen, setFallbackConfirmOpen] = useState(false);
 
   const reset = () => {
     setStage('select');
@@ -66,7 +68,15 @@ export const AdminExcelImportScreen = ({ route }: any) => {
     setParsed(null);
     setFileError(null);
     setSummary(null);
+    setFallbackConfirmOpen(false);
   };
+
+  /** Rows whose area could not be auto-matched from their own data
+   * (`resolvedArea === null`) and would silently be dumped into the
+   * "fallback shop" (or left unassigned, if no fallback was picked) — the
+   * exact mechanism that mis-bucketed real GRs into the wrong shop/area
+   * before this was surfaced. */
+  const unmatchedCount = parsed?.validRows.filter((r) => r.resolvedArea === null).length ?? 0;
 
   const pickFile = async () => {
     setFileError(null);
@@ -163,8 +173,21 @@ export const AdminExcelImportScreen = ({ route }: any) => {
     }
   };
 
+  /** Entry point for the "Import All GRs" button — routes through the
+   * fallback-area confirmation when needed instead of importing straight
+   * away, so mis-bucketing a shop's GRs requires an explicit "yes, do it
+   * anyway" rather than happening silently. */
+  const handleImportPress = () => {
+    if (unmatchedCount > 0) {
+      setFallbackConfirmOpen(true);
+      return;
+    }
+    runImport();
+  };
+
   const runImport = async () => {
     if (!parsed || !file) return;
+    setFallbackConfirmOpen(false);
     setStage('importing');
     try {
       const rowsToImport = challanNo.trim()
@@ -285,16 +308,23 @@ export const AdminExcelImportScreen = ({ route }: any) => {
                     <Text style={[styles.previewHeaderCell, styles.colShop, { color: colors.textMuted }]}>Shop</Text>
                   </View>
                   {parsed.validRows.slice(0, PREVIEW_ROW_LIMIT).map((row) => {
+                    // Distinguish a confident match (this row's own data —
+                    // consignee/destination — actually says this area) from
+                    // a guess (nothing in the row matched anything; it's
+                    // only being labeled with the fallback because one was
+                    // picked). Showing both the same way is exactly what let
+                    // GRs get silently mis-bucketed into the wrong shop.
+                    const isFallback = row.resolvedArea === null && !!selectedArea;
                     const shopLabel = row.resolvedArea ?? selectedArea ?? null;
                     return (
                       <View key={row.rowNumber} style={[styles.previewRow, { borderBottomColor: colors.border }]}>
                         <Text style={[styles.previewCell, styles.colGr, { color: colors.textPrimary }]}>{row.grNumber}</Text>
                         <Text style={[styles.previewCell, styles.colParty, { color: colors.textSecondary }]} numberOfLines={1}>{row.consigneeName || '—'}</Text>
                         <Text
-                          style={[styles.previewCell, styles.colShop, { color: shopLabel ? colors.textPrimary : colors.textMuted, fontWeight: shopLabel ? '700' : '600' }]}
+                          style={[styles.previewCell, styles.colShop, { color: isFallback ? '#F97316' : shopLabel ? colors.textPrimary : colors.textMuted, fontWeight: shopLabel ? '700' : '600' }]}
                           numberOfLines={1}
                         >
-                          {shopLabel ?? 'Unmatched'}
+                          {shopLabel ? (isFallback ? `${shopLabel} (guess)` : shopLabel) : 'Unmatched'}
                         </Text>
                       </View>
                     );
@@ -344,7 +374,7 @@ export const AdminExcelImportScreen = ({ route }: any) => {
                   styles.flexButton,
                   { backgroundColor: parsed.validRows.length > 0 ? colors.primary : colors.border, borderRadius: radii.lg },
                 ]}
-                onPress={runImport}
+                onPress={handleImportPress}
                 activeOpacity={0.9}
                 disabled={parsed.validRows.length === 0}
               >
@@ -415,6 +445,21 @@ export const AdminExcelImportScreen = ({ route }: any) => {
           </View>
         )}
       </ScrollView>
+
+      <ConfirmDialog
+        visible={fallbackConfirmOpen}
+        title="Confirm shop assignment"
+        message={
+          selectedArea
+            ? `${unmatchedCount} of ${parsed?.validRows.length ?? 0} row(s) don't have a recognizable shop/area in their own data — they will be filed under "${selectedArea}" as a guess, not a match. Double-check this is correct before continuing.`
+            : `${unmatchedCount} of ${parsed?.validRows.length ?? 0} row(s) don't have a recognizable shop/area and no fallback was selected — they will import with no shop assigned. Continue anyway?`
+        }
+        confirmLabel="Import Anyway"
+        cancelLabel="Review"
+        destructive
+        onConfirm={runImport}
+        onCancel={() => setFallbackConfirmOpen(false)}
+      />
     </SafeAreaView>
   );
 };

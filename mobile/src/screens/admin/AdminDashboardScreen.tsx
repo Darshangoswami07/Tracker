@@ -262,7 +262,7 @@ export const AdminDashboardScreen = () => {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
         <View style={styles.header}>
-          <Header title={t('dashboard.dashboard')} rightAction={{ icon: 'notifications-outline', onPress: goToNotifications }} />
+          <Header title={t('admin.dashboard')} rightAction={{ icon: 'notifications-outline', onPress: goToNotifications }} />
         </View>
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.revenueSection}>
@@ -362,7 +362,7 @@ export const AdminDashboardScreen = () => {
       <Animated.View style={styles.headerContainer}>
         <View style={styles.header}>
           <Header
-            title={t('dashboard.dashboard')}
+            title={t('admin.dashboard')}
             leftAction={{ icon: 'person-circle-outline', onPress: () => navigate('Profile'), accessibilityLabel: 'Profile' }}
             rightAction={{ icon: 'notifications-outline', onPress: goToNotifications }}
           />
@@ -527,24 +527,24 @@ export const AdminDashboardScreen = () => {
               <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments')} activeOpacity={0.85}>
                 <StatusBadge status="pending" size="md" />
                 <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.pending}</Text>
-                <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('status.pending')}</Text>
+                <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('summary.pending')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments')} activeOpacity={0.85}>
                 <StatusBadge status="cleared" size="md" />
                 <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.cleared}</Text>
-                <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('status.cleared')}</Text>
+                <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('summary.cleared')}</Text>
               </TouchableOpacity>
             </View>
             <View style={styles.statusOverviewRow}>
               <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments')} activeOpacity={0.85}>
                 <StatusBadge status="uncleared" size="md" />
                 <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.uncleared}</Text>
-                <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('status.uncleared')}</Text>
+                <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('summary.uncleared')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments')} activeOpacity={0.85}>
                 <StatusBadge status="delivered" size="md" />
                 <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.delivered}</Text>
-                <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('status.delivered')}</Text>
+                <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('summary.delivered')}</Text>
               </TouchableOpacity>
             </View>
 

@@ -253,6 +253,114 @@ export const runMigrations = async (db: SQLiteDatabase): Promise<void> => {
     version = 10;
   }
 
+  // v10 -> v11: Reconcile status for GRs that were already fully paid
+  // *before* `orderRepository.addPayment` started auto-flipping status to
+  // "delivered" once totalPaid >= toPay (added this session). Those GRs'
+  // payment totals already satisfied the rule, but nothing ever re-checked
+  // them, so they were stuck showing "Remaining ₹0" yet still "Pending"
+  // forever. This only ever raises status toward "delivered" for orders that
+  // demonstrably meet the paid-in-full rule right now — it never touches
+  // amounts, never deletes anything, and is idempotent (an order already
+  // "delivered", or with insufficient payments, is excluded by the WHERE
+  // clause and simply doesn't match on a re-run).
+  if (version === 10) {
+    await db.execAsync(`
+      INSERT INTO order_status_history (id, orderId, status, note, createdAt)
+      SELECT lower(hex(randomblob(16))), o.id, 'delivered',
+             'Auto-marked delivered (migration): payment already received in full',
+             datetime('now')
+      FROM orders o
+      WHERE o.isDeleted = 0
+        AND COALESCE(o.toPay, 0) > 0
+        AND o.status != 'delivered'
+        AND (SELECT COALESCE(SUM(p.amount), 0) FROM payments p WHERE p.orderId = o.id) >= o.toPay - 0.005;
+
+      UPDATE orders SET status = 'delivered', updatedAt = datetime('now')
+      WHERE isDeleted = 0
+        AND COALESCE(toPay, 0) > 0
+        AND status != 'delivered'
+        AND (SELECT COALESCE(SUM(p.amount), 0) FROM payments p WHERE p.orderId = orders.id) >= toPay - 0.005;
+    `);
+    version = 11;
+  }
+
+  // v11 -> v12: Fix mis-bucketed shop/area assignment for existing
+  // Excel-imported GRs. `resolvedArea` used to be matched only against
+  // `consigneeName`, which in real transport-slip data is a business/person
+  // name (e.g. "Bhagwan Book Depot") that never equals an area — so it
+  // always fell through to whatever "fallback shop" area was picked for
+  // that import, even when the row's actual destination (`toLocation`, e.g.
+  // "Bageshwar") clearly indicated a different area. `excelImport.ts` now
+  // checks `toLocation` first for new imports; this one-time pass corrects
+  // existing rows the same way. Only ever reassigns `area` to a value
+  // literally present in the row's own `toLocation` — never touches
+  // consignor/consignee/amounts/status, and only applies to `source =
+  // 'excel'` rows (manually-created/staff-stamped areas are untouched).
+  if (version === 11) {
+    await db.execAsync(`
+      UPDATE orders
+      SET area = CASE LOWER(TRIM(toLocation))
+                   WHEN 'bageshwar' THEN 'Bageshwar'
+                   WHEN 'almora' THEN 'Almora'
+                   WHEN 'garur someshwar' THEN 'Garur Someshwar'
+                 END,
+          updatedAt = datetime('now')
+      WHERE source = 'excel'
+        AND isDeleted = 0
+        AND LOWER(TRIM(toLocation)) IN ('bageshwar', 'almora', 'garur someshwar');
+    `);
+    version = 12;
+  }
+
+  // v12 -> v13: The v11->v12 pass above only caught exact-spelled area names
+  // in `toLocation`. Real data has spelling variants of the same place name
+  // ("Bageshawar" for "Bageshwar") that an exact match still misses — the
+  // TS-side `matchArea()` (used for every future import from now on) was
+  // widened to tolerate small edit-distance differences; this one-time pass
+  // applies the same specific known variant to existing rows. Same
+  // safety properties as v11->v12: only reassigns `area` for `source =
+  // 'excel'` rows whose own `toLocation` is one of these known spellings,
+  // nothing else touched.
+  if (version === 12) {
+    await db.execAsync(`
+      UPDATE orders
+      SET area = 'Bageshwar', updatedAt = datetime('now')
+      WHERE source = 'excel'
+        AND isDeleted = 0
+        AND LOWER(TRIM(toLocation)) IN ('bageshawar', 'bageshwer', 'bagheshwar');
+    `);
+    version = 13;
+  }
+
+  // v13 -> v14: The v10->v11 pass only reconciled orders where `toPay > 0`
+  // and fully paid. It never covered `toPay` being 0/unset (a GR with
+  // nothing owed) — those could sit "Pending" forever despite having
+  // nothing outstanding, since nothing ever triggers `addPayment` for a
+  // zero-balance GR. `orderRepository`'s write paths (create/update/import/
+  // addPayment) all now funnel through a shared reconciliation check for
+  // this going forward; this one-time pass catches existing rows the same
+  // way. Only ever raises status toward "delivered" for orders that
+  // demonstrably have nothing outstanding right now — never touches
+  // amounts, never deletes anything.
+  if (version === 13) {
+    await db.execAsync(`
+      INSERT INTO order_status_history (id, orderId, status, note, createdAt)
+      SELECT lower(hex(randomblob(16))), o.id, 'delivered',
+             'Auto-marked delivered (migration): nothing outstanding',
+             datetime('now')
+      FROM orders o
+      WHERE o.isDeleted = 0
+        AND o.status != 'delivered'
+        AND COALESCE(o.toPay, 0) <= 0;
+
+      UPDATE orders SET status = 'delivered', updatedAt = datetime('now')
+      WHERE isDeleted = 0
+        AND status != 'delivered'
+        AND COALESCE(toPay, 0) <= 0;
+    `);
+    version = 14;
+  }
+
   await db.execAsync(`PRAGMA user_version = ${version}`);
 };
 

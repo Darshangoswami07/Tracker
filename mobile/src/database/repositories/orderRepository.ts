@@ -69,6 +69,56 @@ const assertStaffOrderAccess = async (orderId: string): Promise<void> => {
   }
 };
 
+/**
+ * The single place that decides "is this GR fully paid, and if so is its
+ * status caught up with that fact." A GR counts as fully paid when there is
+ * nothing left to collect: either `toPay` is 0/unset (nothing was ever owed)
+ * or the `payments` ledger sum has reached `toPay`. Whenever that's true and
+ * the order isn't already `delivered`, it's flipped there and a status-
+ * history row is appended — the same rule `addPayment` already enforced,
+ * now also applied wherever else `toPay` or the payment total can change:
+ * creating a GR (manual entry with toPay already 0, or an initial paid
+ * amount), editing one (Edit GR can lower `toPay` to/under what's already
+ * paid), and Excel import (a row's own Paid_Amt can already cover its
+ * To Pay). Without this, a GR could sit "Pending" forever despite having
+ * nothing outstanding, simply because it was never created/edited through
+ * the Receive Payment flow. Never downgrades a GR away from `delivered` —
+ * only ever raises status toward it.
+ */
+export const reconcileDeliveredStatus = async (
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  orderId: string
+): Promise<void> => {
+  const order = await db.getFirstAsync<{ toPay: number | null; paymentAmount: number | null; status: string }>(
+    'SELECT toPay, paymentAmount, status FROM orders WHERE id = ?',
+    [orderId]
+  );
+  if (!order || order.status === 'delivered') return;
+
+  const toPay = Number(order.toPay ?? 0);
+  const ledgerPaid = Number(
+    (await db.getFirstAsync<{ total: number }>(
+      'SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE orderId = ?',
+      [orderId]
+    ))?.total ?? 0
+  );
+  // Legacy single-field amount (pre-ledger GRs, or one just set directly via
+  // Edit GR / Excel import before any ledger row exists) counts too — the
+  // ledger sum will be 0 for those, so this is never double-counted once a
+  // ledger row exists (the v9->v10 migration already backfilled it once).
+  const totalPaid = Math.max(ledgerPaid, Number(order.paymentAmount ?? 0));
+
+  const fullyPaid = toPay <= 0 || totalPaid >= toPay - 0.005;
+  if (!fullyPaid) return;
+
+  const updatedAt = nowIso();
+  await db.runAsync('UPDATE orders SET status = ?, updatedAt = ? WHERE id = ?', ['delivered', updatedAt, orderId]);
+  await db.runAsync(
+    'INSERT INTO order_status_history (id, orderId, status, note, createdAt) VALUES (?, ?, ?, ?, ?)',
+    [uuid(), orderId, 'delivered', 'Auto-marked delivered: nothing outstanding', updatedAt]
+  );
+};
+
 /** Mirrors `GRListItem` in `AdminGRShipmentsScreen` / web `admin/src/types/gr.ts`. */
 export interface LocalGRListItem {
   id: string;
@@ -264,6 +314,9 @@ export interface GRListParams {
   area?: string;
   /** Filter by exact consignor (shop owner) name. */
   consignor?: string;
+  /** Inclusive lower bound on `createdAt` (ISO string) — drives the GR
+   * list's "Date Range" filter (Today/This Week/This Month). */
+  dateFrom?: string;
 }
 
 export interface GRListResult {
@@ -456,6 +509,10 @@ export const orderRepository = {
       clauses.push('consignorName = ?');
       bind.push(params.consignor);
     }
+    if (params.dateFrom) {
+      clauses.push('createdAt >= ?');
+      bind.push(params.dateFrom);
+    }
 
     const where = `WHERE ${clauses.join(' AND ')}`;
 
@@ -615,6 +672,9 @@ export const orderRepository = {
       'INSERT INTO order_status_history (id, orderId, status, note, createdAt) VALUES (?, ?, ?, ?, ?)',
       [uuid(), id, 'pending', 'Created', createdAt]
     );
+    // Covers a GR created with toPay already 0 (nothing owed) — it should
+    // never sit in "Pending" when there's nothing outstanding.
+    await reconcileDeliveredStatus(db, id);
     const detail = await this.getById(id);
     if (!detail) throw new Error('Failed to create GR');
     return detail;
@@ -650,6 +710,12 @@ export const orderRepository = {
     if (fields.length === 0) return this.getById(id);
     bind.push(nowIso(), id);
     await db.runAsync(`UPDATE orders SET ${fields.join(', ')}, updatedAt = ? WHERE id = ?`, bind);
+    // Edit GR can change `toPay` (e.g. down to/under what's already paid) or
+    // the legacy `paymentAmount` field directly — re-check whether that
+    // leaves nothing outstanding.
+    if (input.toPay !== undefined || input.paymentAmount !== undefined) {
+      await reconcileDeliveredStatus(db, id);
+    }
     return this.getById(id);
   },
 
@@ -852,7 +918,23 @@ export const orderRepository = {
 
   // ---- Payments ----
 
-  /** Record a new payment against an order. */
+  /**
+   * Record a new payment against an order, then recompute the running total
+   * and flip the GR to "delivered" once the total paid reaches the bill
+   * (`toPay`), leaving it untouched otherwise. This is the single write path
+   * for payments (the Receive Payment sheet in `AdminGRDetailsScreen` calls
+   * only this).
+   *
+   * Deliberately NOT wrapped in `db.withTransactionAsync` — expo-sqlite's web
+   * backend does not support the exclusive variant at all, and the
+   * non-exclusive one can be interrupted by concurrent reads (e.g. the GR
+   * list's `Promise.all` of `getPaymentSummary` calls), which was observed to
+   * leave the web connection stuck mid-transaction and every subsequent read
+   * returning the same stale snapshot (every GR showing identical amounts).
+   * This app has a single writer at a time, so plain sequential awaits are
+   * sufficient — SQLite runs each statement serially on this connection
+   * regardless.
+   */
   async addPayment(input: {
     orderId: string;
     amount: number;
@@ -862,15 +944,45 @@ export const orderRepository = {
   }): Promise<LocalPayment> {
     await ensureDatabaseReady();
     await assertStaffOrderAccess(input.orderId);
+    if (!(input.amount > 0)) {
+      throw new Error('Payment amount must be greater than zero.');
+    }
     const db = await getDatabase();
     await db.runAsync('PRAGMA foreign_keys = ON');
     const id = uuid();
     const createdAt = nowIso();
+
+    const order = await db.getFirstAsync<{ toPay: number | null; status: string }>(
+      'SELECT toPay, status FROM orders WHERE id = ?',
+      [input.orderId]
+    );
+    if (!order) {
+      throw new Error('GR not found.');
+    }
+
+    const toPay = Number(order.toPay ?? 0);
+    const alreadyPaid = Number(
+      (await db.getFirstAsync<{ total: number }>(
+        'SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE orderId = ?',
+        [input.orderId]
+      ))?.total ?? 0
+    );
+
+    // Reject overpayment server-side (not just in the UI) so a stale
+    // balance can never push Paid > Total Bill / Remaining below zero.
+    if (toPay > 0 && alreadyPaid + input.amount > toPay + 0.005) {
+      const remaining = Math.max(0, toPay - alreadyPaid);
+      throw new Error(`Payment cannot exceed the remaining amount of ₹${remaining.toFixed(2)}.`);
+    }
+
     await db.runAsync(
       `INSERT INTO payments (id, orderId, amount, paymentMethod, notes, recordedBy, createdAt)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [id, input.orderId, input.amount, input.paymentMethod ?? null, input.notes ?? null, input.recordedBy ?? null, createdAt]
     );
+
+    await reconcileDeliveredStatus(db, input.orderId);
+
     return { id, ...input, paymentMethod: input.paymentMethod ?? null, notes: input.notes ?? null, recordedBy: input.recordedBy ?? null, createdAt };
   },
 
@@ -1237,17 +1349,20 @@ export const orderRepository = {
     });
   },
 
-  /** Distinct shops (consignor names) with their active-GR counts, for the
-   * Staff "All Shops" list. Scoped to the signed-in Staff member's assigned
-   * area via `resolveAreaScope` — a Staff user can ONLY ever see shops that
-   * have GRs in their own area, and an unassigned Staff member (no area)
-   * resolves to the sentinel area that matches nothing, so the result is
-   * always empty rather than leaking every shop in the system. `search`
-   * optionally narrows by shop name (LIKE, case-sensitive SQLite). */
-  async getShopsWithCounts(search?: string): Promise<ShopCount[]> {
+  /** Distinct shops (consignor names) with their active-GR counts — powers
+   * both the Staff "All Shops" list (always their own area, `area` param
+   * ignored) and Admin's Area → Shops drill-down (`area` explicitly pins
+   * which area's shops to list). Scoped via `resolveAreaScope`: a Staff user
+   * can ONLY ever see shops that have GRs in their own area regardless of
+   * what `area` is passed, and an unassigned Staff member (no area) resolves
+   * to the sentinel area that matches nothing, so the result is always empty
+   * rather than leaking every shop in the system. Admin passing no `area`
+   * sees shops across every area (unscoped). `search` optionally narrows by
+   * shop name (LIKE, case-sensitive SQLite). */
+  async getShopsWithCounts(search?: string, area?: string): Promise<ShopCount[]> {
     await ensureDatabaseReady();
     const db = await getDatabase();
-    const scopedArea = resolveAreaScope(undefined);
+    const scopedArea = resolveAreaScope(area);
     const clauses = ['isDeleted = 0', 'consignorName IS NOT NULL', "consignorName != ''"];
     const bind: string[] = [];
     if (scopedArea) {

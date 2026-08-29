@@ -55,10 +55,14 @@ export interface ValidGRRow {
   chalaanDate: string | null;
   transportGrn: string | null;
   grSourceLabel: string | null;
-  /** Shop/area resolved from `consigneeName` against the fixed area list
-   * (see `constants/areas.ts#matchArea`). Null when the consignee name
-   * doesn't match a known area — the row still imports, just unassigned
-   * unless a fallback area was picked on the Areas screen. */
+  /** Shop/area resolved against the fixed area list (see
+   * `constants/areas.ts#matchArea`), checked against `toLocation` first —
+   * real transport-slip data puts the destination town there (e.g. "Haldwani
+   * → Bageshwar"), which is what actually indicates the shop/area, while
+   * `consigneeName` is a business/person name and essentially never equals
+   * an area name — then `consigneeName` as a fallback for files that do use
+   * it that way. Null when neither matches — the row still imports, just
+   * unassigned unless a fallback area was picked on the Areas screen. */
   resolvedArea: Area | null;
 }
 
@@ -424,7 +428,7 @@ export const validateRows = (rows: RawExcelRow[]): ParsedWorkbook => {
       chalaanDate: excelDateToIso(row.chalaanDateRaw),
       transportGrn: row.transportGrn,
       grSourceLabel: row.grSourceLabel,
-      resolvedArea: matchArea(row.consigneeName),
+      resolvedArea: matchArea(row.toLocation) ?? matchArea(row.consigneeName),
     });
   }
 
