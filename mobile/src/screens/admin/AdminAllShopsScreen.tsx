@@ -34,12 +34,13 @@ const formatCurrency = (amount: number): string =>
 /**
  * Dashboard → Quick Actions → All Shops.
  *
- * Lists the three fixed shop/area categories with live GR counts pulled from
- * the on-device `orders` table (grouped by the `area` column that Excel
- * import already assigns per-row from Consignee Name — see
- * `services/excelImport.ts`). Tapping a shop opens `GRShipments` pinned to
- * that area (`fixedArea`), reusing the existing GR list screen instead of a
- * separate implementation.
+ * Lists the three fixed area categories with live GR counts pulled from the
+ * on-device `orders` table (grouped by the `area` column that every GR gets
+ * stamped with, however it was created — manual entry, slip upload, or
+ * Excel import, see `services/excelImport.ts`). Tapping an area opens
+ * `AreaShops` — the list of individual shops (consignors) within that area —
+ * not the raw GR list directly, so browsing follows Area → Shop → that
+ * shop's GRs, matching the Staff "All Shops" flow.
  */
 export const AdminAllShopsScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
@@ -106,7 +107,7 @@ export const AdminAllShopsScreen = () => {
                 <TouchableOpacity
                   key={area}
                   style={[styles.shopCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
-                  onPress={() => navigate('GRShipments', { fixedArea: area })}
+                  onPress={() => navigate('AreaShops', { area })}
                   activeOpacity={0.85}
                 >
                   <View style={styles.shopCardTop}>
@@ -135,7 +136,7 @@ export const AdminAllShopsScreen = () => {
                       </View>
                       <View style={styles.shopStat}>
                         <Text style={[styles.shopStatValue, { color: '#10B981' }]}>{summary.delivered}</Text>
-                        <Text style={[styles.shopStatLabel, { color: colors.textMuted }]}>{t('status.delivered')}</Text>
+                        <Text style={[styles.shopStatLabel, { color: colors.textMuted }]}>{t('summary.delivered')}</Text>
                       </View>
                     </View>
                   )}

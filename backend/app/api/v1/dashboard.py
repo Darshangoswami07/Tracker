@@ -55,6 +55,7 @@ async def get_dashboard_stats(
     #   5) companies: total count                                     (unchanged)
     #   6) users: total + employees                                   (was 2 queries)
     #   7) registration requests: count + pending list                (was 2 queries, count redundant)
+    company_id = await effective_company_id(admin, db)
     (
         order_stats,
         todays_deliveries,
@@ -63,6 +64,7 @@ async def get_dashboard_stats(
         companies,
         user_stats,
         (latest_pending, pending_approvals),
+        revenue_overview,
     ) = await asyncio.gather(
         order_repo.count_for_dashboard(),
         order_repo.count_todays_deliveries(),
@@ -71,8 +73,16 @@ async def get_dashboard_stats(
         company_repo.count(),
         user_repo.count_for_dashboard(),
         reg_request_repo.find_pending_requests(page=1, page_size=5),
+        order_repo.get_revenue_overview(company_id=company_id),
     )
-    growth = 12.5
+    # Real month-over-month revenue growth (was a hardcoded 12.5 before —
+    # same current/previous-month figures the Revenue Overview cards use).
+    prev_month = revenue_overview["prevMonth"]
+    this_month = revenue_overview["month"]
+    if prev_month == 0:
+        growth = 100.0 if this_month > 0 else 0.0
+    else:
+        growth = ((this_month - prev_month) / prev_month) * 100
 
     return success({
         "totalOrders": order_stats["total"],

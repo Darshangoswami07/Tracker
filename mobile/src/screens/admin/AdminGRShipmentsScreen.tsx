@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { orderRepository } from '../../database/repositories/orderRepository';
@@ -27,6 +28,17 @@ const FILTER_TO_STATUS: Record<string, string | undefined> = {
   Cleared: 'cleared',
   Uncleared: 'uncleared',
   Delivered: 'delivered',
+};
+
+/** Converts the Date Range filter chip into an inclusive lower-bound ISO
+ * timestamp for `orderRepository.list({ dateFrom })`. `null` for "all". */
+const dateFilterToIso = (filter: 'all' | 'today' | 'week' | 'month'): string | undefined => {
+  if (filter === 'all') return undefined;
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (filter === 'week') start.setDate(start.getDate() - 6);
+  if (filter === 'month') start.setDate(start.getDate() - 29);
+  return start.toISOString();
 };
 
 const formatDate = (iso: string): string => {
@@ -80,13 +92,21 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
     navigate(fixedArea ? 'AllShops' : 'AdminDashboard');
   }, [navigate, fixedArea]);
 
-  useEffect(() => {
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      handleBack();
-      return true;
-    });
-    return () => subscription.remove();
-  }, [handleBack]);
+  // Registered/torn down via useFocusEffect (not a plain useEffect) so this
+  // listener is only live while THIS screen is the focused one. Native-stack
+  // keeps prior screens mounted when pushing a new one, so a plain useEffect
+  // here would never clean up and would keep intercepting Android back for
+  // every screen pushed on top (GR Details, Edit GR, ...), hijacking it to
+  // jump straight to the dashboard instead of popping one screen.
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        handleBack();
+        return true;
+      });
+      return () => subscription.remove();
+    }, [handleBack])
+  );
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
@@ -135,6 +155,21 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
     try {
       await orderRepository.delete(deleteTarget.id);
       setItems((prev) => prev.filter((gr) => gr.id !== deleteTarget.id));
+      // Keep the summary cards (counts + financial totals) in sync with the
+      // delete instead of only updating the list — otherwise they stay
+      // stale (showing the deleted GR's numbers) until the next full
+      // refetch (e.g. navigating away and back).
+      setSummary((prev) => ({
+        ...prev,
+        total: Math.max(0, prev.total - 1),
+        pending: deleteTarget.status === 'pending' ? Math.max(0, prev.pending - 1) : prev.pending,
+        cleared: deleteTarget.status === 'cleared' ? Math.max(0, prev.cleared - 1) : prev.cleared,
+        uncleared: deleteTarget.status === 'uncleared' ? Math.max(0, prev.uncleared - 1) : prev.uncleared,
+        delivered: deleteTarget.status === 'delivered' ? Math.max(0, prev.delivered - 1) : prev.delivered,
+        totalToPay: Math.max(0, prev.totalToPay - deleteTarget.toPay),
+        totalReceived: Math.max(0, prev.totalReceived - deleteTarget.totalPaid),
+        totalOutstanding: Math.max(0, prev.totalOutstanding - deleteTarget.outstanding),
+      }));
       setActionMessage({ kind: 'success', text: t('gr.deletedSuccess') });
       setDeleteTarget(null);
     } catch {
@@ -154,6 +189,7 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
       if (mode === 'refresh') setRefreshing(true);
       if (mode === 'more') setLoadingMore(true);
       try {
+        const dateFrom = dateFilterToIso(dateFilter);
         const result = await orderRepository.list({
           page: pageNum,
           pageSize: PAGE_SIZE,
@@ -161,6 +197,7 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
           search: search || undefined,
           area: effectiveArea || undefined,
           consignor: consignorFilter || undefined,
+          dateFrom,
         });
         const rawItems: LocalGRListItem[] = result.items;
 
@@ -191,7 +228,7 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
 
         // Compute summary from all items (not just current page)
         if (mode !== 'more') {
-          const allResults = await orderRepository.list({ page: 1, pageSize: 9999, search: search || undefined, area: effectiveArea || undefined, consignor: consignorFilter || undefined });
+          const allResults = await orderRepository.list({ page: 1, pageSize: 9999, search: search || undefined, area: effectiveArea || undefined, consignor: consignorFilter || undefined, dateFrom });
           const counts: SummaryCounts = { total: allResults.total, pending: 0, cleared: 0, uncleared: 0, delivered: 0, totalToPay: 0, totalReceived: 0, totalOutstanding: 0, todayCollection: 0 };
           for (const item of allResults.items) {
             if (item.status === 'pending') counts.pending++;
@@ -228,7 +265,7 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
         setLoadingMore(false);
       }
     },
-    [search, statusTab, consignorFilter, effectiveArea]
+    [search, statusTab, consignorFilter, effectiveArea, dateFilter]
   );
 
   const didMount = useRef(false);
@@ -257,7 +294,7 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
     }, 400);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, statusTab, consignorFilter, effectiveArea]);
+  }, [search, statusTab, consignorFilter, effectiveArea, dateFilter]);
 
   // Load distinct consignor names for the shop-owner filter dropdown.
   useEffect(() => {

@@ -63,16 +63,25 @@ export type DashboardStackParamList = {
    * for a given day (defaults to today). */
   StaffDailyWork: { staffId: string; fullName: string; area: string | null };
   /** Lists the fixed shop/area categories (Bageshwar, Almora, Garur
-   * Someshwar) with per-shop GR counts. Tapping one opens `GRShipments`
-   * pinned to that area via `fixedArea`. */
+   * Someshwar) with per-shop GR counts. Tapping one opens `AreaShops`
+   * (the shop list for that area), not the raw GR list directly. */
   AllShops: undefined;
+  /** All Shops → tap an area → list of shops (consignors) with a GR in that
+   * area. Tapping a shop opens `ShopHistory` pinned to it. */
+  AreaShops: { area: string };
+  /** One shop's GR history within one area — status tabs (Pending/Cleared/
+   * Uncleared/Delivered) at top, search, nothing else: only this shop's
+   * GRs, only this area's data. */
+  ShopHistory: { shopName: string; area: string };
 };
 
 /** Screens reached from the Shipments tab. */
 export type ShipmentsStackParamList = {
-  /** `fixedArea` — when set (from the All Shops list) — pins this screen to
-   * a single shop/area: the location filter is hidden and back navigates to
-   * `AllShops` instead of the Shipments list. */
+  /** `fixedArea` — when set — pins this screen to a single shop/area: the
+   * location filter is hidden and back navigates to `AllShops` instead of
+   * the Shipments list. Reached via the Shipments tab's own header "+" GR
+   * list, not from All Shops (which now drills through `AreaShops` /
+   * `ShopHistory` instead). */
   GRShipments: { fixedArea?: string } | undefined;
   CreateGR: undefined;
   GRDetails: { orderId: string };
@@ -83,6 +92,8 @@ export type ShipmentsStackParamList = {
   PaymentHistory: undefined;
   StaffDailyWork: { staffId: string; fullName: string; area: string | null };
   AllShops: undefined;
+  AreaShops: { area: string };
+  ShopHistory: { shopName: string; area: string };
 };
 
 /** Screens reached from the Receiving Details tab. */

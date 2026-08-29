@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { BackHandler, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAuthStore } from '../../store/authStore';
@@ -48,13 +49,20 @@ export const PaymentHistoryScreen = () => {
     navigate('AdminDashboard');
   }, [navigate]);
 
-  useEffect(() => {
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      handleBack();
-      return true;
-    });
-    return () => subscription.remove();
-  }, [handleBack]);
+  // useFocusEffect (not plain useEffect): native-stack keeps this screen
+  // mounted when a screen is pushed on top of it (e.g. Staff Daily Work), so
+  // an unconditional listener here would keep hijacking Android back on that
+  // screen too, jumping straight to the dashboard instead of popping back to
+  // Payment History. Only live while this screen is actually focused.
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        handleBack();
+        return true;
+      });
+      return () => subscription.remove();
+    }, [handleBack])
+  );
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 

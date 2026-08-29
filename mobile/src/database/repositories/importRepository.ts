@@ -1,6 +1,27 @@
 import { ensureDatabaseReady, getDatabase } from '../database';
 import { uuid } from '../../utils/uuid';
+import { useUserStore } from '../../store/userStore';
+import { reconcileDeliveredStatus } from './orderRepository';
 import type { ValidGRRow } from '../../services/excelImport';
+
+/** Same sentinel/guard pattern as `orderRepository.ts` — matches no real
+ * area, so a Staff account with no assigned area sees nothing rather than
+ * everything. Duplicated locally rather than imported since
+ * `orderRepository.ts` doesn't export these as a shared module. */
+const STAFF_NO_AREA_SENTINEL = '__no_area_assigned__';
+
+/** For a Staff user, always their own assigned area — a Staff account can
+ * never import or browse import history for a different area, regardless
+ * of what a file's own data (or a picked "fallback shop") says. Currently
+ * dead code in practice (Excel Import isn't wired into Staff navigation —
+ * see `StaffShell.tsx`), kept here as defense-in-depth so that stays true
+ * even if a Staff-facing entry point is ever added. Non-Staff (Admin/Owner/
+ * legacy Employee) pass through unchanged. */
+const resolveAreaScope = (requestedArea?: string): string | undefined => {
+  const user = useUserStore.getState().user;
+  if (user?.role === 'staff') return user.area ?? STAFF_NO_AREA_SENTINEL;
+  return requestedArea;
+};
 
 export interface ImportFailure {
   rowNumber: number;
@@ -68,6 +89,14 @@ export const importRepository = {
   async bulkImportGRs(rows: ValidGRRow[], fileName: string, importedByName: string | null, area?: string): Promise<ImportSummary> {
     await ensureDatabaseReady();
     const db = await getDatabase();
+
+    // Staff-scoping guard (see `resolveAreaScope` above) — a Staff account
+    // importing a file can only ever stamp its own assigned area onto every
+    // row, regardless of what the file's own data resolves to or what
+    // fallback area was picked. Non-Staff (Admin/Owner) unaffected — `area`
+    // and each row's own `resolvedArea` are used exactly as before.
+    const staffScopedArea = resolveAreaScope(area);
+    const isStaffImport = useUserStore.getState().user?.role === 'staff';
 
     // Ensure foreign keys (including ON DELETE CASCADE) are enforced on
     // this connection.  `PRAGMA foreign_keys = ON` in CREATE_SCHEMA_SQL only
@@ -155,7 +184,7 @@ export const importRepository = {
             row.chalaanDate ?? null,
             row.transportGrn ?? null,
             row.grSourceLabel ?? null,
-            row.resolvedArea ?? area ?? null,
+            (isStaffImport ? staffScopedArea : (row.resolvedArea ?? area)) ?? null,
             createdAt,
             createdAt,
             0,
@@ -169,6 +198,10 @@ export const importRepository = {
         // a second statement so the INSERT column list above stays aligned
         // with `orderRepository.create`'s statement shape for readability.
         await db.runAsync('UPDATE orders SET paymentAmount = ? WHERE id = ?', [row.paymentAmount, id]);
+        // A row can already be fully paid on import (Paid_Amt already covers
+        // To Pay) or have To Pay = 0 — it should land straight in
+        // "Delivered", not sit in "Pending" with nothing outstanding.
+        await reconcileDeliveredStatus(db, id);
 
         activeNumbers.add(row.grNumber);
         importedRows += 1;
@@ -183,7 +216,7 @@ export const importRepository = {
     await db.runAsync(
       `INSERT INTO import_history (id, fileName, importedAt, importedByName, area, totalRows, importedRows, duplicateRows, failedRows)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [uuid(), fileName, nowIso(), importedByName, area ?? null, rows.length, importedRows, duplicateGRNumbers.length, failedRows]
+      [uuid(), fileName, nowIso(), importedByName, (isStaffImport ? staffScopedArea : area) ?? null, rows.length, importedRows, duplicateGRNumbers.length, failedRows]
     );
 
     return {
@@ -199,6 +232,13 @@ export const importRepository = {
   async listImportHistory(): Promise<ImportHistoryRow[]> {
     await ensureDatabaseReady();
     const db = await getDatabase();
+    const scopedArea = resolveAreaScope(undefined);
+    if (scopedArea) {
+      return db.getAllAsync<ImportHistoryRow>(
+        'SELECT * FROM import_history WHERE area = ? ORDER BY importedAt DESC',
+        [scopedArea]
+      );
+    }
     return db.getAllAsync<ImportHistoryRow>('SELECT * FROM import_history ORDER BY importedAt DESC');
   },
 };
