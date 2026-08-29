@@ -21,7 +21,7 @@ async def _create_user(email: str, password: str, role: UserRole, status: str, *
     user = await repo.create(
         full_name="Test User",
         email=email,
-        phone="+15550001111",
+        phone="+919850001111",
         password_hash=hash_password(password),
         role=role,
         status=status,
@@ -67,7 +67,7 @@ async def test_staff_register_creates_pending_no_otp(client):
         json={
             "fullName": "Sam Staff",
             "email": "sam.staff@example.com",
-            "phone": "+15550002222",
+            "phone": "+919850002222",
             "password": "StaffPass123!",
         },
     )

@@ -163,8 +163,9 @@ async def approve_registration_request(
     A plain ADMIN may only approve Staff (``employee``) or Driver
     (``driver``) requests; SUPER_ADMIN is unrestricted.
 
-    The approval is committed first and the OTP email is dispatched as a
-    background task, so SMTP can never block or fail the approval response.
+    The approval is committed first; the OTP email is then sent inline using the
+    same raising path as Resend OTP. If delivery genuinely fails, an honest error
+    is returned — but the OTP is already persisted and recoverable via Resend OTP.
     """
     success_flag, message, otp = await approval_service.approve_request(
         request_id, str(admin.id), actor_role=admin.role
@@ -173,16 +174,13 @@ async def approve_registration_request(
         from app.core.exceptions import ValidationBusinessError
         raise ValidationBusinessError(message)
 
-    if otp:
-        dispatch_email(background_tasks, email_tasks.send_approval_otp_email, request_id, otp)
-
     # Return the updated request
     from app.repositories.registration_request_repository import RegistrationRequestRepository
     repo = RegistrationRequestRepository(session=db)
     request = await repo.find_by_id(request_id)
     return success(
         RegistrationRequestOut.model_validate(request).model_dump(mode="json"),
-        message="Request approved successfully. An OTP email is being sent to the user.",
+        message="Request approved successfully. A verification code has been sent to the user's registered email.",
     )
 
 

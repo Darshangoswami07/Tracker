@@ -25,7 +25,7 @@ class RegistrationRequestCreate(BaseModel):
     firstName: str = Field(min_length=1, max_length=60)
     lastName: str = Field(min_length=1, max_length=60)
     email: EmailStr
-    phone: str = Field(min_length=10, max_length=15)
+    phone: str = Field(min_length=13, max_length=13)
     password: str = Field(min_length=8, max_length=72)
     requestedRole: Literal["admin"] = "admin"
     companyName: Optional[str] = Field(default=None, max_length=160)
@@ -48,14 +48,9 @@ class RegistrationRequestCreate(BaseModel):
     @field_validator("phone", mode="before")
     @classmethod
     def normalize_phone(cls, value: str) -> str:
-        value = value.strip()
-        digits = [ch for ch in value if ch.isdigit() or ch == "+"]
-        normalized = "".join(digits)
-        if not normalized.lstrip("+").isdigit():
-            raise ValueError("Phone must contain only digits and an optional leading +")
-        if not 10 <= len(normalized.lstrip("+")) <= 15:
-            raise ValueError("Phone number must be between 10 and 15 digits")
-        return normalized
+        from app.utils.phone import validate_indian_phone
+
+        return validate_indian_phone(value)
 
     @model_validator(mode="after")
     def validate_company_fields(self) -> "RegistrationRequestCreate":

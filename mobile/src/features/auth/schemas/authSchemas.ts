@@ -12,7 +12,7 @@ const password = z
 
 const phone = z
   .string({ message: 'Phone number is required.' })
-  .regex(/^\+?[0-9]{10,15}$/, { message: 'Enter a valid phone number.' });
+  .regex(/^[6-9][0-9]{9}$/, { message: 'Enter a valid 10-digit Indian mobile number' });
 
 const otp = z
   .string({ message: 'OTP is required.' })

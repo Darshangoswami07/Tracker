@@ -187,7 +187,7 @@ async def test_company_admin_create_staff_ignores_payload_company_id(client):
             "firstName": "New",
             "lastName": "Staff",
             "email": "newstaff@example.com",
-            "phone": "+15551234000",
+            "phone": "+919851234000",
             "password": "StrongPass123!",
             "companyId": company_b,  # attempted bypass
         },
@@ -206,7 +206,7 @@ async def test_company_admin_create_driver_ignores_payload_company_id(client):
             "firstName": "New",
             "lastName": "Driver",
             "email": "newdriver@example.com",
-            "phone": "+15551234001",
+            "phone": "+919851234001",
             "password": "StrongPass123!",
             "companyId": company_b,  # attempted bypass
         },

@@ -14,7 +14,7 @@ def valid_user_payload() -> dict:
     return {
         "fullName": "Jane Cooper",
         "email": "jane@example.com",
-        "phone": "+15550001234",
+        "phone": "+919850001234",
         "password": "StrongPass123!",
         "requestedRole": "admin",
         "companyName": "Acme Logistics Pvt Ltd",
@@ -63,7 +63,7 @@ async def test_register_duplicate_email_completed_user(client):
     user = await repo.create(
         full_name="Existing User",
         email="existing@example.com",
-        phone="+15559999999",
+        phone="+919859999999",
         password_hash=hash_password("password123"),
         role=UserRole.ADMIN,
     )
@@ -77,7 +77,7 @@ async def test_register_duplicate_email_completed_user(client):
     resp = await client.post(f"{BASE}/register", json={
         "fullName": "New User",
         "email": "existing@example.com",
-        "phone": "+15558888888",
+        "phone": "+919858888888",
         "password": "NewPass123!",
         "requestedRole": "admin",
         "companyName": "New Co",
@@ -97,7 +97,7 @@ async def test_register_same_phone_different_email_allowed(client):
     user = await repo.create(
         full_name="Existing User",
         email="existing2@example.com",
-        phone="+15557777777",
+        phone="+919857777777",
         password_hash=hash_password("password123"),
         role=UserRole.ADMIN,
     )
@@ -110,7 +110,7 @@ async def test_register_same_phone_different_email_allowed(client):
     resp = await client.post(f"{BASE}/register", json={
         "fullName": "New User",
         "email": "new@example.com",
-        "phone": "+15557777777",
+        "phone": "+919857777777",
         "password": "NewPass123!",
         "requestedRole": "admin",
         "companyName": "New Co",
@@ -147,7 +147,7 @@ async def test_register_resume_approved_pending_otp(client):
         lastName="Cooper",
         companyName="Test Corp",
         email="jane2@example.com",
-        phone="+15550001235",
+        phone="+919850001235",
         passwordHash=hash_password("StrongPass123!"),
         requestedRole=UserRole.ADMIN,
         status=RegistrationStatus.APPROVED_PENDING_OTP,
@@ -163,7 +163,7 @@ async def test_register_resume_approved_pending_otp(client):
     resp = await client.post(f"{BASE}/register", json={
         "fullName": "Jane Cooper",
         "email": "jane2@example.com",
-        "phone": "+15550001235",
+        "phone": "+919850001235",
         "password": "StrongPass123!",
         "requestedRole": "admin",
         "companyName": "Test Corp",
@@ -193,7 +193,7 @@ async def test_register_resume_rejected(client):
         lastName="Cooper",
         companyName="Test Corp",
         email="jane3@example.com",
-        phone="+15550001236",
+        phone="+919850001236",
         passwordHash=hash_password("StrongPass123!"),
         requestedRole=UserRole.ADMIN,
         status=RegistrationStatus.REJECTED,
@@ -210,7 +210,7 @@ async def test_register_resume_rejected(client):
     resp = await client.post(f"{BASE}/register", json={
         "fullName": "Jane Cooper",
         "email": "jane3@example.com",
-        "phone": "+15550001236",
+        "phone": "+919850001236",
         "password": "NewPass123!",
         "requestedRole": "admin",
         "companyName": "Test Corp",
@@ -238,7 +238,7 @@ async def test_register_resume_completed(client):
         lastName="Cooper",
         companyName="Test Corp",
         email="jane4@example.com",
-        phone="+15550001237",
+        phone="+919850001237",
         passwordHash=hash_password("StrongPass123!"),
         requestedRole=UserRole.ADMIN,
         status=RegistrationStatus.COMPLETED,
@@ -256,7 +256,7 @@ async def test_register_resume_completed(client):
     resp = await client.post(f"{BASE}/register", json={
         "fullName": "Jane Cooper",
         "email": "jane4@example.com",
-        "phone": "+15550001237",
+        "phone": "+919850001237",
         "password": "StrongPass123!",
         "requestedRole": "admin",
         "companyName": "Test Corp",
@@ -279,7 +279,7 @@ async def test_login_success(client):
     user = await repo.create(
         full_name="Active User",
         email="active@example.com",
-        phone="+15551111111",
+        phone="+919851111111",
         password_hash=hash_password("Password123!"),
         role=UserRole.EMPLOYEE,
     )
@@ -310,7 +310,7 @@ async def test_login_wrong_password(client):
     user = await repo.create(
         full_name="Active User",
         email="active2@example.com",
-        phone="+15552222222",
+        phone="+919852222222",
         password_hash=hash_password("Password123!"),
         role=UserRole.EMPLOYEE,
     )
@@ -341,7 +341,7 @@ async def test_login_pending_user(client):
     user = await repo.create(
         full_name="Pending User",
         email="pending@example.com",
-        phone="+15553333333",
+        phone="+919853333333",
         password_hash=hash_password("Password123!"),
         role=UserRole.EMPLOYEE,
     )

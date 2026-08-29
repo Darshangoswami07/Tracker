@@ -88,9 +88,9 @@ async def create_active_user_and_login(client, role: UserRole, email: str, phone
 # --------------------------------------------------------------------------- #
 async def test_admin_cannot_list_pending_requests(client):
     _, admin_token = await create_active_user_and_login(
-        client, UserRole.ADMIN, "admin-filter1@example.com", "+15551000010"
+        client, UserRole.ADMIN, "admin-filter1@example.com", "+919851000010"
     )
-    await create_pending_request("pending-emp@example.com", "+15551000011", UserRole.EMPLOYEE)
+    await create_pending_request("pending-emp@example.com", "+919851000011", UserRole.EMPLOYEE)
 
     resp = await client.get(
         f"{ADMIN_BASE}/registration-requests/pending",
@@ -102,10 +102,10 @@ async def test_admin_cannot_list_pending_requests(client):
 
 async def test_super_admin_pending_role_filter_employee(client):
     _, sa_token = await create_active_user_and_login(
-        client, UserRole.SUPER_ADMIN, "sa-filter1@example.com", "+15551000010"
+        client, UserRole.SUPER_ADMIN, "sa-filter1@example.com", "+919851000010"
     )
-    await create_pending_request("pending-emp@example.com", "+15551000011", UserRole.EMPLOYEE)
-    await create_pending_request("pending-drv@example.com", "+15551000012", UserRole.DRIVER)
+    await create_pending_request("pending-emp@example.com", "+919851000011", UserRole.EMPLOYEE)
+    await create_pending_request("pending-drv@example.com", "+919851000012", UserRole.DRIVER)
 
     resp = await client.get(
         f"{ADMIN_BASE}/registration-requests/pending",
@@ -121,10 +121,10 @@ async def test_super_admin_pending_role_filter_employee(client):
 
 async def test_super_admin_pending_role_filter_driver(client):
     _, sa_token = await create_active_user_and_login(
-        client, UserRole.SUPER_ADMIN, "sa-filter2@example.com", "+15551000020"
+        client, UserRole.SUPER_ADMIN, "sa-filter2@example.com", "+919851000020"
     )
-    await create_pending_request("pending-emp2@example.com", "+15551000021", UserRole.EMPLOYEE)
-    await create_pending_request("pending-drv2@example.com", "+15551000022", UserRole.DRIVER)
+    await create_pending_request("pending-emp2@example.com", "+919851000021", UserRole.EMPLOYEE)
+    await create_pending_request("pending-drv2@example.com", "+919851000022", UserRole.DRIVER)
 
     resp = await client.get(
         f"{ADMIN_BASE}/registration-requests/pending",
@@ -140,9 +140,9 @@ async def test_super_admin_pending_role_filter_driver(client):
 
 async def test_admin_cannot_approve_employee_request(client):
     _, admin_token = await create_active_user_and_login(
-        client, UserRole.ADMIN, "admin-approve-emp@example.com", "+15551000030"
+        client, UserRole.ADMIN, "admin-approve-emp@example.com", "+919851000030"
     )
-    request = await create_pending_request("approve-emp@example.com", "+15551000031", UserRole.EMPLOYEE)
+    request = await create_pending_request("approve-emp@example.com", "+919851000031", UserRole.EMPLOYEE)
 
     resp = await client.post(
         f"{ADMIN_BASE}/registration-requests/{request.id}/approve",
@@ -154,9 +154,9 @@ async def test_admin_cannot_approve_employee_request(client):
 
 async def test_admin_cannot_reject_driver_request(client):
     _, admin_token = await create_active_user_and_login(
-        client, UserRole.ADMIN, "admin-reject-drv@example.com", "+15551000060"
+        client, UserRole.ADMIN, "admin-reject-drv@example.com", "+919851000060"
     )
-    request = await create_pending_request("reject-drv@example.com", "+15551000061", UserRole.DRIVER)
+    request = await create_pending_request("reject-drv@example.com", "+919851000061", UserRole.DRIVER)
 
     resp = await client.post(
         f"{ADMIN_BASE}/registration-requests/{request.id}/reject",
@@ -168,9 +168,9 @@ async def test_admin_cannot_reject_driver_request(client):
 
 async def test_super_admin_approves_employee_request(client):
     _, sa_token = await create_active_user_and_login(
-        client, UserRole.SUPER_ADMIN, "sa-approve-emp@example.com", "+15551000030"
+        client, UserRole.SUPER_ADMIN, "sa-approve-emp@example.com", "+919851000030"
     )
-    request = await create_pending_request("sa-approve-emp2@example.com", "+15551000031", UserRole.EMPLOYEE)
+    request = await create_pending_request("sa-approve-emp2@example.com", "+919851000031", UserRole.EMPLOYEE)
 
     resp = await client.post(
         f"{ADMIN_BASE}/registration-requests/{request.id}/approve",
@@ -183,9 +183,9 @@ async def test_super_admin_approves_employee_request(client):
 
 async def test_super_admin_rejects_driver_request(client):
     _, sa_token = await create_active_user_and_login(
-        client, UserRole.SUPER_ADMIN, "sa-reject-drv@example.com", "+15551000060"
+        client, UserRole.SUPER_ADMIN, "sa-reject-drv@example.com", "+919851000060"
     )
-    request = await create_pending_request("sa-reject-drv2@example.com", "+15551000061", UserRole.DRIVER)
+    request = await create_pending_request("sa-reject-drv2@example.com", "+919851000061", UserRole.DRIVER)
 
     resp = await client.post(
         f"{ADMIN_BASE}/registration-requests/{request.id}/reject",
@@ -201,9 +201,9 @@ async def test_super_admin_rejects_driver_request(client):
 # --------------------------------------------------------------------------- #
 async def test_super_admin_can_approve_any_role(client):
     _, sa_token = await create_active_user_and_login(
-        client, UserRole.SUPER_ADMIN, "superadmin-approve@example.com", "+15551000100"
+        client, UserRole.SUPER_ADMIN, "superadmin-approve@example.com", "+919851000100"
     )
-    request = await create_pending_request("sa-approve-biz@example.com", "+15551000101", UserRole.BUSINESS)
+    request = await create_pending_request("sa-approve-biz@example.com", "+919851000101", UserRole.BUSINESS)
 
     resp = await client.post(
         f"{ADMIN_BASE}/registration-requests/{request.id}/approve",
@@ -216,9 +216,9 @@ async def test_super_admin_can_approve_any_role(client):
 
 async def test_super_admin_can_reject_any_role(client):
     _, sa_token = await create_active_user_and_login(
-        client, UserRole.SUPER_ADMIN, "superadmin-reject@example.com", "+15551000110"
+        client, UserRole.SUPER_ADMIN, "superadmin-reject@example.com", "+919851000110"
     )
-    request = await create_pending_request("sa-reject-biz@example.com", "+15551000111", UserRole.BUSINESS)
+    request = await create_pending_request("sa-reject-biz@example.com", "+919851000111", UserRole.BUSINESS)
 
     resp = await client.post(
         f"{ADMIN_BASE}/registration-requests/{request.id}/reject",
@@ -248,9 +248,9 @@ async def test_business_role_cannot_approve_via_registration_requests_router(cli
     require_roles(ADMIN, DISPATCHER)) and could approve/reject requests via
     this router. require_exact_roles() must reject it now."""
     _, business_token = await create_active_user_and_login(
-        client, UserRole.BUSINESS, "business-actor@example.com", "+15551000120"
+        client, UserRole.BUSINESS, "business-actor@example.com", "+919851000120"
     )
-    request = await create_pending_request("blocked-by-business@example.com", "+15551000121", UserRole.EMPLOYEE)
+    request = await create_pending_request("blocked-by-business@example.com", "+919851000121", UserRole.EMPLOYEE)
 
     resp = await client.post(
         f"{REG_BASE}/{request.id}/approve",
@@ -262,7 +262,7 @@ async def test_business_role_cannot_approve_via_registration_requests_router(cli
 
 async def test_driver_role_cannot_list_registration_requests(client):
     _, driver_token = await create_active_user_and_login(
-        client, UserRole.DRIVER, "driver-actor@example.com", "+15551000130"
+        client, UserRole.DRIVER, "driver-actor@example.com", "+919851000130"
     )
     resp = await client.get(REG_BASE, headers=auth_headers(driver_token))
     assert resp.status_code == 403, resp.text
@@ -274,7 +274,7 @@ async def test_driver_role_cannot_list_registration_requests(client):
 async def test_get_single_registration_request_remains_unauthenticated(client):
     """RegistrationPendingScreen polls this endpoint before any session
     exists; it must stay reachable without a bearer token."""
-    request = await create_pending_request("poll-me@example.com", "+15551000140", UserRole.EMPLOYEE)
+    request = await create_pending_request("poll-me@example.com", "+919851000140", UserRole.EMPLOYEE)
 
     resp = await client.get(f"{REG_BASE}/{request.id}")
     assert resp.status_code == 200, resp.text
@@ -290,7 +290,7 @@ async def test_public_register_can_request_admin_role(client):
         json={
             "fullName": "Wants Admin Access",
             "email": "wants-admin-access@example.com",
-            "phone": "+15551000190",
+            "phone": "+919851000190",
             "password": "StrongPass123!",
             "requestedRole": "admin",
             "companyName": "Dream Startup Co",
@@ -303,9 +303,9 @@ async def test_public_register_can_request_admin_role(client):
 
 async def test_plain_admin_cannot_approve_admin_request(client):
     _, admin_token = await create_active_user_and_login(
-        client, UserRole.ADMIN, "plain-admin-vs-admin-req@example.com", "+15551000191"
+        client, UserRole.ADMIN, "plain-admin-vs-admin-req@example.com", "+919851000191"
     )
-    request = await create_pending_request("admin-req-blocked@example.com", "+15551000192", UserRole.ADMIN)
+    request = await create_pending_request("admin-req-blocked@example.com", "+919851000192", UserRole.ADMIN)
 
     resp = await client.post(
         f"{ADMIN_BASE}/registration-requests/{request.id}/approve",
@@ -317,9 +317,9 @@ async def test_plain_admin_cannot_approve_admin_request(client):
 
 async def test_super_admin_can_approve_admin_request(client):
     _, super_admin_token = await create_active_user_and_login(
-        client, UserRole.SUPER_ADMIN, "super-admin-approves-admin-req@example.com", "+15551000193"
+        client, UserRole.SUPER_ADMIN, "super-admin-approves-admin-req@example.com", "+919851000193"
     )
-    request = await create_pending_request("admin-req-approved@example.com", "+15551000194", UserRole.ADMIN)
+    request = await create_pending_request("admin-req-approved@example.com", "+919851000194", UserRole.ADMIN)
 
     resp = await client.post(
         f"{ADMIN_BASE}/registration-requests/{request.id}/approve",
