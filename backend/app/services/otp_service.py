@@ -323,11 +323,14 @@ class OTPService:
         otp: str,
     ) -> tuple[bool, Optional[User]]:
         """Verify a password reset OTP."""
+        logger.info("[PWRESET] PASSWORD_RESET_VERIFY_START otp_present=%s otp_length=%d", bool(otp), len(otp or ""))
         user = await self.user_repo.find_by_email(email)
         if not user:
+            logger.info("[PWRESET] OTP_LOOKUP purpose=password_reset user_found=False")
             raise OTPInvalidError()
 
         if user.status != "active":
+            logger.info("[PWRESET] OTP_LOOKUP purpose=password_reset user_found=True user_active=False")
             raise OTPInvalidError()
 
         # Find the OTP
@@ -336,24 +339,44 @@ class OTPService:
         )
 
         if not otp_record:
+            # No unused, unexpired OTP exists. If a previous OTP exists but has
+            # expired, surface the expired code rather than "invalid code"
+            # (mirrors verify_approval_otp's handling).
+            latest = await self.otp_repo.find_most_recent_by_user_and_intent(
+                str(user.id), OTPIntent.PASSWORD_RESET
+            )
+            if latest is not None and not latest.used and latest.expiresAt < utcnow():
+                logger.info(
+                    "[PWRESET] OTP_LOOKUP purpose=password_reset record_found=False "
+                    "most_recent_expired=True -> PASSWORD_RESET_VERIFY_FAILED reason=expired"
+                )
+                raise OTPExpiredError()
+            logger.info(
+                "[PWRESET] OTP_LOOKUP purpose=password_reset record_found=False "
+                "-> PASSWORD_RESET_VERIFY_FAILED reason=not_found"
+            )
             raise OTPInvalidError()
 
         # Check attempts
         if otp_record.attempts >= otp_record.maxAttempts:
+            logger.info("[PWRESET] PASSWORD_RESET_VERIFY_FAILED reason=max_attempts")
             raise OTPMaxAttemptsError()
 
         # Check expiry
         if otp_record.expiresAt < utcnow():
+            logger.info("[PWRESET] PASSWORD_RESET_VERIFY_FAILED reason=expired")
             raise OTPExpiredError()
 
         # Verify OTP
         otp_hash = self._hash_otp(otp)
         if otp_record.otpHash != otp_hash:
             await self.otp_repo.increment_attempts(otp_record)
+            logger.info("[PWRESET] OTP_COMPARE match=False -> PASSWORD_RESET_VERIFY_FAILED reason=mismatch")
             raise OTPInvalidError()
 
         # Mark OTP as used
         await self.otp_repo.mark_used(otp_record)
+        logger.info("[PWRESET] OTP_COMPARE match=True -> PASSWORD_RESET_VERIFY_SUCCESS")
 
         return True, user
 
