@@ -56,9 +56,8 @@ async def verify_password_reset_otp(
     """Verify password reset OTP and allow password change."""
     _, user = await otp_service.verify_password_reset_otp(payload.email, payload.otp)
 
-    # Update password
-    from app.core.security import hash_password
-    await user_service.reset_password(user, hash_password(payload.password))
+    # Update password. ``reset_password`` hashes internally -- pass plaintext.
+    await user_service.reset_password(user, payload.password)
 
     # Invalidate any existing sessions so old tokens cannot be reused
     from app.services.token_service import token_service
