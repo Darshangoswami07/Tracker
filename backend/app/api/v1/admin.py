@@ -98,9 +98,10 @@ async def approve_request(
     Only SUPER_ADMIN may reach this mobile-app endpoint (Pending Approvals
     was removed from the plain-Admin mobile experience).
 
-    The approval is committed first and the OTP email is dispatched as a
-    background task, so a quota-blocked SMTP account can never fail or hold
-    up the approval response. A duplicate approval raises a 409
+    The approval is committed first; the OTP email is then sent inline using
+    the same raising path as Resend OTP. If delivery genuinely fails, an honest
+    error is returned — but the OTP is already persisted and recoverable via
+    Resend OTP, so the approval is never lost. A duplicate approval raises a 409
     ``already_approved`` instead of a validation error.
     """
     success_flag, message, otp = await approval_service.approve_request(
@@ -108,11 +109,9 @@ async def approve_request(
     )
     if not success_flag:
         raise ValidationBusinessError(message)
-    if otp:
-        dispatch_email(background_tasks, email_tasks.send_approval_otp_email, request_id, otp)
     return success(
         {"approved": success_flag},
-        message="Request approved successfully. An OTP email is being sent to the user.",
+        message="Request approved successfully. A verification code has been sent to the user's registered email.",
     )
 
 

@@ -7,10 +7,14 @@ from typing import Optional
 
 from app.core.exceptions import (
     ApprovalAlreadyCompletedError,
+    EmailSendFailedError,
     ForbiddenError,
+    NotFoundError,
     RegistrationStateError,
     UserNotFoundError,
 )
+
+logger = logging.getLogger("app")
 from app.core.rbac import is_super_admin
 from app.models.enums import UserRole
 from app.models.registration_request import RegistrationRequest
@@ -82,12 +86,19 @@ class ApprovalService:
         unrestricted). Omitting it (``None``) skips the check, preserving
         backward compatibility for any caller that predates this scoping.
 
-        Returns ``(success_flag, message, otp)``. The OTP record is created
-        WITHOUT sending its email — the caller schedules ``send_approval_otp_email``
-        as a background task so SMTP can never block or fail the approval. A
-        duplicate approval raises ``ApprovalAlreadyCompletedError`` (409)
-        instead of returning a validation error.
+        Returns ``(success_flag, message, otp)``. The OTP record is created and
+        committed first, then its activation email is sent inline via
+        ``send_approval_otp_email`` using the SAME raising path as Resend OTP —
+        so the user reliably receives the code without a Celery worker, and a
+        genuine delivery failure surfaces an honest error instead of a fake
+        success. The OTP is already persisted before the send, so a failure is
+        always recoverable via Resend OTP. A duplicate approval raises
+        ``ApprovalAlreadyCompletedError`` (409) instead of returning a
+        validation error.
         """
+        logger.info(
+            "[Admin Approval Started] request_id=%s admin_id=%s", request_id, admin_id
+        )
         request = await self.request_repo.find_by_id(request_id)
         if not request:
             raise UserNotFoundError()
@@ -108,6 +119,10 @@ class ApprovalService:
         if not approved_request:
             return False, "Failed to approve request", None
 
+        logger.info(
+            "[Admin Approved] request_id=%s status=approved_pending_otp", request_id
+        )
+
         # Create approval log
         await self.log_repo.create_log(
             registration_request_id=request_id,
@@ -115,33 +130,74 @@ class ApprovalService:
             action="approved_pending_otp",
         )
 
-        # Create the approval OTP WITHOUT emailing it. Email is a notification
-        # side effect handled by the route as a background task; even if the
-        # SMTP account is quota-blocked the approval itself must succeed.
+        # Create the approval OTP record (persisted + committed by the time this
+        # method returns; the email is dispatched afterwards so a delivery
+        # failure can never roll back the approval or the OTP itself).
         otp: str | None = None
         try:
             otp, _ = await otp_service.create_approval_otp(
                 request_id, admin_id, send_email=False
             )
+            logger.info("[OTP Generated] request_id=%s", request_id)
+            logger.info("[OTP Persisted] request_id=%s", request_id)
         except Exception as exc:  # noqa: BLE001
             logger.error(
-                "[Approval] Failed to create approval OTP for request %s: %s",
+                "[OTP] Failed to create/persist approval OTP for request %s: %s",
                 request_id,
                 exc,
             )
+            return False, "Approved, but we couldn't generate a verification code.", None
+
+        # Send the activation OTP email inline, mirroring the resend-approval
+        # flow. The send uses the SAME raising path as resend, so a real
+        # delivery failure surfaces an honest error (the OTP is already
+        # persisted and recoverable via Resend OTP).
+        if otp:
+            await self.send_approval_otp_email(request_id, otp)
 
         return True, "Request approved successfully.", otp
 
     async def send_approval_otp_email(self, request_id: str, otp: str) -> None:
-        """Best-effort background send of the approval OTP email. Never raises."""
-        try:
-            await otp_service.send_user_otp_email(request_id, otp)
-        except Exception as exc:  # noqa: BLE001 - background side effect
+        """Send the approval OTP email using the same raising path as resend.
+
+        Raises ``EmailSendFailedError`` on delivery failure so the caller can
+        return an honest error. The OTP record is already persisted before this
+        is called, so a failure here never loses the code.
+        """
+        request = await self.request_repo.find_by_id(request_id)
+        if not request:
             logger.error(
-                "[Approval] Failed to send approval OTP email for request %s: %s",
+                "[OTP Email Dispatch Failed] request_id=%s not found", request_id
+            )
+            raise NotFoundError()
+
+        logger.info(
+            "[OTP Email Dispatch Started] request_id=%s recipient=%s",
+            request_id,
+            request.email,
+        )
+        try:
+            await otp_service._send_user_otp_email(request, otp)
+        except EmailSendFailedError:
+            logger.error(
+                "[OTP Email Dispatch Failed] request_id=%s recipient=%s",
                 request_id,
+                request.email,
+            )
+            raise
+        except Exception as exc:  # noqa: BLE001 - wrap any provider error honestly
+            logger.error(
+                "[OTP Email Dispatch Failed] request_id=%s recipient=%s: %s",
+                request_id,
+                request.email,
                 exc,
             )
+            raise EmailSendFailedError() from exc
+        logger.info(
+            "[OTP Email Dispatch Successful] request_id=%s recipient=%s",
+            request_id,
+            request.email,
+        )
 
     async def reject_request(
         self,

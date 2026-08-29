@@ -38,7 +38,7 @@ async def create_active_user(role: UserRole) -> User:
     return await UserRepository().create(
         full_name="Test Actor",
         email="test.actor@example.com",
-        phone="+15550000001",
+        phone="+919850000001",
         password_hash=hash_password("ActorPass123!"),
         role=role,
         status="active",
@@ -61,7 +61,7 @@ def admin_payload(email: str, company_name: str, **overrides) -> dict:
         "lastName": "Kumar",
         "companyName": company_name,
         "email": email,
-        "phone": "+15550001111",
+        "phone": "+919850001111",
         "password": "StrongPass123!",
         "requestedRole": "admin",
         **overrides,

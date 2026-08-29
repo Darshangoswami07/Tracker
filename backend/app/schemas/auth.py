@@ -16,7 +16,7 @@ PASSWORD_MAX = 72  # bcrypt ignores bytes beyond 72.
 class RegisterRequest(BaseModel):
     fullName: str = Field(min_length=2, max_length=120)
     email: EmailStr
-    phone: str = Field(min_length=10, max_length=15)
+    phone: str = Field(min_length=13, max_length=13)
     password: str = Field(min_length=PASSWORD_MIN, max_length=PASSWORD_MAX)
     requestedRole: Literal["admin"] = "admin"
     # Admin registrations supply a free-text company name; the backend
@@ -41,14 +41,9 @@ class RegisterRequest(BaseModel):
     @field_validator("phone", mode="before")
     @classmethod
     def normalize_phone(cls, value: str) -> str:
-        value = value.strip()
-        digits = [ch for ch in value if ch.isdigit() or ch == "+"]
-        normalized = "".join(digits)
-        if not normalized.lstrip("+").isdigit():
-            raise ValueError("Phone must contain only digits and an optional leading +")
-        if not 10 <= len(normalized.lstrip("+")) <= 15:
-            raise ValueError("Phone number must be between 10 and 15 digits")
-        return normalized
+        from app.utils.phone import validate_indian_phone
+
+        return validate_indian_phone(value)
 
     @model_validator(mode="after")
     def validate_company_fields(self) -> "RegisterRequest":
@@ -68,7 +63,7 @@ class StaffRegisterRequest(BaseModel):
 
     fullName: str = Field(min_length=2, max_length=120)
     email: EmailStr
-    phone: str = Field(min_length=10, max_length=15)
+    phone: str = Field(min_length=13, max_length=13)
     password: str = Field(min_length=PASSWORD_MIN, max_length=PASSWORD_MAX)
     # Required — every Staff account is permanently tied to one of the fixed
     # operational areas at signup (see `app/utils/areas.py`), the same areas
@@ -96,14 +91,9 @@ class StaffRegisterRequest(BaseModel):
     @field_validator("phone", mode="before")
     @classmethod
     def normalize_phone(cls, value: str) -> str:
-        value = value.strip()
-        digits = [ch for ch in value if ch.isdigit() or ch == "+"]
-        normalized = "".join(digits)
-        if not normalized.lstrip("+").isdigit():
-            raise ValueError("Phone must contain only digits and an optional leading +")
-        if not 10 <= len(normalized.lstrip("+")) <= 15:
-            raise ValueError("Phone number must be between 10 and 15 digits")
-        return normalized
+        from app.utils.phone import validate_indian_phone
+
+        return validate_indian_phone(value)
 
 
 class StaffLoginRequest(BaseModel):

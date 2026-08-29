@@ -7,6 +7,7 @@ import { AuthScaffold } from '../../components/AuthScaffold';
 import { FormCheckbox } from '../../components/form/FormCheckbox';
 import { FormPasswordField } from '../../components/form/FormPasswordField';
 import { FormTextBox } from '../../components/form/FormTextBox';
+import { FormIndiaPhoneField, normalizeIndianPhone } from '../../components/form/FormIndiaPhoneField';
 import { FormNotice } from '../../components/FormNotice';
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { Logo } from '../../components/Logo';
@@ -69,7 +70,7 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
         {
           fullName: `${values.firstName.trim()} ${values.lastName.trim()}`.trim(),
           email: values.email.trim().toLowerCase(),
-          phone: values.phone.trim(),
+          phone: normalizeIndianPhone(values.phone),
           password: values.password,
           area: values.area?.trim() ?? '',
         },
@@ -87,7 +88,7 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
       firstName: values.firstName.trim(),
       lastName: values.lastName.trim(),
       email: values.email.trim().toLowerCase(),
-      phone: values.phone.trim(),
+      phone: normalizeIndianPhone(values.phone),
       password: values.password,
       requestedRole: role,
       companyName: values.companyName?.trim() || undefined,
@@ -200,14 +201,12 @@ export const RegisterScreen = ({ navigation, route }: Props) => {
           textContentType="emailAddress"
           returnKeyType="next"
         />
-        <FormTextBox
+        <FormIndiaPhoneField
           control={control}
           name="phone"
           label={t('auth.phone')}
           icon="call-outline"
           placeholder={t('auth.phonePlaceholder')}
-          keyboardType="phone-pad"
-          textContentType="telephoneNumber"
           returnKeyType="next"
         />
         <FormPasswordField
