@@ -103,10 +103,11 @@ export interface RefreshPayload {
   refreshToken: string;
 }
 
+/** Admin-approval OTP verification only — password reset uses
+ *  `VerifyPasswordResetOTPPayload` / `POST /otp/verify-password-reset`. */
 export interface OTPVerificationPayload {
   otp: string;
   requestId: string;
-  isPasswordReset?: boolean;
 }
 
 export interface OTPVerificationResult {
