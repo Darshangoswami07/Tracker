@@ -288,13 +288,35 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
 
+  // Text search is debounced (typing fires this on every keystroke — without
+  // a delay that's a query per character). Status tab / shop-owner / area /
+  // date-range are discrete taps, not typing: a tab visually highlights the
+  // instant it's tapped (synchronous state), so debouncing the list refetch
+  // behind it made the list look stale/unreliable for 400ms after every tap
+  // — the exact "Pending doesn't immediately show Pending GRs" symptom.
+  // Split so only `search` waits; every other filter refetches immediately.
+  const didMountSearch = useRef(false);
   useEffect(() => {
+    if (!didMountSearch.current) {
+      didMountSearch.current = true;
+      return;
+    }
     const timer = setTimeout(() => {
       fetchGRs(1, 'reload');
     }, 400);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, statusTab, consignorFilter, effectiveArea, dateFilter]);
+  }, [search]);
+
+  const didMountFilters = useRef(false);
+  useEffect(() => {
+    if (!didMountFilters.current) {
+      didMountFilters.current = true;
+      return;
+    }
+    fetchGRs(1, 'reload');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusTab, consignorFilter, effectiveArea, dateFilter]);
 
   // Load distinct consignor names for the shop-owner filter dropdown.
   useEffect(() => {

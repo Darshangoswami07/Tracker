@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, type ComponentProps } from 'react';
+import { useEffect, useRef, useState, useCallback, type ComponentProps } from 'react';
 import { Animated, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +26,10 @@ interface RevenueOverview {
   prevMonth: number;
   totalCollected: number;
   outstandingAmount: number;
+  collectedGRCount: number;
+  outstandingGRCount: number;
+  collectedThisMonth: number;
+  collectedPrevMonth: number;
 }
 
 interface AdminStats {
@@ -118,10 +122,17 @@ const formatINR = (amount: number): string => {
   return `${sign}₹${formatted}`;
 };
 
-const getPercentChange = (current: number, previous: number): number | null => {
-  if (previous === 0 && current === 0) return null;
-  if (previous === 0) return current > 0 ? 100 : 0;
-  return ((current - previous) / previous) * 100;
+/** A plain rupee difference ("+₹150", "-₹50") instead of a percentage.
+ * Percentage change swings wildly and misleadingly when the comparison base
+ * is small or zero (e.g. ₹0 → ₹50 reads as "+100%", ₹50 → ₹0 as "-100%",
+ * neither of which tells an admin anything useful) — an absolute amount is
+ * immediately understandable without doing math. Returns null when there's
+ * nothing meaningful to compare (both periods are zero). */
+const getAmountDelta = (current: number, previous: number): { value: number; displayText: string } | null => {
+  const diff = current - previous;
+  if (current === 0 && previous === 0) return null;
+  const sign = diff > 0 ? '+' : diff < 0 ? '-' : '';
+  return { value: diff, displayText: `${sign}${formatINR(Math.abs(diff))}` };
 };
 
 const getGreeting = (t: (key: string) => string): string => {
@@ -139,7 +150,7 @@ export const AdminDashboardScreen = () => {
   const user = useUserStore((state) => state.user);
   const isSuperAdmin = user?.role === 'super_admin';
   const { t } = useTranslation();
-  const { goToNotifications, navigate } = useAppNav();
+  const { goToNotifications, navigate, navigation } = useAppNav();
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
@@ -153,6 +164,10 @@ export const AdminDashboardScreen = () => {
     prevMonth: 0,
     totalCollected: 0,
     outstandingAmount: 0,
+    collectedGRCount: 0,
+    outstandingGRCount: 0,
+    collectedThisMonth: 0,
+    collectedPrevMonth: 0,
   });
   const [revenueStatus, setRevenueStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [activities, setActivities] = useState<RecentActivity[]>([]);
@@ -258,6 +273,27 @@ export const AdminDashboardScreen = () => {
     ]).start();
   }, [fetchDashboardData, fadeAnim, slideAnim]);
 
+  // Re-fetch every time this screen regains focus (separate from the mount
+  // effect above so the intro fade/slide animation only ever plays once,
+  // not on every tab switch back to Dashboard). Without this, the shipment
+  // status counts / revenue / activity stayed frozen at whatever they were
+  // on the last mount or manual pull-to-refresh — e.g. a GR that got paid
+  // off (Pending → Delivered) on another screen wouldn't show up here until
+  // a manual refresh. `didMount` skips the first 'focus' (React Navigation
+  // fires it on initial mount too, which would otherwise double the mount
+  // effect's own fetch) — same pattern as `AdminGRShipmentsScreen`.
+  const didMountDashboard = useRef(false);
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      if (!didMountDashboard.current) {
+        didMountDashboard.current = true;
+        return;
+      }
+      fetchDashboardData();
+    });
+    return unsubscribe;
+  }, [navigation, fetchDashboardData]);
+
   if (loading) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
@@ -308,6 +344,7 @@ export const AdminDashboardScreen = () => {
     icon: ComponentProps<typeof Ionicons>['name'];
     color: string;
     trend?: { value: number; label: string; isPercentage?: boolean };
+    subtitle?: string;
   }[] = revenueStatus === 'error'
     ? []
     : [
@@ -317,8 +354,8 @@ export const AdminDashboardScreen = () => {
       icon: 'today-outline',
       color: '#3B82F6',
       trend: (() => {
-        const pct = getPercentChange(revenue.today, revenue.yesterday);
-        return pct !== null ? { value: Math.round(pct), label: t('dashboard.fromYesterday'), isPercentage: true } : undefined;
+        const delta = getAmountDelta(revenue.today, revenue.yesterday);
+        return delta ? { value: delta.value, label: t('dashboard.fromYesterday'), displayText: delta.displayText } : undefined;
       })(),
     },
     {
@@ -327,8 +364,8 @@ export const AdminDashboardScreen = () => {
       icon: 'calendar-outline',
       color: '#10B981',
       trend: (() => {
-        const pct = getPercentChange(revenue.week, revenue.prevWeek);
-        return pct !== null ? { value: Math.round(pct), label: t('dashboard.fromLastWeek'), isPercentage: true } : undefined;
+        const delta = getAmountDelta(revenue.week, revenue.prevWeek);
+        return delta ? { value: delta.value, label: t('dashboard.fromLastWeek'), displayText: delta.displayText } : undefined;
       })(),
     },
     {
@@ -337,21 +374,28 @@ export const AdminDashboardScreen = () => {
       icon: 'calendar-number-outline',
       color: '#8B5CF6',
       trend: (() => {
-        const pct = getPercentChange(revenue.month, revenue.prevMonth);
-        return pct !== null ? { value: Math.round(pct), label: t('dashboard.fromLastMonth'), isPercentage: true } : undefined;
+        const delta = getAmountDelta(revenue.month, revenue.prevMonth);
+        return delta ? { value: delta.value, label: t('dashboard.fromLastMonth'), displayText: delta.displayText } : undefined;
       })(),
     },
     {
+      // Total Collected is a running lifetime total, not a time-bucketed
+      // figure — a "vs last month" comparison on it doesn't correspond to
+      // anything an admin actually asked (confusing, dropped per feedback).
+      // The GR count is unambiguous instead: "how many GRs have I been paid
+      // something on".
       title: t('dashboard.totalCollected'),
       value: formatINR(revenue.totalCollected),
       icon: 'wallet-outline',
       color: '#14B8A6',
+      subtitle: `${revenue.collectedGRCount} ${revenue.collectedGRCount === 1 ? 'GR' : 'GRs'}`,
     },
     {
       title: t('dashboard.outstanding'),
       value: formatINR(revenue.outstandingAmount),
       icon: 'time-outline',
       color: '#F59E0B',
+      subtitle: `${revenue.outstandingGRCount} ${revenue.outstandingGRCount === 1 ? 'GR' : 'GRs'} pending`,
     },
   ];
   const revenueRows: (typeof revenueCards)[] = [];
@@ -406,7 +450,7 @@ export const AdminDashboardScreen = () => {
                 <View key={rowIndex} style={styles.revenueRow}>
                   {row.map((card) => (
                     <View key={card.title} style={styles.revenueCardHalf}>
-                      <StatCard title={card.title} value={card.value} icon={card.icon} color={card.color} trend={card.trend} />
+                      <StatCard title={card.title} value={card.value} icon={card.icon} color={card.color} trend={card.trend} subtitle={card.subtitle} />
                     </View>
                   ))}
                   {row.length === 1 && <View style={styles.revenueCardHalf} />}

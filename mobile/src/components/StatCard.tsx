@@ -8,11 +8,24 @@ interface StatCardProps {
   value: string | number;
   icon: ComponentProps<typeof Ionicons>['name'];
   color: string;
-  trend?: { value: number; label: string; isPercentage?: boolean };
+  trend?: {
+    /** Sign only decides the arrow direction/color (up=green, down=red). */
+    value: number;
+    label: string;
+    isPercentage?: boolean;
+    /** When set, shown verbatim in the badge instead of `value`/`isPercentage`
+     * — use this for a plain rupee amount ("+₹150") rather than a percentage,
+     * which swings wildly (e.g. "-100%") when the comparison base is small. */
+    displayText?: string;
+  };
+  /** Optional extra line under the title — e.g. a GR count ("3 GRs") for
+   * cards where that's more useful than (or in addition to) a trend.
+   * Purely additive: omitted everywhere except where a caller opts in. */
+  subtitle?: string;
   animate?: boolean;
 }
 
-export const StatCard = ({ title, value, icon, color, trend, animate = true }: StatCardProps) => {
+export const StatCard = ({ title, value, icon, color, trend, subtitle, animate = true }: StatCardProps) => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const [scaleAnim] = useState(new Animated.Value(1));
   const [fadeAnim] = useState(new Animated.Value(0));
@@ -43,7 +56,7 @@ export const StatCard = ({ title, value, icon, color, trend, animate = true }: S
           <View style={[styles.trendBadge, { backgroundColor: trend.value >= 0 ? '#10B98115' : '#EF444415', borderRadius: radii.pill }]}>
             <Ionicons name={trend.value >= 0 ? 'trending-up' : 'trending-down'} size={12} color={trend.value >= 0 ? '#10B981' : '#EF4444'} />
             <Text style={[styles.trendText, { color: trend.value >= 0 ? '#10B981' : '#EF4444' }]}>
-              {trend.isPercentage ? `${trend.value}%` : `${trend.value >= 0 ? '+' : ''}${trend.value}`}
+              {trend.displayText ?? (trend.isPercentage ? `${trend.value}%` : `${trend.value >= 0 ? '+' : ''}${trend.value}`)}
             </Text>
           </View>
         )}
@@ -52,6 +65,7 @@ export const StatCard = ({ title, value, icon, color, trend, animate = true }: S
         <Text style={[styles.value, { color: colors.textPrimary, fontSize: fonts.size.xl }]}>{value}</Text>
         <Text style={[styles.title, { color: colors.textSecondary, fontSize: fonts.size.sm }]}>{title}</Text>
         {trend && <Text style={[styles.trendLabel, { color: colors.textMuted, fontSize: fonts.size.xs }]}>{trend.label}</Text>}
+        {subtitle && <Text style={[styles.trendLabel, { color: colors.textMuted, fontSize: fonts.size.xs }]}>{subtitle}</Text>}
       </View>
     </Animated.View>
   );

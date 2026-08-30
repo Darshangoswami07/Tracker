@@ -1062,6 +1062,14 @@ export const orderRepository = {
     prevMonth: number;
     totalCollected: number;
     outstandingAmount: number;
+    /** Count of GRs with at least one payment recorded against them. */
+    collectedGRCount: number;
+    /** Count of GRs with a remaining balance greater than zero. */
+    outstandingGRCount: number;
+    /** Real payments (by when they were actually received) this calendar month. */
+    collectedThisMonth: number;
+    /** Same, for the previous calendar month — for a real trend, not a guess. */
+    collectedPrevMonth: number;
   }> {
     await ensureDatabaseReady();
     const db = await getDatabase();
@@ -1089,32 +1097,64 @@ export const orderRepository = {
     const scopedArea = resolveAreaScope(undefined);
     const areaClause = scopedArea ? 'AND area = ?' : '';
 
+    // "Actual paid" per order must come from the `payments` ledger, not the
+    // legacy `orders.paymentAmount` column — `addPayment()` only ever
+    // inserts into `payments`, it never updates `paymentAmount` again after
+    // a GR's creation/import. Summing `paymentAmount` here meant Total
+    // Collected / Outstanding on the dashboard silently went stale the
+    // moment any real payment was recorded through Receive Payment, and
+    // never caught up. `MAX(ledger, paymentAmount)` covers legacy rows that
+    // predate the ledger (paymentAmount set once, no payments rows yet).
     const row = await db.getFirstAsync<{
       today: number; yesterday: number; week: number; prev_week: number;
       month: number; prev_month: number; total_collected: number; outstanding: number;
+      collected_count: number; outstanding_count: number;
     }>(
       `SELECT
-         SUM(CASE WHEN COALESCE(grDate, createdAt) >= ? AND COALESCE(grDate, createdAt) < ?
-           THEN COALESCE(paymentAmount, 0) + COALESCE(toPay, 0) ELSE 0 END) AS today,
-         SUM(CASE WHEN COALESCE(grDate, createdAt) >= ? AND COALESCE(grDate, createdAt) < ?
-           THEN COALESCE(paymentAmount, 0) + COALESCE(toPay, 0) ELSE 0 END) AS yesterday,
-         SUM(CASE WHEN COALESCE(grDate, createdAt) >= ? AND COALESCE(grDate, createdAt) < ?
-           THEN COALESCE(paymentAmount, 0) + COALESCE(toPay, 0) ELSE 0 END) AS week,
-         SUM(CASE WHEN COALESCE(grDate, createdAt) >= ? AND COALESCE(grDate, createdAt) < ?
-           THEN COALESCE(paymentAmount, 0) + COALESCE(toPay, 0) ELSE 0 END) AS prev_week,
-         SUM(CASE WHEN COALESCE(grDate, createdAt) >= ? AND COALESCE(grDate, createdAt) < ?
-           THEN COALESCE(paymentAmount, 0) + COALESCE(toPay, 0) ELSE 0 END) AS month,
-         SUM(CASE WHEN COALESCE(grDate, createdAt) >= ? AND COALESCE(grDate, createdAt) < ?
-           THEN COALESCE(paymentAmount, 0) + COALESCE(toPay, 0) ELSE 0 END) AS prev_month,
-         SUM(COALESCE(paymentAmount, 0)) AS total_collected,
-         SUM(COALESCE(toPay, 0)) AS outstanding
-       FROM orders
-       WHERE isDeleted = 0 AND isActive = 1 ${areaClause}`,
+         SUM(CASE WHEN COALESCE(o.grDate, o.createdAt) >= ? AND COALESCE(o.grDate, o.createdAt) < ?
+           THEN COALESCE(o.paymentAmount, 0) + COALESCE(o.toPay, 0) ELSE 0 END) AS today,
+         SUM(CASE WHEN COALESCE(o.grDate, o.createdAt) >= ? AND COALESCE(o.grDate, o.createdAt) < ?
+           THEN COALESCE(o.paymentAmount, 0) + COALESCE(o.toPay, 0) ELSE 0 END) AS yesterday,
+         SUM(CASE WHEN COALESCE(o.grDate, o.createdAt) >= ? AND COALESCE(o.grDate, o.createdAt) < ?
+           THEN COALESCE(o.paymentAmount, 0) + COALESCE(o.toPay, 0) ELSE 0 END) AS week,
+         SUM(CASE WHEN COALESCE(o.grDate, o.createdAt) >= ? AND COALESCE(o.grDate, o.createdAt) < ?
+           THEN COALESCE(o.paymentAmount, 0) + COALESCE(o.toPay, 0) ELSE 0 END) AS prev_week,
+         SUM(CASE WHEN COALESCE(o.grDate, o.createdAt) >= ? AND COALESCE(o.grDate, o.createdAt) < ?
+           THEN COALESCE(o.paymentAmount, 0) + COALESCE(o.toPay, 0) ELSE 0 END) AS month,
+         SUM(CASE WHEN COALESCE(o.grDate, o.createdAt) >= ? AND COALESCE(o.grDate, o.createdAt) < ?
+           THEN COALESCE(o.paymentAmount, 0) + COALESCE(o.toPay, 0) ELSE 0 END) AS prev_month,
+         SUM(MAX(COALESCE(led.ledgerPaid, 0), COALESCE(o.paymentAmount, 0))) AS total_collected,
+         SUM(MAX(COALESCE(o.toPay, 0) - MAX(COALESCE(led.ledgerPaid, 0), COALESCE(o.paymentAmount, 0)), 0)) AS outstanding,
+         SUM(CASE WHEN MAX(COALESCE(led.ledgerPaid, 0), COALESCE(o.paymentAmount, 0)) > 0 THEN 1 ELSE 0 END) AS collected_count,
+         SUM(CASE WHEN COALESCE(o.toPay, 0) - MAX(COALESCE(led.ledgerPaid, 0), COALESCE(o.paymentAmount, 0)) > 0.005 THEN 1 ELSE 0 END) AS outstanding_count
+       FROM orders o
+       LEFT JOIN (SELECT orderId, SUM(amount) AS ledgerPaid FROM payments GROUP BY orderId) led ON led.orderId = o.id
+       WHERE o.isDeleted = 0 AND o.isActive = 1 ${areaClause}`,
       [
         startToday, dayEnd(yyyy, mm, dd),
         startYesterday, startToday,
         startOfWeek, dayEnd(yyyy, mm, dd),
         startPrevWeek, startOfWeek,
+        startOfMonth, dayEnd(yyyy, mm, dd),
+        startPrevMonth, startOfMonth,
+        ...(scopedArea ? [scopedArea] : []),
+      ],
+    );
+
+    // Real month-over-month trend for "Total Collected" — sums payments
+    // actually *received* (by `payments.createdAt`) in each period, not a
+    // point-in-time snapshot, so the comparison means something. Deliberately
+    // NOT done for "Outstanding": there is no history of past unpaid
+    // balances anywhere in this schema, so a trend for it would have to be
+    // invented rather than computed from real data.
+    const collectedTrendRow = await db.getFirstAsync<{ this_month: number; prev_month: number }>(
+      `SELECT
+         SUM(CASE WHEN p.createdAt >= ? AND p.createdAt < ? THEN p.amount ELSE 0 END) AS this_month,
+         SUM(CASE WHEN p.createdAt >= ? AND p.createdAt < ? THEN p.amount ELSE 0 END) AS prev_month
+       FROM payments p
+       JOIN orders o ON o.id = p.orderId
+       WHERE o.isDeleted = 0 AND o.isActive = 1 ${areaClause}`,
+      [
         startOfMonth, dayEnd(yyyy, mm, dd),
         startPrevMonth, startOfMonth,
         ...(scopedArea ? [scopedArea] : []),
@@ -1130,6 +1170,10 @@ export const orderRepository = {
       prevMonth: Number(row?.prev_month ?? 0),
       totalCollected: Number(row?.total_collected ?? 0),
       outstandingAmount: Number(row?.outstanding ?? 0),
+      collectedGRCount: Number(row?.collected_count ?? 0),
+      outstandingGRCount: Number(row?.outstanding_count ?? 0),
+      collectedThisMonth: Number(collectedTrendRow?.this_month ?? 0),
+      collectedPrevMonth: Number(collectedTrendRow?.prev_month ?? 0),
     };
   },
 
@@ -1317,19 +1361,25 @@ export const orderRepository = {
     await ensureDatabaseReady();
     const db = await getDatabase();
     const scopedArea = resolveAreaScope(undefined);
+    // Same fix as `getRevenueOverview` — `paymentAmount` is a legacy column
+    // `addPayment()` never updates after a GR's creation/import; the real
+    // paid amount lives in the `payments` ledger. Summing `paymentAmount`
+    // alone meant a shop's "Total Collected" never reflected payments
+    // actually received through Receive Payment.
     const rows = await db.getAllAsync<any>(
       `SELECT
-         area,
+         o.area AS area,
          COUNT(*) AS total,
-         SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
-         SUM(CASE WHEN status = 'cleared' THEN 1 ELSE 0 END) AS cleared,
-         SUM(CASE WHEN status = 'uncleared' THEN 1 ELSE 0 END) AS uncleared,
-         SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) AS delivered,
-         SUM(COALESCE(toPay, 0)) AS totalToPay,
-         SUM(COALESCE(paymentAmount, 0)) AS totalCollected
-       FROM orders
-       WHERE isDeleted = 0 AND area IS NOT NULL AND area != '' ${scopedArea ? 'AND area = ?' : ''}
-       GROUP BY area`,
+         SUM(CASE WHEN o.status = 'pending' THEN 1 ELSE 0 END) AS pending,
+         SUM(CASE WHEN o.status = 'cleared' THEN 1 ELSE 0 END) AS cleared,
+         SUM(CASE WHEN o.status = 'uncleared' THEN 1 ELSE 0 END) AS uncleared,
+         SUM(CASE WHEN o.status = 'delivered' THEN 1 ELSE 0 END) AS delivered,
+         SUM(COALESCE(o.toPay, 0)) AS totalToPay,
+         SUM(MAX(COALESCE(led.ledgerPaid, 0), COALESCE(o.paymentAmount, 0))) AS totalCollected
+       FROM orders o
+       LEFT JOIN (SELECT orderId, SUM(amount) AS ledgerPaid FROM payments GROUP BY orderId) led ON led.orderId = o.id
+       WHERE o.isDeleted = 0 AND o.area IS NOT NULL AND o.area != '' ${scopedArea ? 'AND o.area = ?' : ''}
+       GROUP BY o.area`,
       scopedArea ? [scopedArea] : []
     );
     return rows.map((r) => {
@@ -1344,7 +1394,7 @@ export const orderRepository = {
         delivered: Number(r.delivered ?? 0),
         totalToPay,
         totalCollected,
-        outstanding: totalToPay - totalCollected,
+        outstanding: Math.max(0, totalToPay - totalCollected),
       };
     });
   },

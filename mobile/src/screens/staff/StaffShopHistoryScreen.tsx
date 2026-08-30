@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -105,16 +105,28 @@ export const StaffShopHistoryScreen = ({ route }: { route: { params: { shopName:
     [area, statusFilter, search, shopName]
   );
 
-  // Debounced reload from page 1 whenever the shop, area, search, or status
-  // filter changes. The 250ms debounce avoids a query per keystroke, and the
-  // load only mutates state inside the async call (not synchronously in the
-  // effect body).
+  // Status tab is a discrete tap, not typing — reload immediately so the
+  // list never visibly lags behind the tab that's already highlighted.
   useEffect(() => {
+    load(1, 'replace');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, area, shopName]);
+
+  // Search IS typing — debounce so it's not a query per keystroke. Skips
+  // its own first run since the effect above already covers the initial
+  // mount load.
+  const didMountSearch = useRef(false);
+  useEffect(() => {
+    if (!didMountSearch.current) {
+      didMountSearch.current = true;
+      return;
+    }
     const id = setTimeout(() => {
       load(1, 'replace');
     }, 250);
     return () => clearTimeout(id);
-  }, [load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   const onRefresh = () => {
     setRefreshing(true);

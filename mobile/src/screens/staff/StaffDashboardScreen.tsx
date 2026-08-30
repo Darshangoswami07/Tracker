@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,7 +28,7 @@ const ASSIGNED_STATUSES = ['uncleared'];
  */
 export const StaffDashboardScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
-  const { navigate } = useAppNav();
+  const { navigate, navigation } = useAppNav();
   const user = useUserStore((state) => state.user);
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
@@ -61,6 +61,25 @@ export const StaffDashboardScreen = () => {
     const timer = setTimeout(() => loadOverview(), 0);
     return () => clearTimeout(timer);
   }, [loadOverview]);
+
+  // Re-load every time this screen regains focus — e.g. coming back here
+  // after receiving a payment (which can flip a GR from Pending to
+  // Delivered) on another screen. Without this, the stats stayed frozen at
+  // whatever they were on the last mount/pull-to-refresh, showing stale
+  // Pending/Completed counts instead of the current real ones. `didMount`
+  // skips the first 'focus' (React Navigation fires it on initial mount
+  // too, which would otherwise double the mount effect's own load).
+  const didMount = useRef(false);
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      if (!didMount.current) {
+        didMount.current = true;
+        return;
+      }
+      loadOverview();
+    });
+    return unsubscribe;
+  }, [navigation, loadOverview]);
 
   const onRefresh = async () => {
     setRefreshing(true);

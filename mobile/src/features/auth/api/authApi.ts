@@ -25,10 +25,21 @@ const LOGIN_ENDPOINT_FOR: Record<'admin' | 'staff', string> = {
   staff: ENDPOINTS.auth.staffLogin,
 };
 
-/** Performs a login request and stores the session tokens + user. */
+/** Performs a login request and stores the session tokens + user.
+ *
+ * Uses a longer timeout than the app default (`ENV.requestTimeoutMs`, 15s):
+ * login is very often the FIRST request of a session, and the backend is
+ * deployed on Render's free tier, which spins the instance down after
+ * inactivity — the first request after a spin-down can take 30-50s to
+ * respond while it cold-starts. The default 15s timeout was firing on that
+ * cold start and surfacing as a spurious "request failed" to a user who was
+ * really just waiting for the server to wake up. This doesn't eliminate the
+ * cold start itself (that needs an always-on hosting tier or a keep-alive
+ * ping — an infra change, not something fixable from the client), but it
+ * stops a normal cold start from being misreported as a failure. */
 export const login = async ({ accountType, ...payload }: LoginPayload): Promise<AuthResult> => {
   const endpoint = accountType ? LOGIN_ENDPOINT_FOR[accountType] : ENDPOINTS.auth.login;
-  const response = await apiClient.post<unknown>(endpoint, payload);
+  const response = await apiClient.post<unknown>(endpoint, payload, { timeout: 45000 });
   return unwrap<AuthResult>(response);
 };
 
@@ -45,9 +56,11 @@ export const register = async (payload: RegistrationRequestPayload): Promise<Reg
   return unwrap<RegistrationRequestResult>(response);
 };
 
-/** Logs the current session out (revokes the refresh token server-side). */
+/** Logs the current session out (revokes the refresh token server-side).
+ * Same longer timeout as `login` — can just as easily hit a cold Render
+ * instance (e.g. logging out after the app sat idle for a while). */
 export const logout = async (refreshToken?: string): Promise<void> => {
-  const response = await apiClient.post<unknown>(ENDPOINTS.auth.logout, { refreshToken });
+  const response = await apiClient.post<unknown>(ENDPOINTS.auth.logout, { refreshToken }, { timeout: 45000 });
   unwrap<null>(response);
 };
 

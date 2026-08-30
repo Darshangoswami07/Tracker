@@ -197,13 +197,33 @@ export const ReceivingDetailsScreen = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
 
+  // Status tab / date-range / delivery-filter are discrete taps, not typing
+  // — reload immediately so the list never visibly lags behind whichever
+  // chip is already highlighted (the debounce here made every tap look
+  // like it silently failed for 400ms).
+  const didMountFilters = useRef(false);
   useEffect(() => {
+    if (!didMountFilters.current) {
+      didMountFilters.current = true;
+      return;
+    }
+    fetchData(1, 'reload');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusTab, dateFilter, deliveryFilter, customDateFrom, customDateTo]);
+
+  // Search IS typing — keep this one debounced.
+  const didMountSearch = useRef(false);
+  useEffect(() => {
+    if (!didMountSearch.current) {
+      didMountSearch.current = true;
+      return;
+    }
     const timer = setTimeout(() => {
       fetchData(1, 'reload');
     }, 400);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, statusTab, dateFilter, deliveryFilter, customDateFrom, customDateTo]);
+  }, [search]);
 
   const onRefresh = () => fetchData(1, 'refresh');
 

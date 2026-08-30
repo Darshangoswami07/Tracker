@@ -208,7 +208,18 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
 
   useEffect(() => {
     (async () => {
-      await syncLookupTables(accessToken);
+      // `syncLookupTables` hits `/admin/companies`, `/admin/drivers`,
+      // `/admin/users` — Admin-only endpoints the backend correctly 403s a
+      // Staff account on. `safeFetch` inside it swallows the error either
+      // way (so this was never breaking anything), but it guaranteed three
+      // failing network calls, every time this screen opened, for every
+      // Staff user — pure noise in the network tab. Only Admin/Owner needs
+      // this sync (they're the ones assigning drivers/staff to a GR); Staff
+      // still gets the local `listDrivers`/`listStaff` reads below, which
+      // work off whatever's already cached on-device.
+      if (!isStaffUser) {
+        await syncLookupTables(accessToken);
+      }
       const [driverRows, staffRows] = await Promise.all([
         orderRepository.listDrivers(),
         orderRepository.listStaff(),
@@ -216,7 +227,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
       setDrivers(driverRows.map((d) => ({ id: d.id, name: d.name })));
       setStaff(staffRows.map((s) => ({ id: s.id, name: s.name })));
     })().catch(() => {});
-  }, [accessToken]);
+  }, [accessToken, isStaffUser]);
 
   // Approved self-service Staff, for the Admin's "Collected By" picker.
   // Staff users never see this list — they always collect as themselves.
