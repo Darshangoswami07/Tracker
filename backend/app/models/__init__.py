@@ -16,6 +16,8 @@ from app.models.order import Order
 from app.models.order_status_history import OrderStatusHistory
 from app.models.order_attachment import OrderAttachment
 from app.models.payment import Payment
+from app.models.staff_settlement import StaffSettlement
+from app.models.import_history import ImportHistory
 from app.models.report import Report
 from app.models.driver_location import DriverLocation
 from app.models.notification import Notification
@@ -50,6 +52,8 @@ __all__ = [
     "OrderStatusHistory",
     "OrderAttachment",
     "Payment",
+    "StaffSettlement",
+    "ImportHistory",
     "Report",
     "DriverLocation",
     "Notification",
