@@ -87,6 +87,10 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
   // is fixed by the route param instead of user-selectable — reuses this
   // same screen/list instead of a separate "Shop Detail" implementation.
   const fixedArea = (route?.params as { fixedArea?: string } | undefined)?.fixedArea ?? null;
+  // Status Overview cards on the Admin Dashboard (Pending/Cleared/Uncleared/
+  // Delivered) deep-link here with a `status` param so the list opens
+  // pre-filtered to exactly that status instead of showing everything.
+  const routeStatus = (route?.params as { status?: string } | undefined)?.status ?? null;
 
   const handleBack = useCallback(() => {
     navigate(fixedArea ? 'AllShops' : 'AdminDashboard');
@@ -119,7 +123,9 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusTab, setStatusTab] = useState('All');
+  const [statusTab, setStatusTab] = useState(
+    routeStatus && STATUS_FILTERS.includes(routeStatus) ? routeStatus : 'All'
+  );
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [consignorFilter, setConsignorFilter] = useState<string | null>(null);
@@ -282,11 +288,21 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
         didMount.current = true;
         return;
       }
+      // A status card on the Dashboard can re-navigate here with a new
+      // `status` param while this screen is already mounted in the
+      // Shipments tab stack (native-stack keeps it alive rather than
+      // remounting) — pick up the new filter on focus instead of leaving
+      // the tab showing whatever status was selected last time.
+      const paramStatus = (route?.params as { status?: string } | undefined)?.status ?? null;
+      if (paramStatus && STATUS_FILTERS.includes(paramStatus) && paramStatus !== statusTab) {
+        setStatusTab(paramStatus);
+        return;
+      }
       fetchGRs(1, 'refresh');
     });
     return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigation]);
+  }, [navigation, route?.params, statusTab]);
 
   // Text search is debounced (typing fires this on every keystroke — without
   // a delay that's a query per character). Status tab / shop-owner / area /

@@ -128,10 +128,21 @@ apiClient.interceptors.response.use(
         original.headers.Authorization = `Bearer ${tokens.accessToken}`;
         return apiClient(original);
       } catch (refreshError) {
-        logger.warn('[API] Token refresh failed; session expired', refreshError);
-        await tokenStorage.clear();
-        // The navigation layer subscribes and redirects to the login screen.
-        sessionEvents.emitExpired();
+        // Only a definitive "this token is invalid/expired" (401) response
+        // from the refresh endpoint itself means the session is genuinely
+        // over. A transient failure — network blip, 5xx, the dev server
+        // mid-restart — is not proof of that, and force-logging the user
+        // out on one of those throws away an otherwise-valid session for a
+        // problem that resolves itself on the next request.
+        const refreshStatus = (refreshError as AxiosError)?.response?.status;
+        if (refreshStatus === 401) {
+          logger.warn('[API] Token refresh failed; session expired', refreshError);
+          await tokenStorage.clear();
+          // The navigation layer subscribes and redirects to the login screen.
+          sessionEvents.emitExpired();
+        } else {
+          logger.warn('[API] Token refresh failed transiently; keeping session', refreshError);
+        }
         return Promise.reject(refreshError);
       }
     }

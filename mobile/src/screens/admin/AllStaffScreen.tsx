@@ -53,7 +53,7 @@ type ConfirmAction = { type: 'remove' | 'reactivate'; staff: StaffMember };
 
 export const AllStaffScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
-  const { goBack } = useAppNav();
+  const { goBack, navigate } = useAppNav();
   const accessToken = useAuthStore((state) => state.accessToken);
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
@@ -219,26 +219,41 @@ export const AllStaffScreen = () => {
               const isActive = member.status === 'active';
               return (
                 <View key={member.id} style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
-                  <View style={styles.cardHeader}>
-                    <Text style={[styles.name, { color: colors.textPrimary }]}>
-                      {member.firstName} {member.lastName}
-                    </Text>
-                    <StatusBadge status={member.status} size="sm" />
-                  </View>
-                  <Text style={[styles.detail, { color: colors.textSecondary }]}>{member.email}</Text>
-                  <Text style={[styles.detail, { color: colors.textSecondary }]}>{member.phone}</Text>
-                  <View
-                    style={[
-                      styles.areaBadge,
-                      { borderRadius: radii.pill, backgroundColor: member.area ? `${colors.primary}15` : `${colors.textMuted}15` },
-                    ]}
+                  {/* Only the profile area opens Staff Work — Change Location
+                   * and Remove/Reactivate below are separate touch targets
+                   * outside this wrapper so they keep working unchanged. */}
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() =>
+                      navigate('StaffDailyWork', {
+                        staffId: member.id,
+                        fullName: `${member.firstName} ${member.lastName}`,
+                        area: member.area,
+                        status: member.status,
+                      })
+                    }
                   >
-                    <Ionicons name="location" size={12} color={member.area ? colors.primary : colors.textMuted} />
-                    <Text style={[styles.areaBadgeText, { color: member.area ? colors.primary : colors.textMuted }]}>
-                      {member.area ?? 'Not Assigned'}
-                    </Text>
-                  </View>
-                  <Text style={[styles.detail, { color: colors.textMuted }]}>Registered {formatTime(member.createdAt)}</Text>
+                    <View style={styles.cardHeader}>
+                      <Text style={[styles.name, { color: colors.textPrimary }]}>
+                        {member.firstName} {member.lastName}
+                      </Text>
+                      <StatusBadge status={member.status} size="sm" />
+                    </View>
+                    <Text style={[styles.detail, { color: colors.textSecondary }]}>{member.email}</Text>
+                    <Text style={[styles.detail, { color: colors.textSecondary }]}>{member.phone}</Text>
+                    <View
+                      style={[
+                        styles.areaBadge,
+                        { borderRadius: radii.pill, backgroundColor: member.area ? `${colors.primary}15` : `${colors.textMuted}15` },
+                      ]}
+                    >
+                      <Ionicons name="location" size={12} color={member.area ? colors.primary : colors.textMuted} />
+                      <Text style={[styles.areaBadgeText, { color: member.area ? colors.primary : colors.textMuted }]}>
+                        {member.area ?? 'Not Assigned'}
+                      </Text>
+                    </View>
+                    <Text style={[styles.detail, { color: colors.textMuted }]}>Registered {formatTime(member.createdAt)}</Text>
+                  </TouchableOpacity>
 
                   <TouchableOpacity
                     style={[styles.locationButton, { borderColor: colors.border, borderRadius: radii.md }]}

@@ -568,24 +568,24 @@ export const AdminDashboardScreen = () => {
           <View style={styles.quickActions}>
             <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('summary.shipmentStatusOverview')}</Text>
             <View style={styles.statusOverviewRow}>
-              <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments')} activeOpacity={0.85}>
+              <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments', { status: 'Pending' })} activeOpacity={0.85}>
                 <StatusBadge status="pending" size="md" />
                 <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.pending}</Text>
                 <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('summary.pending')}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments')} activeOpacity={0.85}>
+              <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments', { status: 'Cleared' })} activeOpacity={0.85}>
                 <StatusBadge status="cleared" size="md" />
                 <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.cleared}</Text>
                 <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('summary.cleared')}</Text>
               </TouchableOpacity>
             </View>
             <View style={styles.statusOverviewRow}>
-              <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments')} activeOpacity={0.85}>
+              <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments', { status: 'Uncleared' })} activeOpacity={0.85}>
                 <StatusBadge status="uncleared" size="md" />
                 <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.uncleared}</Text>
                 <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('summary.uncleared')}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments')} activeOpacity={0.85}>
+              <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments', { status: 'Delivered' })} activeOpacity={0.85}>
                 <StatusBadge status="delivered" size="md" />
                 <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.delivered}</Text>
                 <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('summary.delivered')}</Text>

@@ -354,9 +354,20 @@ class RateLimitMiddleware:
         redis_client = await self._get_redis()
 
         if redis_client is None:
-            # Redis was never configured — should not reach here because
-            # _memory_fallback would have been set.  Fail-closed as safety net.
-            await self._send_429(send)
+            # Redis is configured but unreachable — apply the same
+            # fail-open/fail-closed policy used for mid-request Redis errors,
+            # instead of unconditionally rejecting.
+            if self._should_fail_open():
+                logger.warning(
+                    "RATE_LIMIT: Redis unavailable — allowing request (fail-open)"
+                )
+            else:
+                logger.warning(
+                    "RATE_LIMIT: Redis unavailable — rejecting request (fail-closed)"
+                )
+                await self._send_429(send)
+                return
+            await self.app(scope, receive, send)
             return
 
         try:

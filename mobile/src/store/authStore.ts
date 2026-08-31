@@ -77,24 +77,45 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   validateSession: async () => {
     const { status, epoch } = get();
     if (status !== 'validating') return;
-    try {
-      const user = await withTimeout(getCurrentUser(), VALIDATE_TIMEOUT_MS);
-      if (get().epoch !== epoch) return;
-      useUserStore.getState().setUser(user);
-      set({ status: 'authenticated' });
-    } catch (error) {
-      if (get().epoch !== epoch) return;
-      const statusCode = isAxiosError(error) ? error.response?.status : undefined;
-      if (statusCode === 401 || statusCode === 403) {
-        logger.warn('Token validation failed', error);
-        get().clearSession();
-      } else {
-        // Network/timeout/server problem: keep the stored credentials intact so
-        // the next launch can retry, and leave the splash screen immediately.
-        logger.warn('Session validation skipped (temporary network issue)', error);
-        set({ status: 'unauthenticated', accessToken: null, refreshToken: null });
+
+    const attempt = async (isRetry: boolean): Promise<void> => {
+      try {
+        const user = await withTimeout(getCurrentUser(), VALIDATE_TIMEOUT_MS);
+        if (get().epoch !== epoch) return;
+        useUserStore.getState().setUser(user);
+        set({ status: 'authenticated' });
+      } catch (error) {
+        if (get().epoch !== epoch) return;
+        const statusCode = isAxiosError(error) ? error.response?.status : undefined;
+        if (statusCode === 401 || statusCode === 403) {
+          logger.warn('Token validation failed', error);
+          get().clearSession();
+          return;
+        }
+        // Network/timeout/server problem: this proves nothing about whether
+        // the token is actually valid, so it must NOT be treated as "session
+        // expired". A single bounded retry (never more) covers a momentary
+        // blip — a dev-server reload, a slow cold start — without an
+        // infinite loop.
+        if (!isRetry) {
+          logger.warn('Session validation failed transiently — retrying once', error);
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          if (get().epoch !== epoch || get().status !== 'validating') return;
+          await attempt(true);
+          return;
+        }
+        // Retry also failed for a non-auth reason: still don't treat this as
+        // "session expired". Keep the stored credentials AND in-memory
+        // tokens intact and proceed into the app trusting the token we
+        // already have — if it's actually invalid, the normal request
+        // interceptor (401 -> refresh -> retry once -> logout only on a
+        // definitive 401 from the refresh endpoint) takes over from there.
+        logger.warn('Session validation skipped after retry (temporary network issue) — keeping session', error);
+        set({ status: 'authenticated' });
       }
-    }
+    };
+
+    await attempt(false);
   },
 
   setSession: (tokens, user) => {

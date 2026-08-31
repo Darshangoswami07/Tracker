@@ -64,9 +64,9 @@ export type DashboardStackParamList = {
   ExcelImport: { selectedArea?: string } | undefined;
   ExcelImportHistory: undefined;
   PaymentHistory: undefined;
-  /** Payment History → Staff Daily Work → one staff member's collections/GRs
-   * for a given day (defaults to today). */
-  StaffDailyWork: { staffId: string; fullName: string; area: string | null };
+  /** All Staff (or Payment History) → Staff Work → one staff member's GR/
+   * payment activity for a given day (defaults to today). */
+  StaffDailyWork: { staffId: string; fullName: string; area: string | null; status?: string };
   /** Lists the fixed shop/area categories (Bageshwar, Almora, Garur
    * Someshwar) with per-shop GR counts. Tapping one opens `AreaShops`
    * (the shop list for that area), not the raw GR list directly. */
@@ -87,7 +87,7 @@ export type ShipmentsStackParamList = {
    * the Shipments list. Reached via the Shipments tab's own header "+" GR
    * list, not from All Shops (which now drills through `AreaShops` /
    * `ShopHistory` instead). */
-  GRShipments: { fixedArea?: string } | undefined;
+  GRShipments: { fixedArea?: string; status?: 'Pending' | 'Cleared' | 'Uncleared' | 'Delivered' } | undefined;
   CreateGR: undefined;
   GRDetails: { orderId: string };
   EditGR: { orderId: string };
@@ -95,7 +95,7 @@ export type ShipmentsStackParamList = {
   ExcelImport: { selectedArea?: string } | undefined;
   ExcelImportHistory: undefined;
   PaymentHistory: undefined;
-  StaffDailyWork: { staffId: string; fullName: string; area: string | null };
+  StaffDailyWork: { staffId: string; fullName: string; area: string | null; status?: string };
   AllShops: undefined;
   AreaShops: { area: string };
   ShopHistory: { shopName: string; area: string };

@@ -306,6 +306,57 @@ export interface StaffDailyGR {
   amountCollected: number;
 }
 
+/** A single dated event on the Staff Work page's "Today's Activity" timeline.
+ * `kind` drives the icon/label; only fields relevant to that kind are set. */
+export interface StaffActivityEvent {
+  id: string;
+  kind: 'collected' | 'delivered' | 'payment';
+  orderId: string;
+  orderNumber: string;
+  consignorName: string | null;
+  consigneeName: string | null;
+  createdAt: string;
+  /** Payment amount — 'payment' events only. */
+  amount?: number;
+  /** The GR's current outstanding balance — 'payment' events only. */
+  remaining?: number;
+  /** The GR's bill value (`toPay`) — 'collected' events only. */
+  toPay?: number;
+}
+
+/** One GR touched by a staff member (collected, delivered, or paid against)
+ * on the selected day, for the Staff Work page's "GR Work" section. Collected
+ * amount/balance reflect the GR's overall ledger, not just that day's
+ * payments — the same "current balance" every other GR screen shows. */
+export interface StaffWorkGR {
+  orderId: string;
+  orderNumber: string;
+  consignorName: string | null;
+  consigneeName: string | null;
+  status: string;
+  collectedAt: string;
+  deliveredAt: string | null;
+  toPay: number;
+  totalPaid: number;
+  balance: number;
+}
+
+export interface StaffDailySummary {
+  grCollected: number;
+  grDelivered: number;
+  amountCollected: number;
+  amountPending: number;
+  totalBillValue: number;
+  shopsVisited: number;
+}
+
+export interface StaffDailyActivity {
+  summary: StaffDailySummary;
+  timeline: StaffActivityEvent[];
+  grWork: StaffWorkGR[];
+  payments: StaffActivityEvent[];
+}
+
 export interface GRListParams {
   page?: number;
   pageSize?: number;
@@ -1500,5 +1551,181 @@ export const orderRepository = {
       [today, today + 'T23:59:59', ...(scopedArea ? [scopedArea] : [])]
     );
     return Number(row?.total ?? 0);
+  },
+
+  /**
+   * Full "Staff Work" page payload for one staff member on one calendar day
+   * (`dateIso`'s date portion, local device time — matches every other
+   * date-scoped query in this file). Derived entirely from `orders`,
+   * `order_status_history` and `payments` — no separate activity table.
+   *
+   * A GR is attributed to this staff member via `orders.assignedStaffId`
+   * (who the GR is assigned to); a payment via `payments.recordedBy` (who
+   * actually recorded the collection — same field `getStaffDailySummary`/
+   * `getStaffDailyGRs` and the GR Detail "Collected By" picker already use).
+   * "Delivered" is read off `order_status_history` (`status = 'delivered'`),
+   * since `orders` itself only stores the current status, not when it was
+   * reached. There is no separate "who delivered" actor field in the schema,
+   * so a delivered GR counts toward the staff member it's assigned to.
+   */
+  async getStaffDailyActivity(staffId: string, dateIso: string): Promise<StaffDailyActivity> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    const day = dateIso.slice(0, 10);
+    const scopedStaffId = resolveStaffScope(staffId);
+
+    const [collectedRows, deliveredRows, paymentRows] = await Promise.all([
+      db.getAllAsync<any>(
+        `SELECT id, orderNumber, consignorName, consigneeName, status, createdAt, toPay
+         FROM orders
+         WHERE assignedStaffId = ? AND isDeleted = 0 AND substr(createdAt, 1, 10) = ?
+         ORDER BY createdAt ASC`,
+        [scopedStaffId, day]
+      ),
+      db.getAllAsync<any>(
+        `SELECT o.id, o.orderNumber, o.consignorName, o.consigneeName, o.status, MAX(h.createdAt) AS deliveredAt
+         FROM order_status_history h
+         JOIN orders o ON o.id = h.orderId AND o.isDeleted = 0
+         WHERE o.assignedStaffId = ? AND h.status = 'delivered' AND substr(h.createdAt, 1, 10) = ?
+         GROUP BY o.id
+         ORDER BY deliveredAt ASC`,
+        [scopedStaffId, day]
+      ),
+      db.getAllAsync<any>(
+        `SELECT p.id, p.orderId, p.amount, p.createdAt, o.orderNumber, o.consignorName, o.consigneeName
+         FROM payments p
+         JOIN orders o ON o.id = p.orderId AND o.isDeleted = 0
+         WHERE p.recordedBy = ? AND substr(p.createdAt, 1, 10) = ?
+         ORDER BY p.createdAt ASC`,
+        [scopedStaffId, day]
+      ),
+    ]);
+
+    const unionIds = Array.from(
+      new Set<string>([
+        ...collectedRows.map((r) => r.id),
+        ...deliveredRows.map((r) => r.id),
+        ...paymentRows.map((r) => r.orderId),
+      ])
+    );
+
+    // Per-GR ledger/delivery snapshot for every GR touched today — used to
+    // enrich timeline entries (payment balance, GR bill value) and to build
+    // the "GR Work" section, regardless of which day the GR was originally
+    // collected/delivered on.
+    const ledgerByOrderId = new Map<string, { toPay: number; totalPaid: number; deliveredAt: string | null; status: string; orderNumber: string; consignorName: string | null; consigneeName: string | null; createdAt: string }>();
+    if (unionIds.length > 0) {
+      const placeholders = unionIds.map(() => '?').join(', ');
+      const detailRows = await db.getAllAsync<any>(
+        `SELECT o.id, o.orderNumber, o.consignorName, o.consigneeName, o.status, o.createdAt, o.toPay,
+                (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE orderId = o.id) AS totalPaid,
+                (SELECT MAX(createdAt) FROM order_status_history WHERE orderId = o.id AND status = 'delivered') AS deliveredAt
+         FROM orders o
+         WHERE o.id IN (${placeholders}) AND o.isDeleted = 0`,
+        unionIds
+      );
+      for (const row of detailRows) {
+        ledgerByOrderId.set(row.id, {
+          toPay: Number(row.toPay ?? 0),
+          totalPaid: Number(row.totalPaid ?? 0),
+          deliveredAt: row.deliveredAt ?? null,
+          status: row.status,
+          orderNumber: row.orderNumber,
+          consignorName: row.consignorName ?? null,
+          consigneeName: row.consigneeName ?? null,
+          createdAt: row.createdAt,
+        });
+      }
+    }
+
+    const timeline: StaffActivityEvent[] = [];
+
+    for (const r of collectedRows) {
+      timeline.push({
+        id: `collected:${r.id}`,
+        kind: 'collected',
+        orderId: r.id,
+        orderNumber: r.orderNumber,
+        consignorName: r.consignorName ?? null,
+        consigneeName: r.consigneeName ?? null,
+        createdAt: r.createdAt,
+        toPay: Number(r.toPay ?? 0),
+      });
+    }
+    for (const r of deliveredRows) {
+      timeline.push({
+        id: `delivered:${r.id}`,
+        kind: 'delivered',
+        orderId: r.id,
+        orderNumber: r.orderNumber,
+        consignorName: r.consignorName ?? null,
+        consigneeName: r.consigneeName ?? null,
+        createdAt: r.deliveredAt,
+      });
+    }
+    const paymentEvents: StaffActivityEvent[] = paymentRows.map((r) => {
+      const ledger = ledgerByOrderId.get(r.orderId);
+      const balance = ledger ? Math.max(0, ledger.toPay - ledger.totalPaid) : undefined;
+      return {
+        id: `payment:${r.id}`,
+        kind: 'payment' as const,
+        orderId: r.orderId,
+        orderNumber: r.orderNumber,
+        consignorName: r.consignorName ?? null,
+        consigneeName: r.consigneeName ?? null,
+        createdAt: r.createdAt,
+        amount: Number(r.amount ?? 0),
+        remaining: balance,
+      };
+    });
+    timeline.push(...paymentEvents);
+    timeline.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+    const grWork: StaffWorkGR[] = unionIds
+      .map((id) => {
+        const ledger = ledgerByOrderId.get(id);
+        if (!ledger) return null;
+        return {
+          orderId: id,
+          orderNumber: ledger.orderNumber,
+          consignorName: ledger.consignorName,
+          consigneeName: ledger.consigneeName,
+          status: ledger.status,
+          collectedAt: ledger.createdAt,
+          deliveredAt: ledger.deliveredAt,
+          toPay: ledger.toPay,
+          totalPaid: ledger.totalPaid,
+          balance: Math.max(0, ledger.toPay - ledger.totalPaid),
+        };
+      })
+      .filter((r): r is StaffWorkGR => r !== null)
+      .sort((a, b) => a.collectedAt.localeCompare(b.collectedAt));
+
+    const amountCollected = paymentRows.reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
+    const totalBillValue = collectedRows.reduce((sum, r) => sum + Number(r.toPay ?? 0), 0);
+    const amountPending = collectedRows.reduce((sum, r) => {
+      const ledger = ledgerByOrderId.get(r.id);
+      if (!ledger) return sum;
+      return sum + Math.max(0, ledger.toPay - ledger.totalPaid);
+    }, 0);
+    const shopsVisited = new Set(
+      unionIds
+        .map((id) => ledgerByOrderId.get(id)?.consignorName)
+        .filter((name): name is string => !!name)
+    ).size;
+
+    return {
+      summary: {
+        grCollected: collectedRows.length,
+        grDelivered: deliveredRows.length,
+        amountCollected,
+        amountPending,
+        totalBillValue,
+        shopsVisited,
+      },
+      timeline,
+      grWork,
+      payments: paymentEvents,
+    };
   },
 };
