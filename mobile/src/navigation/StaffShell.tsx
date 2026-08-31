@@ -13,6 +13,7 @@ import type {
 import { StaffDashboardScreen } from '../screens/staff/StaffDashboardScreen';
 import { StaffAllShopsScreen } from '../screens/staff/StaffAllShopsScreen';
 import { StaffShopHistoryScreen } from '../screens/staff/StaffShopHistoryScreen';
+import { StaffDailyCollectionScreen } from '../screens/staff/StaffDailyCollectionScreen';
 // Reuses the existing Staff GR panel unchanged — it already does
 // search/filter/status-update/slip-upload against the company-scoped GR
 // endpoints (`/admin/orders/*`), which now also admit the STAFF role (see
@@ -60,6 +61,7 @@ const DashboardTabStack = () => (
       <DashboardStack.Screen name="StaffAllShops" component={StaffAllShopsScreen} />
       <DashboardStack.Screen name="StaffShopHistory" component={StaffShopHistoryScreen} />
       <DashboardStack.Screen name="GRDetails" component={AdminGRDetailsScreen} />
+      <DashboardStack.Screen name="StaffDailyCollection" component={StaffDailyCollectionScreen} />
     </DashboardStack.Navigator>
 );
 

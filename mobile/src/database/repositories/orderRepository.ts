@@ -348,6 +348,13 @@ export interface StaffDailySummary {
   amountPending: number;
   totalBillValue: number;
   shopsVisited: number;
+  /** Owner/labour/driver settlement totals + resulting staff balance for the
+   * day — same figures the Daily Collection page shows (see
+   * `getStaffSettlementTotals`), so Admin and Staff never disagree. */
+  ownerAmount: number;
+  labourAmount: number;
+  driverAmount: number;
+  staffBalance: number;
 }
 
 export interface StaffDailyActivity {
@@ -355,6 +362,40 @@ export interface StaffDailyActivity {
   timeline: StaffActivityEvent[];
   grWork: StaffWorkGR[];
   payments: StaffActivityEvent[];
+  /** Owner/labour/driver cash settlements for the day — see
+   * `getStaffSettlementTotals`. Same records the Staff Daily Collection page
+   * shows; Admin's Staff Work page is a read-only view onto this one source
+   * of truth, never a separate calculation. */
+  settlements: CollectionTransaction[];
+}
+
+/** 'owner' | 'labour' | 'driver' — a cash handover a staff member records
+ * out of their own day's collection. See `staff_settlements` in schema.ts. */
+export type SettlementType = 'owner' | 'labour' | 'driver';
+
+/** One row on the Daily Collection page's "Today's Transactions" list —
+ * either money coming in (a GR payment) or going out (a settlement). */
+export interface CollectionTransaction {
+  id: string;
+  kind: 'collection' | SettlementType;
+  amount: number;
+  orderId?: string;
+  orderNumber?: string;
+  consignorName?: string | null;
+  notes?: string | null;
+  createdAt: string;
+}
+
+/** Full Daily Collection payload for one staff member on one calendar day —
+ * see `orderRepository.getStaffDailyCollection`. */
+export interface StaffDailyCollection {
+  date: string;
+  totalCollection: number;
+  ownerAmount: number;
+  labourAmount: number;
+  driverAmount: number;
+  staffBalance: number;
+  transactions: CollectionTransaction[];
 }
 
 export interface GRListParams {
@@ -1714,6 +1755,8 @@ export const orderRepository = {
         .filter((name): name is string => !!name)
     ).size;
 
+    const { owner, labour, driver, events: settlements } = await this.getStaffSettlementTotals(scopedStaffId, dateIso);
+
     return {
       summary: {
         grCollected: collectedRows.length,
@@ -1722,10 +1765,142 @@ export const orderRepository = {
         amountPending,
         totalBillValue,
         shopsVisited,
+        ownerAmount: owner,
+        labourAmount: labour,
+        driverAmount: driver,
+        staffBalance: amountCollected - owner - labour - driver,
       },
       timeline,
       grWork,
       payments: paymentEvents,
+      settlements,
     };
+  },
+
+  /**
+   * Owner/labour/driver cash-settlement totals + individual records for one
+   * staff member on one calendar day. Single source of truth shared by both
+   * `getStaffDailyActivity` (Admin's Staff Work page) and
+   * `getStaffDailyCollection` (Staff's own Daily Collection page) — neither
+   * computes this independently.
+   */
+  async getStaffSettlementTotals(
+    staffId: string,
+    dateIso: string
+  ): Promise<{ owner: number; labour: number; driver: number; events: CollectionTransaction[] }> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    const day = dateIso.slice(0, 10);
+    const scopedStaffId = resolveStaffScope(staffId);
+    const rows = await db.getAllAsync<any>(
+      `SELECT id, type, amount, notes, createdAt FROM staff_settlements
+       WHERE staffId = ? AND substr(createdAt, 1, 10) = ?
+       ORDER BY createdAt ASC`,
+      [scopedStaffId, day]
+    );
+    let owner = 0;
+    let labour = 0;
+    let driver = 0;
+    const events: CollectionTransaction[] = rows.map((r) => {
+      const amount = Number(r.amount ?? 0);
+      if (r.type === 'owner') owner += amount;
+      else if (r.type === 'labour') labour += amount;
+      else if (r.type === 'driver') driver += amount;
+      return {
+        id: `settlement:${r.id}`,
+        kind: r.type as SettlementType,
+        amount,
+        notes: r.notes ?? null,
+        createdAt: r.createdAt,
+      };
+    });
+    return { owner, labour, driver, events };
+  },
+
+  /**
+   * Full Daily Collection payload for the Staff Dashboard's "Daily
+   * Collection" page: total collected today (payments this staff member
+   * recorded — `payments.recordedBy`, the same field the Admin Staff Work
+   * page uses), owner/labour/driver settlements, resulting staff balance,
+   * and the combined chronological transaction list.
+   */
+  async getStaffDailyCollection(staffId: string, dateIso: string): Promise<StaffDailyCollection> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    const day = dateIso.slice(0, 10);
+    const scopedStaffId = resolveStaffScope(staffId);
+
+    const paymentRows = await db.getAllAsync<any>(
+      `SELECT p.id, p.orderId, p.amount, p.createdAt, o.orderNumber, o.consignorName
+       FROM payments p
+       JOIN orders o ON o.id = p.orderId AND o.isDeleted = 0
+       WHERE p.recordedBy = ? AND substr(p.createdAt, 1, 10) = ?
+       ORDER BY p.createdAt ASC`,
+      [scopedStaffId, day]
+    );
+    const totalCollection = paymentRows.reduce((sum: number, r: any) => sum + Number(r.amount ?? 0), 0);
+
+    const { owner, labour, driver, events: settlementEvents } = await this.getStaffSettlementTotals(scopedStaffId, dateIso);
+
+    const collectionEvents: CollectionTransaction[] = paymentRows.map((r) => ({
+      id: `collection:${r.id}`,
+      kind: 'collection',
+      amount: Number(r.amount ?? 0),
+      orderId: r.orderId,
+      orderNumber: r.orderNumber,
+      consignorName: r.consignorName ?? null,
+      createdAt: r.createdAt,
+    }));
+
+    const transactions = [...collectionEvents, ...settlementEvents].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+    return {
+      date: day,
+      totalCollection,
+      ownerAmount: owner,
+      labourAmount: labour,
+      driverAmount: driver,
+      staffBalance: totalCollection - owner - labour - driver,
+      transactions,
+    };
+  },
+
+  /**
+   * Records a cash settlement (owner handover / labour wages / driver
+   * payment) out of a staff member's own day's collection. Always stamped
+   * with the current real time — settlements cannot be backdated onto a
+   * past day's already-closed collection.
+   *
+   * Enforces negative-balance protection: an outgoing settlement can never
+   * exceed what's actually left of *today's* collection after today's
+   * existing settlements, so `staffBalance` can never go negative through
+   * this path.
+   */
+  async addStaffSettlement(input: {
+    staffId: string;
+    type: SettlementType;
+    amount: number;
+    notes?: string;
+    createdBy?: string;
+  }): Promise<void> {
+    await ensureDatabaseReady();
+    const db = await getDatabase();
+    const scopedStaffId = resolveStaffScope(input.staffId);
+
+    const amount = Number(input.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error('Enter a valid amount greater than ₹0.');
+    }
+
+    const todayIso = new Date().toISOString();
+    const today = await this.getStaffDailyCollection(scopedStaffId, todayIso);
+    if (amount > today.staffBalance + 0.005) {
+      throw new Error('Settlement amount cannot exceed available balance.');
+    }
+
+    await db.runAsync(
+      'INSERT INTO staff_settlements (id, staffId, type, amount, notes, createdBy, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [uuid(), scopedStaffId, input.type, amount, input.notes?.trim() || null, input.createdBy ?? null, nowIso()]
+    );
   },
 };

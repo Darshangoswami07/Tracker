@@ -170,6 +170,10 @@ export type StaffDashboardStackParamList = {
    * stays inside the Dashboard stack — keeping `goBack` return to the shop's GR
    * list instead of jumping to the Deliveries tab. */
   GRDetails: { orderId: string };
+  /** Dashboard → "Daily Collection" quick action: this staff member's own
+   * money summary (collected / owner / labour / driver / balance) for a
+   * selected day. Always scoped to the signed-in Staff's own id. */
+  StaffDailyCollection: undefined;
 };
 
 /** Screens reached from the Staff shell's Deliveries tab (reuses the

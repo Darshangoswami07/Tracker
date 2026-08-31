@@ -201,6 +201,35 @@ export const AdminStaffDailyWorkScreen = ({ route }: any) => {
               </View>
             )}
 
+            {/* Money Settlement — same accounting the Staff Daily Collection
+                page shows (orderRepository.getStaffSettlementTotals is the
+                one shared source both screens read). */}
+            {(s.amountCollected > 0 || s.ownerAmount > 0 || s.labourAmount > 0 || s.driverAmount > 0) && (
+              <View style={[styles.perfCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+                <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Money Settlement</Text>
+                <View style={styles.perfRow}>
+                  <Text style={[styles.perfLabel, { color: colors.textMuted }]}>Total Collection</Text>
+                  <Text style={[styles.perfValue, { color: colors.textPrimary }]}>{formatCurrency(s.amountCollected)}</Text>
+                </View>
+                <View style={styles.perfRow}>
+                  <Text style={[styles.perfLabel, { color: colors.textMuted }]}>Owner Account</Text>
+                  <Text style={[styles.perfValue, { color: colors.textPrimary }]}>- {formatCurrency(s.ownerAmount)}</Text>
+                </View>
+                <View style={styles.perfRow}>
+                  <Text style={[styles.perfLabel, { color: colors.textMuted }]}>Paid to Labour</Text>
+                  <Text style={[styles.perfValue, { color: colors.textPrimary }]}>- {formatCurrency(s.labourAmount)}</Text>
+                </View>
+                <View style={styles.perfRow}>
+                  <Text style={[styles.perfLabel, { color: colors.textMuted }]}>Paid to Driver</Text>
+                  <Text style={[styles.perfValue, { color: colors.textPrimary }]}>- {formatCurrency(s.driverAmount)}</Text>
+                </View>
+                <View style={[styles.perfRow, { marginTop: 4, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}>
+                  <Text style={[styles.perfLabel, { color: colors.textPrimary, fontWeight: '800' }]}>Staff Balance</Text>
+                  <Text style={[styles.perfValue, { color: s.staffBalance > 0 ? '#F97316' : '#10B981' }]}>{formatCurrency(s.staffBalance)}</Text>
+                </View>
+              </View>
+            )}
+
             {/* Today's Activity timeline */}
             <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{activityLabel}</Text>
             {activity.timeline.length === 0 ? (

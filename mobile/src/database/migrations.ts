@@ -361,6 +361,27 @@ export const runMigrations = async (db: SQLiteDatabase): Promise<void> => {
     version = 14;
   }
 
+  // v14 -> v15: Daily Collection / money settlement feature. Adds
+  // `staff_settlements` for owner/labour/driver cash handovers a staff
+  // member records against their own day's collection — additive only, no
+  // existing table/row touched.
+  if (version === 14) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS staff_settlements (
+        id         TEXT PRIMARY KEY NOT NULL,
+        staffId    TEXT NOT NULL,
+        type       TEXT NOT NULL,
+        amount     REAL NOT NULL,
+        notes      TEXT,
+        createdBy  TEXT,
+        createdAt  TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_staff_settlements_staffId ON staff_settlements(staffId);
+      CREATE INDEX IF NOT EXISTS idx_staff_settlements_createdAt ON staff_settlements(createdAt);
+    `);
+    version = 15;
+  }
+
   await db.execAsync(`PRAGMA user_version = ${version}`);
 };
 

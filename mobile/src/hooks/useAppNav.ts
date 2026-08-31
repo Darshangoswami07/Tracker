@@ -62,6 +62,7 @@ const ADMIN_SCREEN_TO_TAB: Record<string, keyof AdminTabParamList> = {
  * differently and don't include any Admin-only screen. */
 const STAFF_SCREEN_TO_TAB: Record<string, keyof StaffTabParamList> = {
   StaffDashboard: 'StaffDashboardTab',
+  StaffDailyCollection: 'StaffDashboardTab',
   StaffDeliveries: 'StaffDeliveriesTab',
   GRDetails: 'StaffDeliveriesTab',
   EditGR: 'StaffDeliveriesTab',

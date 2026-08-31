@@ -9,7 +9,7 @@
  * Column names mirror `backend/app/models/order.py` so that a future online
  * sync can map rows 1:1 without transformation.
  */
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 /**
  * DDL executed against a fresh database (user_version == 0). Kept as a plain
@@ -121,6 +121,24 @@ CREATE TABLE IF NOT EXISTS payments (
 
 CREATE INDEX IF NOT EXISTS idx_payments_orderId ON payments(orderId);
 
+-- Staff cash settlements: money a staff member hands out of their own daily
+-- collection (owner handover, labour wages, driver payment). Not tied to a
+-- single GR/order (a settlement is usually a lump sum from the day's total
+-- collection across several GRs), so it cannot live in the payments table,
+-- which requires an orderId. type is one of 'owner' | 'labour' | 'driver'.
+CREATE TABLE IF NOT EXISTS staff_settlements (
+  id         TEXT PRIMARY KEY NOT NULL,
+  staffId    TEXT NOT NULL,
+  type       TEXT NOT NULL,
+  amount     REAL NOT NULL,
+  notes      TEXT,
+  createdBy  TEXT,
+  createdAt  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_staff_settlements_staffId ON staff_settlements(staffId);
+CREATE INDEX IF NOT EXISTS idx_staff_settlements_createdAt ON staff_settlements(createdAt);
+
 -- Status history (each transition appended when the status changes).
 CREATE TABLE IF NOT EXISTS order_status_history (
   id        TEXT PRIMARY KEY NOT NULL,
@@ -190,6 +208,7 @@ CREATE TABLE IF NOT EXISTS sync_meta (
 `;
 
 export const DROP_SCHEMA_SQL = `
+DROP TABLE IF EXISTS staff_settlements;
 DROP TABLE IF EXISTS payments;
 DROP TABLE IF EXISTS import_history;
 DROP TABLE IF EXISTS order_attachments;

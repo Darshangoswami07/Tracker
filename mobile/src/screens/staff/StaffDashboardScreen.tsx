@@ -14,6 +14,7 @@ interface Overview {
   pending: number;
   completed: number;
   outstanding: number;
+  todayCollection: number;
 }
 
 const formatCurrency = (amount: number): string =>
@@ -32,30 +33,34 @@ export const StaffDashboardScreen = () => {
   const user = useUserStore((state) => state.user);
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
-  const [overview, setOverview] = useState<Overview>({ assigned: 0, pending: 0, completed: 0, outstanding: 0 });
+  const [overview, setOverview] = useState<Overview>({ assigned: 0, pending: 0, completed: 0, outstanding: 0, todayCollection: 0 });
   const [refreshing, setRefreshing] = useState(false);
 
   // Every call below is automatically scoped to this Staff member's own
-  // assigned area at the repository level (see `orderRepository`'s
-  // `resolveAreaScope`) — never the whole system's numbers.
+  // assigned area/id at the repository level (see `orderRepository`'s
+  // `resolveAreaScope`/`resolveStaffScope`) — never the whole system's
+  // numbers, never another staff member's.
   const loadOverview = useCallback(async () => {
+    if (!user?.id) return;
     try {
-      const [pending, completed, receiving, ...assignedLists] = await Promise.all([
+      const [pending, completed, receiving, dailyCollection, ...assignedLists] = await Promise.all([
         orderRepository.list({ status: 'pending', pageSize: 1 }),
         orderRepository.list({ status: 'delivered', pageSize: 1 }),
         orderRepository.getReceivingOverview(),
+        orderRepository.getStaffDailyCollection(user.id, new Date().toISOString()),
         ...ASSIGNED_STATUSES.map((status) => orderRepository.list({ status, pageSize: 1 })),
       ]);
       setOverview({
         pending: pending.total,
         completed: completed.total,
         outstanding: receiving.outstanding,
+        todayCollection: dailyCollection.totalCollection,
         assigned: assignedLists.reduce((sum, r) => sum + r.total, 0),
       });
     } catch (error) {
       console.error('Failed to load Staff dashboard overview:', error);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     const timer = setTimeout(() => loadOverview(), 0);
@@ -173,6 +178,18 @@ export const StaffDashboardScreen = () => {
             </View>
             <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>Delivered Slip</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
+            onPress={() => navigate('StaffDailyCollection')}
+            accessibilityRole="button"
+          >
+            <View style={[styles.actionIcon, { backgroundColor: '#10B98118' }]}>
+              <Ionicons name="wallet-outline" size={22} color="#10B981" />
+            </View>
+            <Text style={[styles.actionValue, { color: '#10B981' }]}>{formatCurrency(overview.todayCollection)}</Text>
+            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>Daily Collection</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -199,6 +216,7 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     actionCard: { flexGrow: 1, minWidth: 140, alignItems: 'center', paddingVertical: theme.spacing.lg, gap: theme.spacing.sm },
     actionIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
     actionLabel: { fontSize: theme.fonts.size.sm, fontWeight: '700', textAlign: 'center' },
+    actionValue: { fontSize: theme.fonts.size.md, fontWeight: '800', marginTop: -4 },
   });
 
 export default StaffDashboardScreen;
