@@ -382,6 +382,23 @@ export const runMigrations = async (db: SQLiteDatabase): Promise<void> => {
     version = 15;
   }
 
+  // Unconditional self-heal for staff_settlements. A v14->v15 migration that
+  // got interrupted on web (OPFS single-writer lock) could leave the version
+  // at 15 without the table ever being created. Re-runnable via IF NOT EXISTS.
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS staff_settlements (
+      id         TEXT PRIMARY KEY NOT NULL,
+      staffId    TEXT NOT NULL,
+      type       TEXT NOT NULL,
+      amount     REAL NOT NULL,
+      notes      TEXT,
+      createdBy  TEXT,
+      createdAt  TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_staff_settlements_staffId ON staff_settlements(staffId);
+    CREATE INDEX IF NOT EXISTS idx_staff_settlements_createdAt ON staff_settlements(createdAt);
+  `);
+
   await db.execAsync(`PRAGMA user_version = ${version}`);
 };
 
