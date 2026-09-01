@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Animated, ScrollView, StyleSheet, Text, TextI
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAppNav } from '../../hooks/useAppNav';
 import { useAuthStore } from '../../store/authStore';
@@ -18,12 +19,14 @@ import type { AppTheme } from '../../theme/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { MoreStackParamList } from '../../navigation/types';
 
-/** The four customer-facing delivery stages, derived from the backend status. */
+/** The four customer-facing delivery stages, derived from the backend status.
+ *  Labels are resolved at render time from the `summary.*` status keys so they
+ *  follow the globally selected language. */
 const STAGES = [
-  { key: 'pending', label: 'Pending' },
-  { key: 'uncleared', label: 'Uncleared' },
-  { key: 'cleared', label: 'Cleared' },
-  { key: 'delivered', label: 'Delivered' },
+  { key: 'pending', labelKey: 'summary.pending' },
+  { key: 'uncleared', labelKey: 'summary.uncleared' },
+  { key: 'cleared', labelKey: 'summary.cleared' },
+  { key: 'delivered', labelKey: 'summary.delivered' },
 ] as const;
 
 interface TimelineEvent {
@@ -104,6 +107,7 @@ type Props = NativeStackScreenProps<MoreStackParamList, 'CustomerTracking'>;
 
 export const CustomerTrackingScreen = ({ route }: Props) => {
   const theme = useAppTheme();
+  const { t } = useTranslation();
   const { colors, spacing, radii, shadows } = theme;
   const { navigate, goToNotifications } = useAppNav();
   const accessToken = useAuthStore((state) => state.accessToken);
@@ -173,7 +177,7 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
       setShipment(local ? toTrackedShipment(local) : null);
     } catch {
       setShipment(null);
-      Alert.alert('Error', 'Could not look up that GR number. Please try again.');
+      Alert.alert(t('common.error'), t('tracking.errorLookup'));
     } finally {
       setLoading(false);
     }
@@ -182,15 +186,15 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
       <Header
-        title="Tracking"
-        leftAction={{ icon: 'person-circle-outline', onPress: () => navigate('Profile'), accessibilityLabel: 'Profile' }}
+        title={t('tracking.title')}
+        leftAction={{ icon: 'person-circle-outline', onPress: () => navigate('Profile'), accessibilityLabel: t('common.profile') }}
         rightAction={{ icon: 'notifications-outline', onPress: goToNotifications, badge: unread }}
       />
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-          <Text style={styles.screenTitle}>Track Shipment</Text>
-          <Text style={styles.screenSubtitle}>Enter your GR number to see the latest delivery status.</Text>
+          <Text style={styles.screenTitle}>{t('tracking.trackShipment')}</Text>
+          <Text style={styles.screenSubtitle}>{t('tracking.enterGrSubtitle')}</Text>
 
           <LinearGradient
             colors={[colors.primarySoft, colors.surface]}
@@ -204,7 +208,7 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
               </View>
               <TextInput
                 style={[styles.searchInput, { color: colors.textPrimary }]}
-                placeholder="Enter GR Number"
+                placeholder={t('tracking.enterGRNumber')}
                 placeholderTextColor={colors.textMuted}
                 value={grNumber}
                 onChangeText={setGrNumber}
@@ -220,14 +224,14 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
               disabled={loading || !grNumber.trim()}
               activeOpacity={0.85}
               accessibilityRole="button"
-              accessibilityLabel="Track shipment"
+              accessibilityLabel={t('tracking.trackShipment')}
             >
               {loading ? (
                 <ActivityIndicator color={colors.onPrimary} size="small" />
               ) : (
                 <>
                   <Ionicons name="search" size={18} color={colors.onPrimary} />
-                  <Text style={[styles.trackBtnText, { color: colors.onPrimary }]}>Track</Text>
+                  <Text style={[styles.trackBtnText, { color: colors.onPrimary }]}>{t('tracking.track')}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -237,8 +241,8 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
             <View style={{ marginTop: spacing.xxxl }}>
               <EmptyState
                 icon="paper-plane-outline"
-                title="Track your shipment"
-                subtitle="The GR number on your transport slip is all you need to see where your delivery is."
+                title={t('tracking.trackYourShipment')}
+                subtitle={t('tracking.trackDesc')}
                 iconColor={colors.primary}
               />
             </View>
@@ -248,8 +252,8 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
             <View style={{ marginTop: spacing.xxxl }}>
               <EmptyState
                 icon="alert-circle-outline"
-                title="No shipment found"
-                subtitle="Check the GR number and try again, or contact support."
+                title={t('tracking.noShipmentFound')}
+                subtitle={t('tracking.checkAndRetry')}
                 iconColor={colors.error}
               />
             </View>
@@ -259,9 +263,9 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
             <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radii.xl, ...shadows.md }]}>
               <View style={styles.cardHeader}>
                 <View>
-                  <Text style={styles.fieldLabel}>GR NUMBER</Text>
+                  <Text style={styles.fieldLabel}>{t('tracking.grNumber')}</Text>
                   <Text style={styles.grNumber}>{shipment.orderNumber}</Text>
-                  {shipment.createdAt && <Text style={styles.cardDate}>Booked {formatDateTime(shipment.createdAt)}</Text>}
+                  {shipment.createdAt && <Text style={styles.cardDate}>{t('tracking.booked')} {formatDateTime(shipment.createdAt)}</Text>}
                 </View>
                 <StatusBadge status={shipment.status} size="lg" />
               </View>
@@ -300,7 +304,7 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
                           numberOfLines={1}
                           style={[styles.stepLabel, { color: reached ? colors.textPrimary : colors.textMuted, fontWeight: reached ? '700' : '500' }]}
                         >
-                          {stage.label}
+                          {t(stage.labelKey)}
                         </Text>
                       </View>
                     );
@@ -310,12 +314,12 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
 
               {shipment.timeline.length > 0 && (
                 <View style={styles.historyBlock}>
-                  <Text style={styles.fieldLabel}>STATUS HISTORY</Text>
+                  <Text style={styles.fieldLabel}>{t('tracking.statusHistory')}</Text>
                   {shipment.timeline.map((event) => (
                     <View key={event.id} style={styles.historyRow}>
                       <View style={[styles.historyDot, { backgroundColor: colors.primary }]} />
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.historyStatus}>{humanizeStatus(event.status)}</Text>
+                        <Text style={styles.historyStatus}>{t(`summary.${event.status}`, humanizeStatus(event.status))}</Text>
                         {event.description ? <Text style={styles.historyDesc}>{event.description}</Text> : null}
                       </View>
                       {event.timestamp && <Text style={styles.historyTime}>{formatDateTime(event.timestamp)}</Text>}
@@ -327,34 +331,34 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
               <View style={styles.grid}>
-                <Field theme={theme} label="Consignor" value={shipment.consignorName || '—'} />
-                <Field theme={theme} label="Consignee" value={shipment.consigneeName || '—'} />
-                <Field theme={theme} label="From → To" value={`${shipment.pickupAddress} → ${shipment.deliveryAddress}`} wide />
-                <Field theme={theme} label="Delivery At" value={shipment.deliveryAddress} wide />
+                <Field theme={theme} label={t('tracking.consignor')} value={shipment.consignorName || '—'} />
+                <Field theme={theme} label={t('tracking.consignee')} value={shipment.consigneeName || '—'} />
+                <Field theme={theme} label={t('tracking.fromTo')} value={`${shipment.pickupAddress} → ${shipment.deliveryAddress}`} wide />
+                <Field theme={theme} label={t('tracking.deliveryAt')} value={shipment.deliveryAddress} wide />
               </View>
 
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
               <View style={styles.particularsRow}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.fieldLabel}>PARTICULARS</Text>
+                  <Text style={styles.fieldLabel}>{t('tracking.particulars')}</Text>
                   <Text style={styles.fieldValue}>{shipment.particulars || '—'}</Text>
                 </View>
                 <View>
-                  <Text style={styles.fieldLabel}>PACKAGES</Text>
+                  <Text style={styles.fieldLabel}>{t('tracking.packages')}</Text>
                   <Text style={styles.fieldValue}>{shipment.packageCount ?? '—'}</Text>
                 </View>
                 <View>
-                  <Text style={styles.fieldLabel}>WEIGHT</Text>
+                  <Text style={styles.fieldLabel}>{t('tracking.weightLabel')}</Text>
                   <Text style={styles.fieldValue}>{shipment.weight ? `${shipment.weight} kg` : '—'}</Text>
                 </View>
               </View>
 
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-              <Text style={styles.fieldLabel}>PHOTOS / SLIP</Text>
+              <Text style={styles.fieldLabel}>{t('tracking.photosSlip')}</Text>
               {shipment.attachments.length === 0 ? (
-                <Text style={styles.noPhotos}>No photos uploaded yet.</Text>
+                <Text style={styles.noPhotos}>{t('tracking.noPhotosYet')}</Text>
               ) : (
                 <View style={{ gap: 8, marginTop: 8 }}>
                   {shipment.attachments.map((a) => (

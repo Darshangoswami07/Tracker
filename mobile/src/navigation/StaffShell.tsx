@@ -2,6 +2,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../theme/useAppTheme';
 import type {
   StaffTabParamList,
@@ -93,10 +94,10 @@ const TAB_ICONS: Record<keyof StaffTabParamList, { active: keyof typeof Ionicons
   StaffMoreTab: { active: 'ellipsis-horizontal-circle', inactive: 'ellipsis-horizontal-outline' },
 };
 
-const TAB_LABELS: Record<keyof StaffTabParamList, string> = {
-  StaffDashboardTab: 'Dashboard',
-  StaffDeliveriesTab: 'Deliveries',
-  StaffMoreTab: 'More',
+const TAB_LABEL_KEYS: Record<keyof StaffTabParamList, string> = {
+  StaffDashboardTab: 'navigation.dashboard',
+  StaffDeliveriesTab: 'navigation.deliveries',
+  StaffMoreTab: 'common.more',
 };
 
 /**
@@ -107,6 +108,7 @@ const TAB_LABELS: Record<keyof StaffTabParamList, string> = {
  */
 export const StaffShell = () => {
   const { colors, fonts } = useAppTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
   return (
@@ -133,9 +135,9 @@ export const StaffShell = () => {
         ),
       })}
     >
-      <Tab.Screen name="StaffDashboardTab" component={DashboardTabStack} options={{ tabBarLabel: TAB_LABELS.StaffDashboardTab }} />
-      <Tab.Screen name="StaffDeliveriesTab" component={DeliveriesTabStack} options={{ tabBarLabel: TAB_LABELS.StaffDeliveriesTab }} />
-      <Tab.Screen name="StaffMoreTab" component={MoreTabStack} options={{ tabBarLabel: TAB_LABELS.StaffMoreTab }} />
+      <Tab.Screen name="StaffDashboardTab" component={DashboardTabStack} options={{ tabBarLabel: t(TAB_LABEL_KEYS.StaffDashboardTab) }} />
+      <Tab.Screen name="StaffDeliveriesTab" component={DeliveriesTabStack} options={{ tabBarLabel: t(TAB_LABEL_KEYS.StaffDeliveriesTab) }} />
+      <Tab.Screen name="StaffMoreTab" component={MoreTabStack} options={{ tabBarLabel: t(TAB_LABEL_KEYS.StaffMoreTab) }} />
     </Tab.Navigator>
   );
 };

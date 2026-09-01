@@ -55,6 +55,7 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
+    "i18n:check": "node scripts/check-i18n.mjs",
     "boot": "expo start"
   },
   "private": true
