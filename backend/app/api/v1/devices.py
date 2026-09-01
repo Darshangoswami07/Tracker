@@ -2,7 +2,8 @@
 
 These live on Neon (the centralized control layer). The mobile app calls them
 after account activation/login to bind the physical device and receive its
-license key. Business data is never sent here — it stays in device-local SQLite.
+license key. This is the device/license control plane only — all business
+data flows through the other API routers into Neon.
 """
 from __future__ import annotations
 

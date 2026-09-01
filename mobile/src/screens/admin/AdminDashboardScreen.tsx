@@ -211,9 +211,10 @@ export const AdminDashboardScreen = () => {
   }, []);
 
   // Recent Activity is real GR/shipment history (status transitions + slip
-  // uploads) read from the on-device SQLite database — the same source the
-  // GR list / Customer Tracking / GR Tracker screens use — not the backend's
-  // email-notification log, which isn't meaningful operational activity.
+  // uploads) read from the backend (`/admin/orders/meta/activity`, Neon) —
+  // the same source the GR list / Customer Tracking / GR Tracker screens use
+  // — not the backend's email-notification log, which isn't meaningful
+  // operational activity.
   const fetchActivity = useCallback(async () => {
     setActivityStatus('loading');
     try {
@@ -228,7 +229,7 @@ export const AdminDashboardScreen = () => {
 
   const fetchShipmentOverview = useCallback(async () => {
     try {
-      const result = await orderRepository.list({ page: 1, pageSize: 9999 });
+      const result = await orderRepository.listAll();
       const counts: ShipmentOverview = { total: result.total, pending: 0, cleared: 0, uncleared: 0, delivered: 0 };
       for (const item of result.items) {
         if (item.status === 'pending') counts.pending++;

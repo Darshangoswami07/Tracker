@@ -167,11 +167,8 @@ export const CustomerTrackingScreen = ({ route }: Props) => {
     setSearched(true);
     setShipment(null);
     try {
-      // GR data is local-first (created on-device, never synced to the
-      // backend — see `AdminCreateGRScreen`), so tracking looks the GR up
-      // in the on-device SQLite database rather than calling
-      // `GET /orders/track/{gr}`, which only knows about backend-created
-      // orders and would 404 for every locally-created GR.
+      // Tracking looks the GR up through the backend
+      // (`GET /admin/orders/track/{gr}`, Neon) via `orderRepository`.
       const local = await orderRepository.getByOrderNumber(trimmed);
       setShipment(local ? toTrackedShipment(local) : null);
     } catch {

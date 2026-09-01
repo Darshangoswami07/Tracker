@@ -109,6 +109,18 @@ class ApproveRequest(BaseModel):
     pass
 
 
+class ApproveStaffRequest(BaseModel):
+    """Schema for approving a self-service Staff account.
+
+    ``companyId`` is required when the approving ADMIN/SUPER_ADMIN is
+    platform-level (no company of their own — see ``tenancy.py``) and more
+    than one company exists, so the approver must say which tenant the new
+    Staff account belongs to. Optional otherwise: omitted when there is
+    exactly one company in the system (the common single-tenant case).
+    """
+    companyId: Optional[UUID] = None
+
+
 class RejectRequest(BaseModel):
     """Schema for rejecting a registration request."""
     reason: str = Field(min_length=1, max_length=500)

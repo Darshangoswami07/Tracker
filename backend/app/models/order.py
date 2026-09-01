@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, Enum as SqlEnum, Float, String, ForeignKey
+from sqlalchemy import Boolean, DateTime, Enum as SqlEnum, Float, String, Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -111,7 +111,7 @@ class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     # client parses it). hasSlip mirrors "has at least one attachment" for
     # fast list rendering without a join.
     hasSlip: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    slipData: Mapped[str | None] = mapped_column(String, nullable=True)
+    slipData: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Excel bulk-import fields (mobile schema.ts v6). All optional.
     chalaanNo: Mapped[str | None] = mapped_column(String(80), nullable=True)
     chalaanDate: Mapped[str | None] = mapped_column(String(40), nullable=True)

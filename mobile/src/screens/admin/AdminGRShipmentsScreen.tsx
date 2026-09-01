@@ -234,7 +234,7 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
 
         // Compute summary from all items (not just current page)
         if (mode !== 'more') {
-          const allResults = await orderRepository.list({ page: 1, pageSize: 9999, search: search || undefined, area: effectiveArea || undefined, consignor: consignorFilter || undefined, dateFrom });
+          const allResults = await orderRepository.listAll({ search: search || undefined, area: effectiveArea || undefined, consignor: consignorFilter || undefined, dateFrom });
           const counts: SummaryCounts = { total: allResults.total, pending: 0, cleared: 0, uncleared: 0, delivered: 0, totalToPay: 0, totalReceived: 0, totalOutstanding: 0, todayCollection: 0 };
           for (const item of allResults.items) {
             if (item.status === 'pending') counts.pending++;

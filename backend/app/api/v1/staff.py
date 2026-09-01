@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, Query
 from app.api.deps import AdminUser, get_user_agent
 from app.core.exceptions import ForbiddenError, NotFoundError, ValidationBusinessError
 from app.models.enums import UserRole
-from app.schemas.approval import AdminUserOut, RejectRequest
+from app.schemas.approval import AdminUserOut, ApproveStaffRequest, RejectRequest
 from app.schemas.auth import (
     AdminLoginRequest,
     AuthResponse,
@@ -121,15 +121,50 @@ async def _get_pending_staff(user_id: str):
 
 
 @router.post("/admin/staff-approvals/{user_id}/approve")
-async def approve_staff(user_id: str, admin: AdminUser) -> dict:
-    """Approves a pending Staff account: activates it and assigns it to the
-    approving Admin's own company (needed for GR/shipment access) — no OTP,
-    no email, matching the Staff portal's no-email-approval requirement."""
+async def approve_staff(
+    user_id: str, admin: AdminUser, payload: ApproveStaffRequest = ApproveStaffRequest()
+) -> dict:
+    """Approves a pending Staff account: activates it and assigns it to a
+    company (needed for every GR/shipment-access endpoint, which all scope
+    by ``companyId`` — see ``core/tenancy.py``) — no OTP, no email, matching
+    the Staff portal's no-email-approval requirement.
+
+    ADMIN/SUPER_ADMIN are platform-level and never have a ``companyId`` of
+    their own (by design), so it can never be inherited from ``admin`` the
+    way ``create_gr`` inherits it from a company-scoped caller. Resolving
+    *some* company here is mandatory: leaving it ``None`` would silently
+    lock the new Staff account out of every company-scoped endpoint with a
+    403 that has nothing to do with their actual permissions — the exact
+    failure this replaces.
+    """
     await _get_pending_staff(user_id)
+    from app.repositories.company_repository import CompanyRepository
     from app.repositories.user_repository import UserRepository
 
+    company_repo = CompanyRepository()
+    if payload.companyId is not None:
+        company = await company_repo.find_active_by_id(payload.companyId)
+        if company is None:
+            raise ValidationBusinessError("The selected company could not be found.")
+        company_id = company.id
+    elif admin.companyId is not None:
+        company_id = admin.companyId
+    else:
+        companies = await company_repo.list_active_companies()
+        if len(companies) == 1:
+            company_id = companies[0].id
+        elif len(companies) == 0:
+            raise ValidationBusinessError(
+                "No company exists yet. Create a company before approving Staff accounts."
+            )
+        else:
+            raise ValidationBusinessError(
+                "More than one company exists — specify which company this "
+                "Staff account belongs to."
+            )
+
     repo = UserRepository()
-    updated = await repo.approve_staff(user_id, admin.companyId)
+    updated = await repo.approve_staff(user_id, company_id)
     if not updated:
         raise NotFoundError("Staff account not found.")
     return success({"approved": True}, message="Staff account approved successfully.")

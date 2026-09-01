@@ -12,15 +12,18 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import GRAccessUser
+from app.core.rbac import is_admin
 from app.core.tenancy import assert_same_company
 from app.database.db import get_db_session
-from app.models.enums import OrderStatus
+from app.models.enums import OrderStatus, UserRole
 from app.models.order import Order
 from app.models.payment import Payment
 from app.repositories.payment_repository import PaymentRepository
 from app.schemas.payment import PaymentCreateRequest, PaymentOut, PaymentSummaryOut
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
+
+_STAFF_ROLES = (UserRole.STAFF, UserRole.EMPLOYEE)
 
 
 @router.post("", response_model=PaymentOut, status_code=status.HTTP_201_CREATED)
@@ -58,13 +61,22 @@ async def create_payment(
             detail=f"Payment cannot exceed the remaining amount of {remaining:.2f}.",
         )
 
+    # STAFF/EMPLOYEE can only ever attribute a collection to themselves — a
+    # client-supplied recordedBy is never trusted for them, so a caller can
+    # neither spoof another staff member's collection nor silently vanish
+    # from their own Staff Daily Collection by omitting the field. ADMIN/
+    # SUPER_ADMIN may record a collection on a specific staff member's behalf
+    # (see AdminGRDetailsScreen's `collectedByStaffId` picker), so their
+    # explicit recordedBy is respected.
+    recorded_by = str(admin.id) if admin.role in _STAFF_ROLES else body.recordedBy
+
     repo = PaymentRepository(session)
     payment = Payment(
         orderId=body.orderId,
         amount=body.amount,
         paymentMethod=body.paymentMethod,
         notes=body.notes,
-        recordedBy=body.recordedBy,
+        recordedBy=recorded_by,
     )
     await repo.save(payment)
 

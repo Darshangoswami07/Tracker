@@ -46,6 +46,12 @@ ORDER_COLUMNS = [
 def upgrade() -> None:
     bind = op.get_bind()
 
+    # Drop the abandoned out-of-band `money_distributions` table (test data
+    # only, never committed to the codebase). Settlements live in
+    # `staff_settlements`.
+    if _table_exists(bind, "money_distributions"):
+        op.drop_table("money_distributions")
+
     for name, type_, kwargs in ORDER_COLUMNS:
         if not _column_exists(bind, "orders", name):
             op.add_column("orders", sa.Column(name, type_, **kwargs))

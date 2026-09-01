@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, ForeignKey, Numeric, String, Text, Uuid
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Numeric, String, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.base import Base
@@ -34,6 +34,13 @@ class StaffSettlement(Base, UUIDPrimaryKeyMixin, TimestampMixin):
             name="ck_staff_settlements_type",
         ),
         CheckConstraint("amount > 0", name="ck_staff_settlements_amount_positive"),
+        Index("ix_staff_settlements_createdAt", "createdAt"),
+        Index(
+            "uq_staff_settlements_clientRequestId",
+            "clientRequestId",
+            unique=True,
+            postgresql_where=text('"clientRequestId" IS NOT NULL'),
+        ),
     )
 
     # The staff member the settlement belongs to (a ``users.id`` — the id
@@ -53,4 +60,6 @@ class StaffSettlement(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # write reuses this value so the unique index collapses the duplicate
     # rather than recording the handover twice (Step 17 — duplicate
     # prevention for financial operations).
-    clientRequestId: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
+    # Unique enforced by a partial index (``clientRequestId IS NOT NULL``)
+    # created in migration 017 — not a plain UNIQUE, so many NULLs are allowed.
+    clientRequestId: Mapped[str | None] = mapped_column(String(100), nullable=True)

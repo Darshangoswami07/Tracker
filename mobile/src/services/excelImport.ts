@@ -3,9 +3,9 @@ import { matchArea, type Area } from '../constants/areas';
 
 /**
  * Pure parsing/validation logic for the Excel GR bulk-import feature. No
- * React/DB imports here — `importRepository.ts` is the only caller that
- * touches SQLite, so this module can be reasoned about (and unit-tested)
- * independently of the on-device database.
+ * React/network imports here — `importRepository.ts` is the only caller that
+ * talks to the backend, so this module can be reasoned about (and
+ * unit-tested) independently.
  *
  * Column headers are read dynamically from the workbook (see
  * `EXCEL_HEADER_MAP` below) — GR numbers and other sample values are never

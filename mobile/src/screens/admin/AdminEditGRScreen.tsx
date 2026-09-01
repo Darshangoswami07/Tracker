@@ -117,9 +117,8 @@ const toDateInput = (iso: string | null | undefined): string => {
  * Parties / Route / Goods / Charges / Transport Details) so a GR created via
  * Excel import (which populates far more fields than a manual GR) can
  * actually be corrected here instead of silently losing access to most of
- * its data. In the local-first architecture the record is read and saved
- * through the on-device SQLite repository (`orderRepository`) instead of
- * `PATCH /admin/orders/{id}`, so editing works fully offline.
+ * its data. The record is read and saved through `orderRepository`, which
+ * calls the FastAPI backend (`GET`/`PATCH /admin/orders/{id}`, Neon).
  */
 export const AdminEditGRScreen = ({ route }: any) => {
   const { orderId } = route.params as { orderId: string };

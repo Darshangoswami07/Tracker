@@ -1,9 +1,8 @@
 """Registered mobile device bound to a platform user (centralized control data).
 
-The local-first architecture keeps business data (orders, customers, drivers,
-vehicles) on the device in SQLite, while Neon remains the single source of
-truth for *control* data. Devices are part of that control plane: Neon records
-which physical device is allowed to run the app and the license bound to it.
+Neon is the single source of truth for all data. Devices are part of the
+control plane: Neon records which physical device is allowed to run the app
+and the license bound to it.
 """
 from __future__ import annotations
 

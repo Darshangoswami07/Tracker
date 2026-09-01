@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ComponentProps } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,7 +10,6 @@ import { api } from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
 import { orderRepository } from '../../database/repositories/orderRepository';
 import type { LocalPayment, PaymentSummary } from '../../database/repositories/orderRepository';
-import { syncLookupTables } from '../../database/sync';
 import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
 import { EmptyState } from '../../components/EmptyState';
@@ -91,11 +90,6 @@ const SOURCE_LABELS: Record<string, string> = {
   excel: 'Excel Import',
 };
 
-interface PickerOption {
-  id: string;
-  name: string;
-}
-
 const ALL_STATUSES = ['pending', 'cleared', 'uncleared', 'delivered'];
 
 const STATUS_LABELS: Record<string, string> = {
@@ -139,10 +133,6 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const [uploading, setUploading] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState<ViewableAttachment | null>(null);
 
-  const [drivers, setDrivers] = useState<PickerOption[]>([]);
-  const [staff, setStaff] = useState<PickerOption[]>([]);
-  const [assignPicker, setAssignPicker] = useState<'driver' | 'staff' | null>(null);
-  const [assigning, setAssigning] = useState(false);
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
 
   // Payment state
@@ -154,10 +144,9 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const [paymentNotes, setPaymentNotes] = useState('');
   const [submittingPayment, setSubmittingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
-  // "Collected By" — approved self-service Staff accounts (role=staff),
-  // separate from `staff` above (which lists the older company-invited
-  // "employee" role for GR assignment). Only Admin picks one; a Staff user
-  // recording their own collection is auto-attributed to themselves.
+  // "Collected By" — approved self-service Staff accounts (role=staff).
+  // Only Admin picks one; a Staff user recording their own collection is
+  // auto-attributed to themselves.
   const [collectorOptions, setCollectorOptions] = useState<{ id: string; fullName: string; area: string | null }[]>([]);
   const [collectedByStaffId, setCollectedByStaffId] = useState<string | null>(null);
 
@@ -205,29 +194,6 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
     return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
-
-  useEffect(() => {
-    (async () => {
-      // `syncLookupTables` hits `/admin/companies`, `/admin/drivers`,
-      // `/admin/users` — Admin-only endpoints the backend correctly 403s a
-      // Staff account on. `safeFetch` inside it swallows the error either
-      // way (so this was never breaking anything), but it guaranteed three
-      // failing network calls, every time this screen opened, for every
-      // Staff user — pure noise in the network tab. Only Admin/Owner needs
-      // this sync (they're the ones assigning drivers/staff to a GR); Staff
-      // still gets the local `listDrivers`/`listStaff` reads below, which
-      // work off whatever's already cached on-device.
-      if (!isStaffUser) {
-        await syncLookupTables(accessToken);
-      }
-      const [driverRows, staffRows] = await Promise.all([
-        orderRepository.listDrivers(),
-        orderRepository.listStaff(),
-      ]);
-      setDrivers(driverRows.map((d) => ({ id: d.id, name: d.name })));
-      setStaff(staffRows.map((s) => ({ id: s.id, name: s.name })));
-    })().catch(() => {});
-  }, [accessToken, isStaffUser]);
 
   // Approved self-service Staff, for the Admin's "Collected By" picker.
   // Staff users never see this list — they always collect as themselves.
@@ -283,23 +249,6 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
       Alert.alert(t('createGR.uploadFailed'), err?.message ?? t('createGR.couldNotSaveSlip'));
     } finally {
       setUploading(false);
-    }
-  };
-
-  const handleAssign = async (option: PickerOption) => {
-    if (!assignPicker) return;
-    setAssigning(true);
-    try {
-      setGr(
-        assignPicker === 'driver'
-          ? await orderRepository.assignDriver(orderId, option.id)
-          : await orderRepository.assignStaff(orderId, option.id)
-      );
-      setAssignPicker(null);
-    } catch (err: any) {
-      Alert.alert(t('createGR.errorTitle'), err?.message ?? t('createGR.couldNotAssign', { role: assignPicker }));
-    } finally {
-      setAssigning(false);
     }
   };
 
@@ -400,10 +349,6 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
       </SafeAreaView>
     );
   }
-
-  const assignedDriverName = gr.driverId ? drivers.find((d) => d.id === gr.driverId)?.name ?? 'Assigned' : null;
-  const assignedStaffName = gr.assignedStaffId ? staff.find((s) => s.id === gr.assignedStaffId)?.name ?? 'Assigned' : null;
-  const pickerOptions = assignPicker === 'driver' ? drivers : staff;
 
   /** Resolves a `payments.recordedBy` id (a Staff account's user id) to a
    * display name for the Payment History list — "You" for the signed-in
@@ -627,12 +572,6 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
           </View>
         )}
 
-        <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
-          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>ASSIGNMENT</Text>
-          <AssignRow icon="person-outline" label="Staff" value={assignedStaffName} onPress={() => setAssignPicker('staff')} />
-          <AssignRow icon="car-outline" label="Driver" value={assignedDriverName} onPress={() => setAssignPicker('driver')} />
-        </View>
-
         <TouchableOpacity
           style={[styles.statusButton, { backgroundColor: colors.primary, borderRadius: radii.md, opacity: updating ? 0.6 : 1 }]}
           onPress={() => setStatusPickerOpen(true)}
@@ -808,32 +747,6 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
         </View>
       </Modal>
 
-      {/* Assign picker */}
-      <Modal visible={!!assignPicker} animationType="slide" transparent onRequestClose={() => setAssignPicker(null)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { backgroundColor: colors.background, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Assign {assignPicker === 'driver' ? 'Driver' : 'Staff'}</Text>
-              <TouchableOpacity onPress={() => setAssignPicker(null)} hitSlop={8}>
-                <Ionicons name="close" size={22} color={colors.textPrimary} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={{ maxHeight: 360 }}>
-              {pickerOptions.length === 0 ? (
-                <Text style={[styles.emptyOptions, { color: colors.textMuted }]}>No {assignPicker === 'driver' ? 'drivers' : 'staff'} found for this company.</Text>
-              ) : (
-                pickerOptions.map((option) => (
-                  <TouchableOpacity key={option.id} style={[styles.optionRow, { borderBottomColor: colors.border }]} onPress={() => handleAssign(option)} disabled={assigning}>
-                    <Text style={[styles.optionName, { color: colors.textPrimary }]}>{option.name}</Text>
-                    {assigning ? <ActivityIndicator size="small" color={colors.primary} /> : <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />}
-                  </TouchableOpacity>
-                ))
-              )}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
       {/* Status picker */}
       <Modal visible={statusPickerOpen} animationType="slide" transparent onRequestClose={() => setStatusPickerOpen(false)}>
         <View style={styles.modalOverlay}>
@@ -856,21 +769,6 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
         </View>
       </Modal>
     </SafeAreaView>
-  );
-};
-
-type IoniconName = ComponentProps<typeof Ionicons>['name'];
-
-const AssignRow = ({ icon, label, value, onPress }: { icon: IoniconName; label: string; value: string | null; onPress: () => void }) => {
-  const theme = useAppTheme();
-  const styles = createStyles(theme);
-  return (
-    <TouchableOpacity style={styles.assignRow} onPress={onPress} activeOpacity={0.7}>
-      <Ionicons name={icon} size={16} color={theme.colors.textMuted} />
-      <Text style={[styles.assignLabel, { color: theme.colors.textSecondary }]}>{label}</Text>
-      <Text style={[styles.assignValue, { color: value ? theme.colors.textPrimary : theme.colors.textMuted }]} numberOfLines={1}>{value ?? 'Unassigned'}</Text>
-      <Ionicons name="chevron-forward" size={16} color={theme.colors.textMuted} />
-    </TouchableOpacity>
   );
 };
 

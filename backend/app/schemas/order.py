@@ -44,13 +44,22 @@ class GRExtendedFields(BaseModel):
     consignorPhone: Optional[str] = Field(default=None, max_length=20)
     consigneeGstin: Optional[str] = Field(default=None, max_length=20)
     consigneePhone: Optional[str] = Field(default=None, max_length=20)
+    # Excel bulk-import extras (previously mobile-SQLite-only, schema.ts v6).
+    chalaanNo: Optional[str] = Field(default=None, max_length=80)
+    chalaanDate: Optional[str] = Field(default=None, max_length=40)
+    transportGrn: Optional[str] = Field(default=None, max_length=80)
+    paymentMode: Optional[str] = Field(default=None, max_length=40)
+    grSourceLabel: Optional[str] = Field(default=None, max_length=120)
 
 
 class GRCreateRequest(GRExtendedFields):
     """Fields required to create a new GR/shipment entry."""
 
     grNumber: str = Field(min_length=1, max_length=50)
-    companyId: UUID
+    # Optional: company-scoped callers (incl. mobile Admin/Staff) always get
+    # the GR under their own company; only Super Admin targeting another
+    # company needs to send this.
+    companyId: Optional[UUID] = None
     pickupAddress: str = Field(min_length=1, max_length=500)
     deliveryAddress: str = Field(min_length=1, max_length=500)
     pickupTime: datetime
@@ -63,6 +72,11 @@ class GRCreateRequest(GRExtendedFields):
     assignedStaffId: Optional[UUID] = None
     driverId: Optional[UUID] = None
     notes: Optional[str] = Field(default=None, max_length=500)
+    trackingCode: Optional[str] = Field(default=None, max_length=100)
+    # 'manual' | 'slip' | 'excel'. Defaults to 'manual'.
+    source: Optional[str] = Field(default=None, max_length=20)
+    # OCR-extracted slip snapshot (JSON string) persisted alongside the GR.
+    slipData: Optional[str] = None
 
     @field_validator("grNumber")
     @classmethod
@@ -83,6 +97,9 @@ class GRUpdateRequest(GRExtendedFields):
     packageCount: Optional[int] = Field(default=None, ge=0)
     weight: Optional[float] = Field(default=None, ge=0)
     notes: Optional[str] = Field(default=None, max_length=500)
+    pickupTime: Optional[datetime] = None
+    # Legacy single-field paid amount (Excel `Paid_Amt` maps here too).
+    paymentAmount: Optional[float] = Field(default=None, ge=0)
 
 
 class GRStatusUpdateRequest(BaseModel):
@@ -114,11 +131,25 @@ class OrderAttachmentOut(BaseModel):
         from_attributes = True
 
 
+class GRTimelineEventOut(BaseModel):
+    id: UUID
+    status: str
+    note: Optional[str] = None
+    createdAt: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class GROut(GRExtendedFields):
     """Full GR/shipment detail, including consignor/consignee and attachments."""
 
     id: UUID
     orderNumber: str
+    source: str = "manual"
+    slipData: Optional[str] = None
+    paymentAmount: Optional[float] = None
+    timeline: list[GRTimelineEventOut] = []
     companyId: UUID
     customerId: Optional[UUID] = None
     driverId: Optional[UUID] = None

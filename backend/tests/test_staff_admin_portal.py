@@ -69,9 +69,12 @@ async def test_staff_register_creates_pending_no_otp(client):
             "email": "sam.staff@example.com",
             "phone": "+919850002222",
             "password": "StaffPass123!",
+            # `area` became a required field on StaffRegisterRequest after this
+            # test was written (see app/schemas/auth.py); supply it.
+            "area": "Bageshwar",
         },
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
     assert data["status"] == "pending"
 

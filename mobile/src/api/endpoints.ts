@@ -56,7 +56,20 @@ export const ENDPOINTS = {
       updateStatus: (id: string) => `/admin/orders/${id}/status`,
       assignDriver: (id: string) => `/admin/orders/${id}/assign-driver`,
       assignStaff: (id: string) => `/admin/orders/${id}/assign-staff`,
+      remove: (id: string) => `/admin/orders/${id}`,
+      track: (grNumber: string) => `/admin/orders/track/${encodeURIComponent(grNumber)}`,
+      attachments: (id: string) => `/admin/orders/${id}/attachments`,
       attachmentFile: (id: string, attachmentId: string) => `/admin/orders/${id}/attachments/${attachmentId}/file`,
+      consignors: '/admin/orders/meta/consignors',
+      activity: '/admin/orders/meta/activity',
+      revenueOverview: '/admin/orders/meta/revenue-overview',
+      todayCollection: '/admin/orders/meta/today-collection',
+      receiving: '/admin/orders/receiving',
+      receivingOverview: '/admin/orders/receiving/overview',
+      shopsOverview: '/admin/orders/shops/overview',
+      shopsCounts: '/admin/orders/shops/counts',
+      import: '/admin/orders/import',
+      importHistory: '/admin/orders/import-history',
       /** Transient OCR extraction of a transport slip image. Only the image
        * travels to the server; extracted fields are returned to the device
        * and saved locally. */
@@ -87,17 +100,20 @@ export const ENDPOINTS = {
    * (StaffGRPanelScreen) — role-agnostic server-side for any GR-access role. */
   employee: '/employee',
   notifications: '/notifications',
-  orders: {
-    detail: (id: string) => `/orders/${id}`,
-    track: (grNumber: string) => `/orders/track/${encodeURIComponent(grNumber)}`,
-    updateStatus: (id: string) => `/orders/${id}/status`,
-    uploadAttachment: (id: string) => `/orders/${id}/attachments`,
-    attachmentFile: (id: string, attachmentId: string) => `/orders/${id}/attachments/${attachmentId}/file`,
-  },
   payments: {
     create: '/payments',
     listByOrder: (orderId: string) => `/payments/order/${orderId}`,
     summary: (orderId: string) => `/payments/summary/${orderId}`,
+  },
+  /** Staff Daily Collection + Admin Staff Work monitoring (read-only for
+   * Admin; STAFF is always scoped to itself server-side). Mobile → FastAPI →
+   * Neon; no on-device storage. */
+  staffWork: {
+    dailyCollection: '/staff/daily-collection',
+    dailyWork: '/staff/daily-work',
+    dailySummary: '/staff/daily-summary',
+    dailyGRs: '/staff/daily-grs',
+    settlements: '/staff/settlements',
   },
   customers: {
     list: '/customers',

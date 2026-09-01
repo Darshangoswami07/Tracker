@@ -30,6 +30,26 @@ config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 target_metadata = Base.metadata
 
+
+def _compare_type(context, inspected_column, metadata_column, inspected_type, metadata_type):
+    """Treat a portable (non-native) ``SqlEnum`` as equal to the ``VARCHAR`` it
+    is actually stored as.
+
+    Several models use ``enum_column(..., native_enum=False)`` /
+    ``SqlEnum(..., native_enum=False)`` deliberately — the value is stored in a
+    plain ``VARCHAR`` for portability, but the metadata object is an ``Enum``.
+    Alembic's default type comparison reports a spurious ``modify_type`` for
+    every such column (e.g. ``orders.status``). This hook suppresses that
+    false positive; real length changes are still reported by returning
+    ``None`` (defer to the default) for anything else.
+    """
+    import sqlalchemy as _sa
+
+    if isinstance(metadata_type, _sa.Enum) and getattr(metadata_type, "native_enum", True) is False:
+        if isinstance(inspected_type, (_sa.String, _sa.VARCHAR)):
+            return False  # types are equivalent — no migration needed
+    return None  # fall back to Alembic's default comparison
+
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
@@ -75,7 +95,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=_compare_type,
         )
 
         with context.begin_transaction():
