@@ -61,6 +61,7 @@ export const ENDPOINTS = {
       attachments: (id: string) => `/admin/orders/${id}/attachments`,
       attachmentFile: (id: string, attachmentId: string) => `/admin/orders/${id}/attachments/${attachmentId}/file`,
       consignors: '/admin/orders/meta/consignors',
+      statusCounts: '/admin/orders/meta/status-counts',
       activity: '/admin/orders/meta/activity',
       revenueOverview: '/admin/orders/meta/revenue-overview',
       todayCollection: '/admin/orders/meta/today-collection',

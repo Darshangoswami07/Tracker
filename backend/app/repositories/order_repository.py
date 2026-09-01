@@ -382,7 +382,22 @@ class OrderRepository(BaseRepository[Order]):
             query = select(Order).where(Order.isActive == True)
 
             if status:
-                query = query.where(Order.status == status)
+                # Filter by the *canonical reporting status* (pending / cleared /
+                # uncleared / delivered), derived from delivery state + the
+                # payments ledger - the single definition in
+                # ``gr_status_service`` - NOT the raw ``Order.status`` column
+                # (which the app only ever sets to 'pending' or 'delivered').
+                # This keeps the GR list's filtered results in lock-step with
+                # the summary counts on the Dashboard / GR-Shipments screens.
+                from app.services.gr_status_service import (
+                    paid_subquery,
+                    reporting_status_expr,
+                )
+
+                _paid = paid_subquery()
+                query = query.outerjoin(_paid, _paid.c.orderId == Order.id).where(
+                    reporting_status_expr(_paid.c.paid) == status
+                )
 
             if search:
                 query = query.where(

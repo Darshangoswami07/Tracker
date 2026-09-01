@@ -26,6 +26,7 @@ from app.models.payment import Payment
 from app.models.import_history import ImportHistory
 from app.repositories.order_repository import OrderRepository
 from app.schemas.order import GRCreateRequest
+from app.services.gr_status_service import status_counts
 from app.utils.responses import success
 
 router = APIRouter(prefix="/admin/orders", tags=["gr-reports"])
@@ -57,6 +58,39 @@ async def track_gr(gr_number: str, admin: GRAccessUser) -> dict:
 
     detail = await order_repo.get_order_with_details(order.id)
     return success((await _gr_out(detail or order)).model_dump(mode="json"), message="GR retrieved successfully.")
+
+
+@router.get("/meta/status-counts")
+async def gr_status_counts(
+    admin: GRAccessUser,
+    search: Optional[str] = None,
+    area: Optional[str] = None,
+    consignor: Optional[str] = None,
+    dateFrom: Optional[str] = None,
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Canonical GR reporting counts (pending / cleared / uncleared / delivered)
+    plus the matching money totals, for the caller's tenant + optional filters.
+
+    Same classification and filter semantics as ``GET /admin/orders`` and its
+    ``?status=`` filter (see ``app.services.gr_status_service``), so the numbers
+    here always reconcile with the list and always satisfy
+    ``pending + cleared + uncleared + delivered == total``. Used by both the
+    Admin Dashboard status overview and the GR / Shipments summary cards."""
+    company_id = await effective_company_id(admin)
+    scoped_area = _effective_area(admin) or area
+    parsed_from = (
+        datetime.fromisoformat(dateFrom.replace("Z", "+00:00")) if dateFrom else None
+    )
+    counts = await status_counts(
+        session,
+        company_id=company_id,
+        area=scoped_area,
+        search=search,
+        consignor=consignor,
+        date_from=parsed_from,
+    )
+    return success(counts, message="GR status counts retrieved successfully.")
 
 
 @router.get("/meta/consignors")

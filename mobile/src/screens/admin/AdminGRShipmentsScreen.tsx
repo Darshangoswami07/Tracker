@@ -232,35 +232,31 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
         setError(null);
         setStatus('success');
 
-        // Compute summary from all items (not just current page)
+        // Summary counts + money totals come from ONE server-side aggregate
+        // query over the full filtered dataset (Neon) — the same canonical
+        // classification the Admin Dashboard uses. No per-GR requests, no
+        // client-side status maths.
         if (mode !== 'more') {
-          const allResults = await orderRepository.listAll({ search: search || undefined, area: effectiveArea || undefined, consignor: consignorFilter || undefined, dateFrom });
-          const counts: SummaryCounts = { total: allResults.total, pending: 0, cleared: 0, uncleared: 0, delivered: 0, totalToPay: 0, totalReceived: 0, totalOutstanding: 0, todayCollection: 0 };
-          for (const item of allResults.items) {
-            if (item.status === 'pending') counts.pending++;
-            else if (item.status === 'cleared') counts.cleared++;
-            else if (item.status === 'uncleared') counts.uncleared++;
-            else if (item.status === 'delivered') counts.delivered++;
-          }
-
-          // Financial totals computed from payment summaries (toPay isn't on LocalGRListItem)
-          let totalToPay = 0, totalReceived = 0, totalOutstanding = 0;
-          for (const item of allResults.items) {
-            const ps = await orderRepository.getPaymentSummary(item.id);
-            if (ps) {
-              totalToPay += ps.toPay;
-              totalReceived += ps.totalPaid;
-              totalOutstanding += ps.balance;
-            }
-          }
-          counts.totalToPay = totalToPay;
-          counts.totalReceived = totalReceived;
-          counts.totalOutstanding = totalOutstanding;
-
-          const todayCollection = await orderRepository.getTodayCollection();
-          counts.todayCollection = todayCollection;
-
-          setSummary(counts);
+          const [sc, todayCollection] = await Promise.all([
+            orderRepository.getStatusCounts({
+              search: search || undefined,
+              area: effectiveArea || undefined,
+              consignor: consignorFilter || undefined,
+              dateFrom,
+            }),
+            orderRepository.getTodayCollection(),
+          ]);
+          setSummary({
+            total: sc.total,
+            pending: sc.pending,
+            cleared: sc.cleared,
+            uncleared: sc.uncleared,
+            delivered: sc.delivered,
+            totalToPay: sc.totalToPay,
+            totalReceived: sc.totalReceived,
+            totalOutstanding: sc.totalOutstanding,
+            todayCollection,
+          });
         }
     } catch {
         setError(t('gr.couldNotLoadEntries'));
@@ -402,12 +398,19 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
           </View>
         )}
 
-        {/* Summary Cards */}
+        {/* Summary Cards — canonical reporting buckets (server-classified).
+            Split across two rows so all five counts stay legible on a phone. */}
         <View style={styles.summaryRow}>
           <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
             <Text style={[styles.summaryValue, { color: colors.textPrimary }]}>{summary.total}</Text>
             <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>{t('summary.totalGRs')}</Text>
           </View>
+          <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+            <Text style={[styles.summaryValue, { color: '#6B7280' }]}>{summary.pending}</Text>
+            <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>{t('summary.pending')}</Text>
+          </View>
+        </View>
+        <View style={styles.summaryRow}>
           <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
             <Text style={[styles.summaryValue, { color: '#10B981' }]}>{summary.cleared}</Text>
             <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>{t('summary.cleared')}</Text>

@@ -156,9 +156,36 @@ async def list_grs(
         area=effective_area,
         consignor=consignor,
     )
+    # One grouped query for the whole page's payment totals (no N+1).
+    paid_by_order: dict = {}
+    if orders:
+        from sqlalchemy import func as _func, select as _select
+
+        from app.database.db import session_scope
+        from app.models.payment import Payment
+
+        order_ids = [o.id for o in orders]
+        async with session_scope() as _s:
+            rows = (
+                await _s.execute(
+                    _select(Payment.orderId, _func.coalesce(_func.sum(Payment.amount), 0))
+                    .where(Payment.orderId.in_(order_ids))
+                    .group_by(Payment.orderId)
+                )
+            ).all()
+        paid_by_order = {oid: float(total or 0) for oid, total in rows}
+
+    from app.services.gr_status_service import classify
+
     items = []
     for order in orders:
         attachments = await attachment_repo.find_by_order(order.id)
+        raw_status = order.status.value if hasattr(order.status, "value") else order.status
+        ledger_paid = paid_by_order.get(order.id, 0.0)
+        legacy_paid = float(order.paymentAmount) if order.paymentAmount is not None else 0.0
+        total_paid = max(ledger_paid, legacy_paid)
+        to_pay = float(order.toPay) if order.toPay is not None else 0.0
+        reporting_status = classify(raw_status != "pending", total_paid, to_pay)
         items.append(
             {
                 "id": str(order.id),
@@ -170,12 +197,17 @@ async def list_grs(
                 "driverId": str(order.driverId) if order.driverId else None,
                 "assignedStaffId": str(order.assignedStaffId) if order.assignedStaffId else None,
                 "area": order.area,
-                "status": order.status.value if hasattr(order.status, "value") else order.status,
+                # `status` stays the raw lifecycle value (unchanged for existing
+                # API consumers); `reportingStatus` is the canonical bucket the
+                # mobile GR list badges + filters use (see gr_status_service).
+                "status": raw_status,
+                "reportingStatus": reporting_status,
                 "createdAt": order.createdAt.isoformat(),
                 "hasSlip": bool(attachments) or bool(getattr(order, "hasSlip", False)),
                 "source": getattr(order, "source", None) or "manual",
-                "toPay": float(order.toPay) if order.toPay is not None else 0.0,
-                "paymentAmount": float(order.paymentAmount) if order.paymentAmount is not None else 0.0,
+                "toPay": to_pay,
+                "totalPaid": total_paid,
+                "paymentAmount": legacy_paid,
             }
         )
     return success(

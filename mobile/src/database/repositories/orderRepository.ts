@@ -70,13 +70,30 @@ export interface LocalGRListItem {
   deliveryAddress: string;
   driverId: string | null;
   assignedStaffId: string | null;
+  /** Canonical reporting bucket: 'pending' | 'cleared' | 'uncleared' | 'delivered'.
+   *  Derived server-side from delivery state + payments ledger — the single
+   *  source of truth (backend `app/services/gr_status_service.py`). */
   status: string;
   createdAt: string;
   hasSlip: boolean;
   source: string;
   area: string | null;
   toPay: number;
+  totalPaid: number;
   paymentAmount: number;
+}
+
+/** Canonical GR reporting counts (+ money totals) for a filtered dataset.
+ *  Always satisfies pending + cleared + uncleared + delivered === total. */
+export interface GRStatusCounts {
+  total: number;
+  pending: number;
+  cleared: number;
+  uncleared: number;
+  delivered: number;
+  totalToPay: number;
+  totalReceived: number;
+  totalOutstanding: number;
 }
 
 export interface LocalAttachment {
@@ -399,12 +416,15 @@ const mapListItem = (r: any): LocalGRListItem => ({
   deliveryAddress: r.deliveryAddress,
   driverId: r.driverId ?? null,
   assignedStaffId: r.assignedStaffId ?? null,
-  status: r.status,
+  // Prefer the canonical reporting bucket; fall back to raw status for any
+  // older response shape.
+  status: r.reportingStatus ?? r.status,
   createdAt: r.createdAt,
   hasSlip: Boolean(r.hasSlip),
   source: r.source ?? 'manual',
   area: r.area ?? null,
   toPay: Number(r.toPay ?? 0),
+  totalPaid: Number(r.totalPaid ?? r.paymentAmount ?? 0),
   paymentAmount: Number(r.paymentAmount ?? 0),
 });
 
@@ -516,6 +536,40 @@ export const orderRepository = {
       page += 1;
     }
     return { items, total };
+  },
+
+  /**
+   * Canonical GR reporting counts (pending / cleared / uncleared / delivered)
+   * + money totals for the given filters, computed by a single server-side
+   * aggregate query over Neon (`GET /admin/orders/meta/status-counts`).
+   *
+   * This is the ONE source both the Admin Dashboard status overview and the
+   * GR / Shipments summary cards consume — neither screen classifies GRs
+   * itself. Guaranteed: pending + cleared + uncleared + delivered === total.
+   */
+  async getStatusCounts(params: {
+    search?: string;
+    area?: string;
+    consignor?: string;
+    dateFrom?: string;
+  } = {}): Promise<GRStatusCounts> {
+    const query: Record<string, unknown> = {};
+    if (params.search) query.search = params.search;
+    if (params.area) query.area = params.area;
+    if (params.consignor) query.consignor = params.consignor;
+    if (params.dateFrom) query.dateFrom = params.dateFrom;
+    const res = await api.get(ENDPOINTS.admin.orders.statusCounts, { params: query });
+    const d = body<Partial<GRStatusCounts>>(res);
+    return {
+      total: Number(d.total ?? 0),
+      pending: Number(d.pending ?? 0),
+      cleared: Number(d.cleared ?? 0),
+      uncleared: Number(d.uncleared ?? 0),
+      delivered: Number(d.delivered ?? 0),
+      totalToPay: Number(d.totalToPay ?? 0),
+      totalReceived: Number(d.totalReceived ?? 0),
+      totalOutstanding: Number(d.totalOutstanding ?? 0),
+    };
   },
 
   async getDistinctConsignors(area?: string): Promise<string[]> {

@@ -229,15 +229,18 @@ export const AdminDashboardScreen = () => {
 
   const fetchShipmentOverview = useCallback(async () => {
     try {
-      const result = await orderRepository.listAll();
-      const counts: ShipmentOverview = { total: result.total, pending: 0, cleared: 0, uncleared: 0, delivered: 0 };
-      for (const item of result.items) {
-        if (item.status === 'pending') counts.pending++;
-        else if (item.status === 'cleared') counts.cleared++;
-        else if (item.status === 'uncleared') counts.uncleared++;
-        else if (item.status === 'delivered') counts.delivered++;
-      }
-      setShipmentOverview(counts);
+      // Canonical reporting counts from ONE server-side aggregate query over
+      // Neon — the exact same classification the GR / Shipments screen shows
+      // (backend `app/services/gr_status_service.py`). No client-side maths,
+      // and not capped at one page.
+      const sc = await orderRepository.getStatusCounts();
+      setShipmentOverview({
+        total: sc.total,
+        pending: sc.pending,
+        cleared: sc.cleared,
+        uncleared: sc.uncleared,
+        delivered: sc.delivered,
+      });
     } catch (error) {
       console.error('Failed to load shipment overview:', error);
     }
