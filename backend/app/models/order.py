@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, Enum as SqlEnum, Float, String, ForeignKey
+from sqlalchemy import Boolean, DateTime, Enum as SqlEnum, Float, String, Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -102,6 +102,22 @@ class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
 
     isActive: Mapped[bool] = mapped_column(Boolean, default=True)
     trackingCode: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
+
+    # How the GR was created: 'manual' | 'slip' | 'excel'. Drives the GR
+    # list's subtle origin indicator. Previously a mobile-SQLite-only column
+    # (schema.ts v6); moved here so Neon is the single source of truth.
+    source: Mapped[str] = mapped_column(String(20), default="manual", server_default="manual")
+    # JSON snapshot of the OCR-extracted slip fields (kept as text; the mobile
+    # client parses it). hasSlip mirrors "has at least one attachment" for
+    # fast list rendering without a join.
+    hasSlip: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    slipData: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Excel bulk-import fields (mobile schema.ts v6). All optional.
+    chalaanNo: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    chalaanDate: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    transportGrn: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    paymentMode: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    grSourceLabel: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     # Relationships
     company: Mapped["Company"] = relationship(back_populates="orders", lazy="selectin")

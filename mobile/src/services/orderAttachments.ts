@@ -15,7 +15,7 @@ export interface OrderAttachment {
  * Uploads a slip/photo for a GR (order). Reused by every role's Order
  * Details screen that's allowed to upload (Admin/Staff/Driver — Customer is
  * blocked server-side, not just in the UI). Calls the shared, permission-
- * checked `POST /orders/{id}/attachments` endpoint.
+ * checked `POST /admin/orders/{id}/attachments` endpoint.
  */
 export const uploadOrderAttachment = async (
   orderId: string,
@@ -41,7 +41,7 @@ export const uploadOrderAttachment = async (
   // Explicitly clearing the header (not just omitting it) is what lets
   // React Native's XHR layer generate the real multipart Content-Type
   // (with boundary) itself when it sees the FormData body.
-  const response = await api.post(ENDPOINTS.orders.uploadAttachment(orderId), formData, {
+  const response = await api.post(ENDPOINTS.admin.orders.attachments(orderId), formData, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': undefined,

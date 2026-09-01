@@ -12,14 +12,16 @@ from app.models.enums import RegistrationStatus, UserRole
 from app.models.helpers import enum_values, utcnow
 
 
-__table_args__ = (
-    UniqueConstraint("email", "role", name="uq_email_role"),
-)
-
 class User(Base):
     """A registered user of the transport management system."""
 
     __tablename__ = "users"
+    # One account per (email, role) — created in migration 008. Declared here
+    # (inside the class — it was previously a stray module-level name that
+    # SQLAlchemy never saw, which made `alembic check` want to drop it).
+    __table_args__ = (
+        UniqueConstraint("email", "role", name="uq_email_role"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     firstName: Mapped[str] = mapped_column(String(60))

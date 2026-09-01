@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
@@ -37,11 +38,11 @@ const addDays = (d: Date, delta: number): Date => {
 
 const RECENT_DAYS = Array.from({ length: 14 }, (_, i) => addDays(new Date(), -i));
 
-const TX_CONFIG: Record<CollectionTransaction['kind'], { icon: keyof typeof Ionicons.glyphMap; color: string; label: string; sign: '+' | '-' }> = {
-  collection: { icon: 'arrow-down-circle', color: '#10B981', label: 'GR Collection', sign: '+' },
-  owner: { icon: 'business', color: '#635BFF', label: 'Owner Account', sign: '-' },
-  labour: { icon: 'construct', color: '#F59E0B', label: 'Labour Payment', sign: '-' },
-  driver: { icon: 'car', color: '#F97316', label: 'Driver Payment', sign: '-' },
+const TX_CONFIG: Record<CollectionTransaction['kind'], { icon: keyof typeof Ionicons.glyphMap; color: string; labelKey: string; sign: '+' | '-' }> = {
+  collection: { icon: 'arrow-down-circle', color: '#10B981', labelKey: 'collection.grCollection', sign: '+' },
+  owner: { icon: 'business', color: '#635BFF', labelKey: 'collection.ownerAccount', sign: '-' },
+  labour: { icon: 'construct', color: '#F59E0B', labelKey: 'collection.labourPayment', sign: '-' },
+  driver: { icon: 'car', color: '#F97316', labelKey: 'collection.driverPayment', sign: '-' },
 };
 
 /** Parses an amount field: blank/invalid treated as ₹0, never negative — so
@@ -63,6 +64,7 @@ type LoadStatus = 'loading' | 'success' | 'error';
  * accounting rules (single source of truth, shared with Admin's view).
  */
 export const StaffDailyCollectionScreen = () => {
+  const { t } = useTranslation();
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { goBack } = useAppNav();
   const user = useUserStore((state) => state.user);
@@ -107,7 +109,7 @@ export const StaffDailyCollectionScreen = () => {
   const today = new Date();
   const onToday = isSameDay(selectedDate, today);
   const onYesterday = isSameDay(selectedDate, addDays(today, -1));
-  const dateLabel = onToday ? 'Today' : onYesterday ? 'Yesterday' : formatDay(selectedDate);
+  const dateLabel = onToday ? t('filters.today') : onYesterday ? t('filters.yesterday') : formatDay(selectedDate);
 
   const c = collection;
 
@@ -140,11 +142,11 @@ export const StaffDailyCollectionScreen = () => {
   const submitCollection = async () => {
     if (!user?.id || submitting) return;
     if (allocated <= 0) {
-      setFormError('Enter at least one amount greater than ₹0.');
+      setFormError(t('collection.enterAtLeastOne'));
       return;
     }
     if (overAllocated) {
-      setFormError('Payment amounts cannot be greater than total collection.');
+      setFormError(t('collection.overAllocated'));
       return;
     }
     setSubmitting(true);
@@ -170,10 +172,10 @@ export const StaffDailyCollectionScreen = () => {
         });
       }
       setAddSheetOpen(false);
-      setBanner({ kind: 'success', text: 'Collection saved successfully' });
+      setBanner({ kind: 'success', text: t('collection.collectionSaved') });
       await load(selectedDate);
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'Could not save this collection.');
+      setFormError(error instanceof Error ? error.message : t('collection.couldNotSave'));
     } finally {
       setSubmitting(false);
     }
@@ -181,7 +183,7 @@ export const StaffDailyCollectionScreen = () => {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-      <Header title="Daily Collection" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
+      <Header title={t('staff.dailyCollection')} leftAction={{ icon: 'chevron-back', onPress: goBack }} />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {banner && (
@@ -193,7 +195,7 @@ export const StaffDailyCollectionScreen = () => {
 
         {/* Staff identity */}
         <View style={[styles.identityCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
-          <Text style={[styles.staffName, { color: colors.textPrimary }]}>{user?.fullName ?? 'Staff'}</Text>
+          <Text style={[styles.staffName, { color: colors.textPrimary }]}>{user?.fullName ?? t('collection.staffFallback')}</Text>
           {user?.area && (
             <View style={styles.locationRow}>
               <Ionicons name="location-outline" size={14} color={colors.textMuted} />
@@ -233,9 +235,9 @@ export const StaffDailyCollectionScreen = () => {
         {loadStatus === 'error' && (
           <EmptyState
             icon="cloud-offline-outline"
-            title="Unable to load collection"
-            subtitle="Something went wrong while loading your daily collection."
-            actionLabel="Retry"
+            title={t('collection.unableToLoad')}
+            subtitle={t('collection.unableToLoadDesc')}
+            actionLabel={t('common.retry')}
             onActionPress={() => load(selectedDate)}
             iconColor={colors.error}
           />
@@ -245,31 +247,31 @@ export const StaffDailyCollectionScreen = () => {
           <>
             {/* Total Collection */}
             <View style={[styles.totalCard, { backgroundColor: colors.primary, borderRadius: radii.lg, ...shadows.sm }]}>
-              <Text style={styles.totalLabel}>{onToday ? "Today's Collection" : `Collection — ${formatDay(selectedDate)}`}</Text>
+              <Text style={styles.totalLabel}>{onToday ? t('collection.todaysCollection') : t('collection.collectionOnDate', { date: formatDay(selectedDate) })}</Text>
               <Text style={styles.totalValue}>{formatCurrency(c.totalCollection)}</Text>
             </View>
 
             {/* Money Summary */}
             <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
-              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Money Summary</Text>
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('collection.moneySummary')}</Text>
               <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Money Received</Text>
+                <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>{t('collection.moneyReceived')}</Text>
                 <Text style={[styles.summaryValue, { color: '#10B981' }]}>{formatCurrency(c.totalCollection)}</Text>
               </View>
               <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Owner Account</Text>
+                <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>{t('collection.ownerAccount')}</Text>
                 <Text style={[styles.summaryValue, { color: colors.textPrimary }]}>- {formatCurrency(c.ownerAmount)}</Text>
               </View>
               <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Paid to Labour</Text>
+                <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>{t('collection.paidToLabour')}</Text>
                 <Text style={[styles.summaryValue, { color: colors.textPrimary }]}>- {formatCurrency(c.labourAmount)}</Text>
               </View>
               <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Paid to Driver</Text>
+                <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>{t('collection.paidToDriver')}</Text>
                 <Text style={[styles.summaryValue, { color: colors.textPrimary }]}>- {formatCurrency(c.driverAmount)}</Text>
               </View>
               <View style={[styles.balanceRow, { borderTopColor: colors.border }]}>
-                <Text style={[styles.balanceLabel, { color: colors.textPrimary }]}>Staff Balance</Text>
+                <Text style={[styles.balanceLabel, { color: colors.textPrimary }]}>{t('collection.staffBalance')}</Text>
                 <Text style={[styles.balanceValue, { color: c.staffBalance > 0 ? '#F97316' : '#10B981' }]}>{formatCurrency(c.staffBalance)}</Text>
               </View>
             </View>
@@ -284,19 +286,19 @@ export const StaffDailyCollectionScreen = () => {
                 activeOpacity={0.9}
               >
                 <Ionicons name="add-circle" size={20} color="#fff" />
-                <Text style={styles.addButtonText}>Add Today's Collection</Text>
+                <Text style={styles.addButtonText}>{t('collection.addTodaysCollection')}</Text>
               </TouchableOpacity>
             )}
 
             {/* Today's Transactions */}
             <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-              {onToday ? "Today's Transactions" : 'Transactions'}
+              {onToday ? t('collection.todaysTransactions') : t('collection.transactions')}
             </Text>
             {c.transactions.length === 0 ? (
               <EmptyState
                 icon="receipt-outline"
-                title="No collection added yet"
-                subtitle={onToday ? 'Tap "Add Today\'s Collection" once you have money to record.' : `No activity on ${formatDay(selectedDate)}.`}
+                title={t('collection.noCollectionYet')}
+                subtitle={onToday ? t('collection.addPrompt') : t('collection.noActivityOn', { date: formatDay(selectedDate) })}
               />
             ) : (
               <View style={styles.list}>
@@ -314,7 +316,7 @@ export const StaffDailyCollectionScreen = () => {
                           </Text>
                           <Text style={[styles.txTime, { color: colors.textMuted }]}>{formatTime(tx.createdAt)}</Text>
                         </View>
-                        <Text style={[styles.txLabel, { color: colors.textSecondary }]}>{cfg.label}</Text>
+                        <Text style={[styles.txLabel, { color: colors.textSecondary }]}>{t(cfg.labelKey)}</Text>
                         {tx.kind === 'collection' && tx.orderNumber && (
                           <Text style={[styles.txDetail, { color: colors.textMuted }]}>
                             GR #{tx.orderNumber}{tx.consignorName ? ` · ${tx.consignorName}` : ''}
@@ -343,7 +345,7 @@ export const StaffDailyCollectionScreen = () => {
             onPress={() => {}}
           >
             <View style={styles.sheetHandle} />
-            <Text style={[styles.sheetTitle, { color: colors.textPrimary }]}>Select Date</Text>
+            <Text style={[styles.sheetTitle, { color: colors.textPrimary }]}>{t('collection.selectDate')}</Text>
             <ScrollView style={styles.dateList} showsVerticalScrollIndicator={false}>
               {RECENT_DAYS.map((d) => {
                 const selected = isSameDay(d, selectedDate);
@@ -354,7 +356,7 @@ export const StaffDailyCollectionScreen = () => {
                     onPress={() => { setSelectedDate(d); setDateSheetOpen(false); }}
                   >
                     <Text style={[styles.dateOptionText, { color: selected ? colors.primary : colors.textPrimary }]}>
-                      {isSameDay(d, today) ? 'Today' : isSameDay(d, addDays(today, -1)) ? 'Yesterday' : formatDayShort(d)}
+                      {isSameDay(d, today) ? t('filters.today') : isSameDay(d, addDays(today, -1)) ? t('filters.yesterday') : formatDayShort(d)}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -381,21 +383,21 @@ export const StaffDailyCollectionScreen = () => {
             onPress={() => {}}
           >
             <View style={styles.sheetHandle} />
-            <Text style={[styles.sheetTitle, { color: colors.textPrimary }]}>Add Today's Collection</Text>
+            <Text style={[styles.sheetTitle, { color: colors.textPrimary }]}>{t('collection.addTodaysCollection')}</Text>
             <View style={styles.sheetDateRow}>
               <Ionicons name="calendar-outline" size={14} color={colors.textMuted} />
               <Text style={[styles.sheetSubtitle, { color: colors.textMuted, marginBottom: 0 }]}>
-                {onToday ? 'Today' : dateLabel} — {formatDay(selectedDate)}
+                {onToday ? t('filters.today') : dateLabel} — {formatDay(selectedDate)}
               </Text>
             </View>
 
             <ScrollView style={styles.formScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <View style={[styles.totalReceivedRow, { backgroundColor: colors.background, borderRadius: radii.md }]}>
-                <Text style={[styles.fieldLabel, { color: colors.textMuted, marginTop: 0 }]}>Total Received</Text>
+                <Text style={[styles.fieldLabel, { color: colors.textMuted, marginTop: 0 }]}>{t('collection.totalReceived')}</Text>
                 <Text style={[styles.totalReceivedValue, { color: colors.textPrimary }]}>{formatCurrency(c?.totalCollection ?? 0)}</Text>
               </View>
 
-              <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>Owner Account</Text>
+              <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>{t('collection.ownerAccount')}</Text>
               <TextInput
                 value={ownerDraft}
                 onChangeText={setOwnerDraft}
@@ -406,7 +408,7 @@ export const StaffDailyCollectionScreen = () => {
                 placeholderTextColor={colors.textMuted}
               />
 
-              <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>Paid to Labour</Text>
+              <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>{t('collection.paidToLabour')}</Text>
               <TextInput
                 value={labourDraft}
                 onChangeText={setLabourDraft}
@@ -417,7 +419,7 @@ export const StaffDailyCollectionScreen = () => {
                 placeholderTextColor={colors.textMuted}
               />
 
-              <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>Paid to Driver</Text>
+              <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>{t('collection.paidToDriver')}</Text>
               <TextInput
                 value={driverDraft}
                 onChangeText={setDriverDraft}
@@ -429,14 +431,14 @@ export const StaffDailyCollectionScreen = () => {
               />
 
               <View style={[styles.remainingRow, { borderTopColor: colors.border }]}>
-                <Text style={[styles.remainingLabel, { color: colors.textPrimary }]}>Remaining with You</Text>
+                <Text style={[styles.remainingLabel, { color: colors.textPrimary }]}>{t('collection.remainingWithYou')}</Text>
                 <Text style={[styles.remainingValue, { color: overAllocated ? colors.error : remaining > 0 ? '#F97316' : '#10B981' }]}>
                   {formatCurrency(remaining)}
                 </Text>
               </View>
 
               {overAllocated && (
-                <Text style={[styles.formError, { color: colors.error }]}>Payment amounts cannot be greater than total collection.</Text>
+                <Text style={[styles.formError, { color: colors.error }]}>{t('collection.overAllocated')}</Text>
               )}
               {formError && !overAllocated && <Text style={[styles.formError, { color: colors.error }]}>{formError}</Text>}
 
@@ -445,7 +447,7 @@ export const StaffDailyCollectionScreen = () => {
                 onPress={submitCollection}
                 disabled={submitting || overAllocated}
               >
-                <Text style={styles.sheetApplyText}>{submitting ? 'Saving…' : 'Save Collection'}</Text>
+                <Text style={styles.sheetApplyText}>{submitting ? t('collection.saving') : t('collection.saveCollection')}</Text>
               </TouchableOpacity>
             </ScrollView>
           </Pressable>

@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { type NavigationProp } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
@@ -25,12 +26,12 @@ import type { AppTheme } from '../../theme/types';
 
 const PAGE_SIZE = 100;
 
-const STATUS_TABS: { key: string; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'pending', label: 'Pending' },
-  { key: 'uncleared', label: 'Uncleared' },
-  { key: 'cleared', label: 'Cleared' },
-  { key: 'delivered', label: 'Delivered' },
+const STATUS_TABS: { key: string; labelKey: string }[] = [
+  { key: 'all', labelKey: 'filters.all' },
+  { key: 'pending', labelKey: 'summary.pending' },
+  { key: 'uncleared', labelKey: 'summary.uncleared' },
+  { key: 'cleared', labelKey: 'summary.cleared' },
+  { key: 'delivered', labelKey: 'summary.delivered' },
 ];
 
 const STATUS_COLORS: Record<string, string> = {
@@ -55,6 +56,7 @@ const formatCurrency = (amount: number): string =>
  * re-checks the Staff area (`orderRowInStaffScope`) as a final guard.
  */
 export const StaffShopHistoryScreen = ({ route }: { route: { params: { shopName: string } } }) => {
+  const { t } = useTranslation();
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { navigation: rawNav, goBack } = useAppNav();
   const navigation = rawNav as unknown as NavigationProp<StaffDashboardStackParamList>;
@@ -152,18 +154,18 @@ export const StaffShopHistoryScreen = ({ route }: { route: { params: { shopName:
         <View style={styles.rowTop}>
           <Text style={[styles.grNumber, { color: colors.textPrimary }]}>{item.orderNumber}</Text>
           <View style={[styles.badge, { backgroundColor: `${statusColor}18` }]}>
-            <Text style={[styles.badgeText, { color: statusColor }]}>{item.status}</Text>
+            <Text style={[styles.badgeText, { color: statusColor }]}>{t(`summary.${item.status}`, item.status)}</Text>
           </View>
         </View>
         <Text style={[styles.consignee, { color: colors.textSecondary }]} numberOfLines={1}>
           {item.consigneeName || '—'}
         </Text>
         <View style={styles.rowBottom}>
-          <Text style={[styles.amountLabel, { color: colors.textMuted }]}>To Pay</Text>
+          <Text style={[styles.amountLabel, { color: colors.textMuted }]}>{t('payment.toPay')}</Text>
           <Text style={[styles.amountValue, { color: colors.textPrimary }]}>{formatCurrency(Number(item.toPay ?? 0))}</Text>
           {outstanding > 0 && (
             <>
-              <Text style={[styles.amountLabel, { color: colors.textMuted }]}>Outstanding</Text>
+              <Text style={[styles.amountLabel, { color: colors.textMuted }]}>{t('summary.outstanding')}</Text>
               <Text style={[styles.amountValue, { color: '#F97316' }]}>{formatCurrency(outstanding)}</Text>
             </>
           )}
@@ -181,7 +183,7 @@ export const StaffShopHistoryScreen = ({ route }: { route: { params: { shopName:
       {area && (
         <View style={styles.areaPill}>
           <Ionicons name="location-outline" size={14} color={colors.primary} />
-          <Text style={[styles.areaPillText, { color: colors.textSecondary }]}>Current Area: {area}</Text>
+          <Text style={[styles.areaPillText, { color: colors.textSecondary }]}>{t('staff.currentArea', { area })}</Text>
         </View>
       )}
 
@@ -189,7 +191,7 @@ export const StaffShopHistoryScreen = ({ route }: { route: { params: { shopName:
         <Ionicons name="search-outline" size={18} color={colors.textMuted} />
         <TextInput
           style={[styles.searchInput, { color: colors.textPrimary }]}
-          placeholder="Search GR number / consignee"
+          placeholder={t('staff.searchGrConsignee')}
           placeholderTextColor={colors.textMuted}
           value={search}
           onChangeText={(t) => setSearch(t)}
@@ -212,7 +214,7 @@ export const StaffShopHistoryScreen = ({ route }: { route: { params: { shopName:
               onPress={() => setStatusFilter(tab.key)}
               accessibilityRole="button"
             >
-              <Text style={[styles.tabText, { color: activeTab ? '#fff' : colors.textSecondary }]}>{tab.label}</Text>
+              <Text style={[styles.tabText, { color: activeTab ? '#fff' : colors.textSecondary }]}>{t(tab.labelKey)}</Text>
             </TouchableOpacity>
           );
         })}
@@ -221,11 +223,11 @@ export const StaffShopHistoryScreen = ({ route }: { route: { params: { shopName:
       {listEmpty ? (
         <View style={styles.emptyWrap}>
           <Ionicons name="document-text-outline" size={48} color={colors.textMuted} />
-          <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No GRs found</Text>
+          <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>{t('staff.noGrsFound')}</Text>
           <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
             {search || statusFilter !== 'all'
-              ? `No GRs match your filters for ${shopName} in ${area}.`
-              : `No GRs for ${shopName} in ${area} yet.`}
+              ? t('staff.noGrsMatchFilters', { shop: shopName, area })
+              : t('staff.noGrsForShop', { shop: shopName, area })}
           </Text>
         </View>
       ) : (

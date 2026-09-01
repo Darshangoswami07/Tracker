@@ -40,9 +40,9 @@ const readWebAssetAsBase64 = async (asset: DocumentPicker.DocumentPickerAsset): 
  * Admin → GR/Shipment Management → Import GRs from Excel.
  *
  * Select .xlsx → parse + validate on-device (`services/excelImport.ts`) →
- * preview counts/rows/errors → Import All GRs, which bulk-inserts into the
- * same on-device SQLite `orders` table every other GR screen reads from
- * (`database/repositories/importRepository.ts`). Existing GRs are never
+ * preview counts/rows/errors → Import All GRs, which posts the validated rows
+ * to the FastAPI backend (`POST /admin/orders/import`) so they are created in
+ * Neon (`database/repositories/importRepository.ts`). Existing GRs are never
  * touched — duplicate GR numbers are skipped and reported, never
  * overwritten.
  */

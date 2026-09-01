@@ -76,7 +76,10 @@
     "phone": "Phone",
     "company": "Company",
     "success": "Success",
-    "error": "Error"
+    "error": "Error",
+    "clear": "Clear",
+    "apply": "Apply",
+    "any": "Any"
   },
   "auth": {
     "welcomeBack": "Welcome back",
@@ -227,7 +230,8 @@
     "otpVerification": "OTP Verification",
     "lockedUntilApproval": "Locked until approval",
     "redirectingToDashboard": "Redirecting to dashboard",
-    "welcomeToDeliveryHub": "Welcome to DeliveryHub!"
+    "welcomeToDeliveryHub": "Welcome to DeliveryHub!",
+    "location": "Location"
   },
   "settings": {
     "title": "Settings",
@@ -476,7 +480,26 @@
     "pending": "Pending",
     "inTransit": "In Transit",
     "delivered": "Delivered",
-    "cancelled": "Cancelled"
+    "cancelled": "Cancelled",
+    "welcome": "Welcome, {{name}}",
+    "there": "there",
+    "todaysOverview": "Here's today's overview.",
+    "assigned": "Assigned",
+    "completed": "Completed",
+    "outstanding": "Outstanding",
+    "quickActions": "Quick Actions",
+    "allShops": "All Shops",
+    "mySlips": "My Slips",
+    "pendingSlip": "Pending Slip",
+    "deliveredSlip": "Delivered Slip",
+    "dailyCollection": "Daily Collection",
+    "currentArea": "Current Area: {{area}}",
+    "noAreaAssigned": "No area assigned",
+    "noAreaAssignedDesc": "Your account has no delivery area yet. Ask an admin to assign one so you can view shops.",
+    "searchGrConsignee": "Search GR number / consignee",
+    "noGrsFound": "No GRs found",
+    "noGrsMatchFilters": "No GRs match your filters for {{shop}} in {{area}}.",
+    "noGrsForShop": "No GRs for {{shop}} in {{area}} yet."
   },
   "errors": {
     "networkError": "Network error. Please check your connection.",
@@ -737,7 +760,10 @@
     "invalidAmount": "Invalid Amount",
     "enterValidAmount": "Please enter a valid amount.",
     "failed": "Payment failed. Please try again.",
-    "currency": "₹"
+    "currency": "₹",
+    "collectedBy": "Collected By (optional)",
+    "collectedByYou": "Collected by you",
+    "paymentMode": "Payment Mode"
   },
   "filters": {
     "status": "Status",
@@ -750,7 +776,8 @@
     "consignor": "Consignor",
     "consignee": "Consignee",
     "clearFilters": "Clear Filters",
-    "applyFilters": "Apply Filters"
+    "applyFilters": "Apply Filters",
+    "yesterday": "Yesterday"
   },
   "summary": {
     "totalGRs": "Total GRs",
@@ -761,7 +788,9 @@
     "delivered": "Delivered",
     "shipmentOverview": "Shipment Overview",
     "shipmentStatusOverview": "Shipment Status Overview",
-    "financialOverview": "Financial Overview"
+    "financialOverview": "Financial Overview",
+    "totalCollected": "Total Collected",
+    "outstanding": "Outstanding"
   },
   "receiving": {
     "title": "Receiving Details",
@@ -797,6 +826,54 @@
   },
   "areas": {
     "title": "Select Area",
-    "info": "Select the area for which you want to import GRs. All imported GRs will be assigned to the selected area."
+    "info": "Select the area for which you want to import GRs. All imported GRs will be assigned to the selected area.",
+    "skip": "Skip — auto-detect shop from Excel"
+  },
+  "shops": {
+    "title": "All Shops",
+    "info": "GRs are grouped by shop, matched automatically from the Consignee Name during Excel import.",
+    "totalGRs_one": "{{count}} GR",
+    "totalGRs_other": "{{count}} GRs",
+    "pendingCount": "{{count}} pending",
+    "search": "Search shops",
+    "filterTitle": "Filter Shops",
+    "filterA11y": "Filter shops",
+    "minimumGRs": "Minimum GRs",
+    "minGRsChip": "Min GRs: {{count}}+",
+    "noShopsFound": "No shops found",
+    "noShopsYet": "No shops yet",
+    "noShopsMatch": "No shops in {{area}} match your search and filters.",
+    "noShopsInArea": "There are no shops with GRs in {{area}} yet."
+  },
+  "collection": {
+    "staffFallback": "Staff",
+    "unableToLoad": "Unable to load collection",
+    "unableToLoadDesc": "Something went wrong while loading your daily collection.",
+    "todaysCollection": "Today's Collection",
+    "collectionOnDate": "Collection — {{date}}",
+    "moneySummary": "Money Summary",
+    "moneyReceived": "Money Received",
+    "ownerAccount": "Owner Account",
+    "paidToLabour": "Paid to Labour",
+    "paidToDriver": "Paid to Driver",
+    "staffBalance": "Staff Balance",
+    "addTodaysCollection": "Add Today's Collection",
+    "todaysTransactions": "Today's Transactions",
+    "transactions": "Transactions",
+    "noCollectionYet": "No collection added yet",
+    "addPrompt": "Tap \"Add Today's Collection\" once you have money to record.",
+    "noActivityOn": "No activity on {{date}}.",
+    "grCollection": "GR Collection",
+    "labourPayment": "Labour Payment",
+    "driverPayment": "Driver Payment",
+    "selectDate": "Select Date",
+    "totalReceived": "Total Received",
+    "remainingWithYou": "Remaining with You",
+    "overAllocated": "Payment amounts cannot be greater than total collection.",
+    "enterAtLeastOne": "Enter at least one amount greater than ₹0.",
+    "couldNotSave": "Could not save this collection.",
+    "collectionSaved": "Collection saved successfully",
+    "saving": "Saving…",
+    "saveCollection": "Save Collection"
   }
 }

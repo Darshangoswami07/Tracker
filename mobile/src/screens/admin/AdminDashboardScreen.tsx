@@ -211,9 +211,10 @@ export const AdminDashboardScreen = () => {
   }, []);
 
   // Recent Activity is real GR/shipment history (status transitions + slip
-  // uploads) read from the on-device SQLite database — the same source the
-  // GR list / Customer Tracking / GR Tracker screens use — not the backend's
-  // email-notification log, which isn't meaningful operational activity.
+  // uploads) read from the backend (`/admin/orders/meta/activity`, Neon) —
+  // the same source the GR list / Customer Tracking / GR Tracker screens use
+  // — not the backend's email-notification log, which isn't meaningful
+  // operational activity.
   const fetchActivity = useCallback(async () => {
     setActivityStatus('loading');
     try {
@@ -228,15 +229,18 @@ export const AdminDashboardScreen = () => {
 
   const fetchShipmentOverview = useCallback(async () => {
     try {
-      const result = await orderRepository.list({ page: 1, pageSize: 9999 });
-      const counts: ShipmentOverview = { total: result.total, pending: 0, cleared: 0, uncleared: 0, delivered: 0 };
-      for (const item of result.items) {
-        if (item.status === 'pending') counts.pending++;
-        else if (item.status === 'cleared') counts.cleared++;
-        else if (item.status === 'uncleared') counts.uncleared++;
-        else if (item.status === 'delivered') counts.delivered++;
-      }
-      setShipmentOverview(counts);
+      // Canonical reporting counts from ONE server-side aggregate query over
+      // Neon — the exact same classification the GR / Shipments screen shows
+      // (backend `app/services/gr_status_service.py`). No client-side maths,
+      // and not capped at one page.
+      const sc = await orderRepository.getStatusCounts();
+      setShipmentOverview({
+        total: sc.total,
+        pending: sc.pending,
+        cleared: sc.cleared,
+        uncleared: sc.uncleared,
+        delivered: sc.delivered,
+      });
     } catch (error) {
       console.error('Failed to load shipment overview:', error);
     }

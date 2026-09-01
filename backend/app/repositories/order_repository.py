@@ -382,7 +382,22 @@ class OrderRepository(BaseRepository[Order]):
             query = select(Order).where(Order.isActive == True)
 
             if status:
-                query = query.where(Order.status == status)
+                # Filter by the *canonical reporting status* (pending / cleared /
+                # uncleared / delivered), derived from delivery state + the
+                # payments ledger - the single definition in
+                # ``gr_status_service`` - NOT the raw ``Order.status`` column
+                # (which the app only ever sets to 'pending' or 'delivered').
+                # This keeps the GR list's filtered results in lock-step with
+                # the summary counts on the Dashboard / GR-Shipments screens.
+                from app.services.gr_status_service import (
+                    paid_subquery,
+                    reporting_status_expr,
+                )
+
+                _paid = paid_subquery()
+                query = query.outerjoin(_paid, _paid.c.orderId == Order.id).where(
+                    reporting_status_expr(_paid.c.paid) == status
+                )
 
             if search:
                 query = query.where(
@@ -538,6 +553,74 @@ class OrderRepository(BaseRepository[Order]):
             await session.flush()
             await session.refresh(order)
             return order
+
+    async def append_status_history(
+        self, order_id: UUID, status: str, note: str | None = None
+    ) -> None:
+        async with session_scope(self._session) as session:
+            session.add(
+                OrderStatusHistory(orderId=order_id, status=status, notes=note)
+            )
+            await session.flush()
+
+    async def reconcile_delivered_status(self, order_id: UUID) -> None:
+        """Flip a GR to 'delivered' once nothing is outstanding. Ported from the
+        mobile ``reconcileDeliveredStatus`` with one guard: a GR whose ``toPay``
+        was never set (None) is treated as "charges not yet determined" and
+        left ``pending`` — only an explicit ``toPay <= 0`` (a genuine
+        nothing-to-collect GR) or a payments ledger that has reached ``toPay``
+        triggers the flip. Never downgrades."""
+        from app.models.payment import Payment
+
+        async with session_scope(self._session) as session:
+            order = await session.get(Order, order_id)
+            if order is None or order.status == OrderStatus.DELIVERED:
+                return
+            ledger_paid = float(
+                (
+                    await session.execute(
+                        select(func.coalesce(func.sum(Payment.amount), 0)).where(
+                            Payment.orderId == order_id
+                        )
+                    )
+                ).scalar()
+                or 0
+            )
+            legacy_paid = float(order.paymentAmount or 0)
+            total_paid = max(ledger_paid, legacy_paid)
+            if order.toPay is None and total_paid <= 0:
+                return  # nothing owed recorded, nothing paid — stay pending
+            to_pay = float(order.toPay or 0)
+            if to_pay > 0 and total_paid < to_pay - 0.005:
+                return
+            order.status = OrderStatus.DELIVERED
+            order.updatedAt = datetime.now(timezone.utc)
+            session.add(order)
+            session.add(
+                OrderStatusHistory(
+                    orderId=order_id,
+                    status="delivered",
+                    notes="Auto-marked delivered: nothing outstanding",
+                )
+            )
+            await session.flush()
+
+    async def distinct_consignors(
+        self, company_id: UUID | None = None, area: str | None = None
+    ) -> list[str]:
+        async with session_scope(self._session) as session:
+            q = select(Order.consignorName).where(
+                Order.isActive == True,
+                Order.deletedAt.is_(None),
+                Order.consignorName.isnot(None),
+                Order.consignorName != "",
+            )
+            if company_id is not None:
+                q = q.where(Order.companyId == company_id)
+            if area:
+                q = q.where(Order.area == area)
+            q = q.distinct().order_by(Order.consignorName.asc())
+            return [r for (r,) in (await session.execute(q)).all()]
 
     async def assign_vehicle(self, order_id: UUID, vehicle_id: UUID) -> Optional[Order]:
         async with session_scope(self._session) as session:

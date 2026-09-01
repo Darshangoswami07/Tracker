@@ -116,7 +116,7 @@ export const PaymentHistoryScreen = () => {
     if (mode === 'refresh') setRefreshing(true);
     try {
       // Fetch all orders and aggregate payment data
-      const allOrders = await orderRepository.list({ page: 1, pageSize: 9999 });
+      const allOrders = await orderRepository.listAll();
       const payments: (LocalPayment & { orderNumber?: string })[] = [];
       let totalCollected = 0;
       let totalBalance = 0;

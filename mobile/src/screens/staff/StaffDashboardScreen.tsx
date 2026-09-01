@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAppNav } from '../../hooks/useAppNav';
 import { useUserStore } from '../../store/userStore';
@@ -28,6 +29,7 @@ const ASSIGNED_STATUSES = ['uncleared'];
  * and quick actions that jump straight into the Deliveries tab.
  */
 export const StaffDashboardScreen = () => {
+  const { t } = useTranslation();
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { navigate, navigation } = useAppNav();
   const user = useUserStore((state) => state.user);
@@ -92,31 +94,31 @@ export const StaffDashboardScreen = () => {
     setRefreshing(false);
   };
 
-  const firstName = user?.fullName?.split(' ')[0] || 'there';
+  const firstName = user?.fullName?.split(' ')[0] || t('staff.there');
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
-      <Header title="Staff Dashboard" />
+      <Header title={t('staff.dashboard')} />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#635BFF']} progressBackgroundColor={colors.surface} />}
       >
-        <Text style={[styles.welcome, { color: colors.textPrimary }]}>Welcome, {firstName}</Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Here&apos;s today&apos;s overview.</Text>
+        <Text style={[styles.welcome, { color: colors.textPrimary }]}>{t('staff.welcome', { name: firstName })}</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{t('staff.todaysOverview')}</Text>
 
         <View style={styles.statsRow}>
           <View style={[styles.statCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
             <Text style={[styles.statValue, { color: colors.primary }]}>{overview.assigned}</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Assigned</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{t('staff.assigned')}</Text>
           </View>
           <View style={[styles.statCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
             <Text style={[styles.statValue, { color: '#F59E0B' }]}>{overview.pending}</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Pending</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{t('staff.pending')}</Text>
           </View>
           <View style={[styles.statCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
             <Text style={[styles.statValue, { color: '#10B981' }]}>{overview.completed}</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Completed</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{t('staff.completed')}</Text>
           </View>
         </View>
 
@@ -128,12 +130,12 @@ export const StaffDashboardScreen = () => {
             </View>
             <View>
               <Text style={[styles.outstandingValue, { color: '#F97316' }]}>{formatCurrency(overview.outstanding)}</Text>
-              <Text style={[styles.outstandingLabel, { color: colors.textMuted }]}>Outstanding</Text>
+              <Text style={[styles.outstandingLabel, { color: colors.textMuted }]}>{t('staff.outstanding')}</Text>
             </View>
           </View>
         )}
 
-        <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Quick Actions</Text>
+        <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('staff.quickActions')}</Text>
         <View style={styles.actionsGrid}>
           <TouchableOpacity
             style={[styles.actionCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
@@ -143,40 +145,40 @@ export const StaffDashboardScreen = () => {
             <View style={[styles.actionIcon, { backgroundColor: '#635BFF18' }]}>
               <Ionicons name="storefront-outline" size={22} color="#635BFF" />
             </View>
-            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>All Shops</Text>
+            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>{t('staff.allShops')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.actionCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
-            onPress={() => navigate('StaffDeliveries', { title: 'My Slips' })}
+            onPress={() => navigate('StaffDeliveries', { title: t('staff.mySlips') })}
             accessibilityRole="button"
           >
             <View style={[styles.actionIcon, { backgroundColor: '#06B6D418' }]}>
               <Ionicons name="documents-outline" size={22} color="#06B6D4" />
             </View>
-            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>My Slips</Text>
+            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>{t('staff.mySlips')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.actionCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
-            onPress={() => navigate('StaffDeliveries', { statusFilter: 'pending', title: 'Pending Slip' })}
+            onPress={() => navigate('StaffDeliveries', { statusFilter: 'pending', title: t('staff.pendingSlip') })}
             accessibilityRole="button"
           >
             <View style={[styles.actionIcon, { backgroundColor: '#F59E0B18' }]}>
               <Ionicons name="time-outline" size={22} color="#F59E0B" />
             </View>
-            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>Pending Slip</Text>
+            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>{t('staff.pendingSlip')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.actionCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
-            onPress={() => navigate('StaffDeliveries', { statusFilter: 'delivered', title: 'Delivered Slip' })}
+            onPress={() => navigate('StaffDeliveries', { statusFilter: 'delivered', title: t('staff.deliveredSlip') })}
             accessibilityRole="button"
           >
             <View style={[styles.actionIcon, { backgroundColor: '#10B98118' }]}>
               <Ionicons name="checkmark-done-outline" size={22} color="#10B981" />
             </View>
-            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>Delivered Slip</Text>
+            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>{t('staff.deliveredSlip')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -188,7 +190,7 @@ export const StaffDashboardScreen = () => {
               <Ionicons name="wallet-outline" size={22} color="#10B981" />
             </View>
             <Text style={[styles.actionValue, { color: '#10B981' }]}>{formatCurrency(overview.todayCollection)}</Text>
-            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>Daily Collection</Text>
+            <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>{t('staff.dailyCollection')}</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

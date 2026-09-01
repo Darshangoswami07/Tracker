@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
@@ -27,12 +28,17 @@ interface ShopFilters {
 
 const NO_FILTERS: ShopFilters = { minGr: null };
 
-const MIN_GR_OPTIONS: { label: string; value: number | null }[] = [
-  { label: 'Any', value: null },
-  { label: '1+', value: 1 },
-  { label: '5+', value: 5 },
-  { label: '10+', value: 10 },
+const MIN_GR_OPTIONS: { value: number | null }[] = [
+  { value: null },
+  { value: 1 },
+  { value: 5 },
+  { value: 10 },
 ];
+
+/** Display label for a minimum-GR option — only "Any" is localised; the rest
+ *  ("1+", "5+"…) are numeric and language-neutral. */
+const minGrLabel = (value: number | null, anyLabel: string): string =>
+  value == null ? anyLabel : `${value}+`;
 
 /**
  * Staff Dashboard → "All Shops".
@@ -52,6 +58,7 @@ const MIN_GR_OPTIONS: { label: string; value: number | null }[] = [
  * forces the Staff area at the repository level.
  */
 export const StaffAllShopsScreen = () => {
+  const { t } = useTranslation();
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { navigate, goBack } = useAppNav();
   const user = useUserStore((state) => state.user);
@@ -145,12 +152,12 @@ export const StaffAllShopsScreen = () => {
   if (!area) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-        <Header title="All Shops" showBack onBack={goBack} />
+        <Header title={t('shops.title')} showBack onBack={goBack} />
         <View style={styles.unassignedWrap}>
           <Ionicons name="location-outline" size={48} color={colors.textMuted} />
-          <Text style={[styles.unassignedTitle, { color: colors.textPrimary }]}>No area assigned</Text>
+          <Text style={[styles.unassignedTitle, { color: colors.textPrimary }]}>{t('staff.noAreaAssigned')}</Text>
           <Text style={[styles.unassignedText, { color: colors.textSecondary }]}>
-            Your account has no delivery area yet. Ask an admin to assign one so you can view shops.
+            {t('staff.noAreaAssignedDesc')}
           </Text>
         </View>
       </SafeAreaView>
@@ -159,14 +166,14 @@ export const StaffAllShopsScreen = () => {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-      <Header title="All Shops" showBack onBack={goBack} />
+      <Header title={t('shops.title')} showBack onBack={goBack} />
 
       <View style={styles.searchRow}>
         <View style={[styles.searchBar, { backgroundColor: colors.surface, borderRadius: radii.lg }]}>
           <Ionicons name="search-outline" size={18} color={colors.textMuted} />
           <TextInput
             style={[styles.searchInput, { color: colors.textPrimary }]}
-            placeholder="Search shops"
+            placeholder={t('shops.search')}
             placeholderTextColor={colors.textMuted}
             value={search}
             onChangeText={setSearch}
@@ -186,7 +193,7 @@ export const StaffAllShopsScreen = () => {
           ]}
           onPress={openSheet}
           accessibilityRole="button"
-          accessibilityLabel="Filter shops"
+          accessibilityLabel={t('shops.filterA11y')}
         >
           <Ionicons name="filter-outline" size={20} color={filtersActive ? '#fff' : colors.primary} />
           {filtersActive && <View style={styles.filterDot} />}
@@ -195,14 +202,14 @@ export const StaffAllShopsScreen = () => {
 
       <View style={styles.areaPill}>
         <Ionicons name="location-outline" size={14} color={colors.primary} />
-        <Text style={[styles.areaPillText, { color: colors.textSecondary }]}>Current Area: {area}</Text>
+        <Text style={[styles.areaPillText, { color: colors.textSecondary }]}>{t('staff.currentArea', { area })}</Text>
       </View>
 
       {filtersActive && (
         <View style={styles.activeFilters}>
           {filters.minGr != null && (
             <TouchableOpacity style={[styles.activeChip, { backgroundColor: `${colors.primary}15` }]} onPress={() => clearOne('minGr')}>
-              <Text style={[styles.activeChipText, { color: colors.primary }]}>Min GRs: {filters.minGr}+</Text>
+              <Text style={[styles.activeChipText, { color: colors.primary }]}>{t('shops.minGRsChip', { count: filters.minGr })}</Text>
               <Ionicons name="close" size={14} color={colors.primary} />
             </TouchableOpacity>
           )}
@@ -231,12 +238,12 @@ export const StaffAllShopsScreen = () => {
           <View style={styles.emptyWrap}>
             <Ionicons name="storefront-outline" size={48} color={colors.textMuted} />
             <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>
-              {search || filtersActive ? 'No shops found' : 'No shops yet'}
+              {search || filtersActive ? t('shops.noShopsFound') : t('shops.noShopsYet')}
             </Text>
             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
               {search || filtersActive
-                ? `No shops in ${area} match your search and filters.`
-                : `There are no shops with GRs in ${area} yet.`}
+                ? t('shops.noShopsMatch', { area })
+                : t('shops.noShopsInArea', { area })}
             </Text>
           </View>
         ) : (
@@ -257,7 +264,7 @@ export const StaffAllShopsScreen = () => {
                     {shop.name}
                   </Text>
                   <Text style={[styles.shopSubtext, { color: colors.textMuted }]}>
-                    {shop.grCount} {shop.grCount === 1 ? 'GR' : 'GRs'}
+                    {t('shops.totalGRs', { count: shop.grCount })}
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
@@ -318,6 +325,7 @@ interface ShopFilterSheetProps {
 }
 
 const ShopFilterSheet = ({ visible, temp, onTempChange, onApply, onClear, onClose }: ShopFilterSheetProps) => {
+  const { t } = useTranslation();
   const { colors, spacing, radii, fonts } = useAppTheme();
   const sheetStyles = createSheetStyles({ colors, spacing, radii, fonts });
 
@@ -326,14 +334,14 @@ const ShopFilterSheet = ({ visible, temp, onTempChange, onApply, onClear, onClos
       <Pressable style={sheetStyles.backdrop} onPress={onClose}>
         <Pressable style={sheetStyles.sheet}>
           <View style={sheetStyles.handle} />
-          <Text style={[sheetStyles.title, { color: colors.textPrimary }]}>Filter Shops</Text>
+          <Text style={[sheetStyles.title, { color: colors.textPrimary }]}>{t('shops.filterTitle')}</Text>
 
-          <Text style={[sheetStyles.sectionLabel, { color: colors.textSecondary }]}>Minimum GRs</Text>
+          <Text style={[sheetStyles.sectionLabel, { color: colors.textSecondary }]}>{t('shops.minimumGRs')}</Text>
           <View style={sheetStyles.chips}>
             {MIN_GR_OPTIONS.map((opt) => (
               <SheetChip
-                key={opt.label}
-                label={opt.label}
+                key={String(opt.value)}
+                label={minGrLabel(opt.value, t('common.any'))}
                 active={temp.minGr === opt.value}
                 onPress={() => onTempChange({ ...temp, minGr: opt.value })}
               />
@@ -342,10 +350,10 @@ const ShopFilterSheet = ({ visible, temp, onTempChange, onApply, onClear, onClos
 
           <View style={sheetStyles.footer}>
             <TouchableOpacity style={sheetStyles.clearBtn} onPress={onClear} accessibilityRole="button">
-              <Text style={[sheetStyles.clearText, { color: colors.textSecondary }]}>Clear</Text>
+              <Text style={[sheetStyles.clearText, { color: colors.textSecondary }]}>{t('common.clear')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[sheetStyles.applyBtn, { backgroundColor: colors.primary }]} onPress={() => onApply(temp)} accessibilityRole="button">
-              <Text style={sheetStyles.applyText}>Apply</Text>
+              <Text style={sheetStyles.applyText}>{t('common.apply')}</Text>
             </TouchableOpacity>
           </View>
         </Pressable>

@@ -1,12 +1,11 @@
 """OCR extraction for GR transport slips using the OCR.Space API.
 
-The mobile app reads/writes business GR data exclusively through the local
-SQLite repository, but slip *extraction* is a transient, stateless helper
-call: the (optimized) image/PDF bytes are sent to OCR.Space over HTTPS, the
-raw text is parsed into the GR field schema, and the result is POSTed back
-to the device, where it pre-fills the Create GR form and is saved locally
-(nothing is persisted server-side). OCR therefore requires internet, but
-everything downstream stays local.
+The mobile app reads/writes business GR data through the FastAPI backend
+(Neon). Slip *extraction* is a transient, stateless helper call: the
+(optimized) image/PDF bytes are sent to OCR.Space over HTTPS, the raw text is
+parsed into the GR field schema, and the result is returned to the device,
+where it pre-fills the Create GR form before the user submits it to
+POST /admin/orders. Nothing is persisted by this endpoint itself.
 
 The user's *original* file is never modified here — the caller (the
 `/admin/orders/ocr-extract` route) only ever hands this module the raw bytes

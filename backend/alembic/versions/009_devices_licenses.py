@@ -5,8 +5,9 @@ Revises: 008
 Create Date: 2026-08-14 00:00:00.000000
 
 These tables belong to the Neon control plane: a device is registered after
-account activation, and a license is bound to it. Business data lives in
-device-local SQLite, never here.
+account activation, and a license is bound to it. (Historical note: at the
+time this migration was written, business data was kept in device-local
+SQLite; as of migration 017 all business data lives in Neon.)
 """
 from alembic import op
 import sqlalchemy as sa

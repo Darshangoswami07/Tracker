@@ -68,11 +68,43 @@ async def _attachments_out(order_id: UUID) -> list[OrderAttachmentOut]:
     ]
 
 
+_EXTENDED_FIELDS = (
+    "grDate", "transportCompanyName", "transportGstin", "ewbNumber", "billType",
+    "specialService", "fromLocation", "toLocation", "deliveryAt", "rate",
+    "goodsValue", "grCharge", "freight", "labour", "pf", "doorDelivery",
+    "taxGst", "netAmount", "toPay", "proprietorName", "proprietorPhone",
+    "packageType", "consignorGstin", "consignorPhone", "consigneeGstin",
+    "consigneePhone", "chalaanNo", "chalaanDate", "transportGrn", "paymentMode",
+    "grSourceLabel",
+)
+
+
+async def _timeline_out(order) -> list:
+    history = sorted(
+        getattr(order, "statusHistory", []) or [], key=lambda h: h.createdAt
+    )
+    return [
+        {
+            "id": str(h.id),
+            "status": h.status,
+            "note": h.notes,
+            "createdAt": h.createdAt.isoformat(),
+        }
+        for h in history
+    ]
+
+
 async def _gr_out(order) -> GROut:
     attachments = await _attachments_out(order.id)
+    extended = {f: getattr(order, f, None) for f in _EXTENDED_FIELDS}
     return GROut(
         id=order.id,
         orderNumber=order.orderNumber,
+        source=getattr(order, "source", None) or "manual",
+        slipData=getattr(order, "slipData", None),
+        paymentAmount=float(order.paymentAmount) if order.paymentAmount is not None else None,
+        area=getattr(order, "area", None),
+        timeline=await _timeline_out(order),
         companyId=order.companyId,
         customerId=order.customerId,
         driverId=order.driverId,
@@ -93,32 +125,7 @@ async def _gr_out(order) -> GROut:
         createdAt=order.createdAt,
         updatedAt=order.updatedAt,
         attachments=attachments,
-        grDate=order.grDate,
-        transportCompanyName=order.transportCompanyName,
-        transportGstin=order.transportGstin,
-        ewbNumber=order.ewbNumber,
-        billType=order.billType,
-        specialService=order.specialService,
-        fromLocation=order.fromLocation,
-        toLocation=order.toLocation,
-        deliveryAt=order.deliveryAt,
-        rate=order.rate,
-        goodsValue=order.goodsValue,
-        grCharge=order.grCharge,
-        freight=order.freight,
-        labour=order.labour,
-        pf=order.pf,
-        doorDelivery=order.doorDelivery,
-        taxGst=order.taxGst,
-        netAmount=order.netAmount,
-        toPay=order.toPay,
-        proprietorName=order.proprietorName,
-        proprietorPhone=order.proprietorPhone,
-        packageType=order.packageType,
-        consignorGstin=order.consignorGstin,
-        consignorPhone=order.consignorPhone,
-        consigneeGstin=order.consigneeGstin,
-        consigneePhone=order.consigneePhone,
+        **extended,
     )
 
 
@@ -149,9 +156,36 @@ async def list_grs(
         area=effective_area,
         consignor=consignor,
     )
+    # One grouped query for the whole page's payment totals (no N+1).
+    paid_by_order: dict = {}
+    if orders:
+        from sqlalchemy import func as _func, select as _select
+
+        from app.database.db import session_scope
+        from app.models.payment import Payment
+
+        order_ids = [o.id for o in orders]
+        async with session_scope() as _s:
+            rows = (
+                await _s.execute(
+                    _select(Payment.orderId, _func.coalesce(_func.sum(Payment.amount), 0))
+                    .where(Payment.orderId.in_(order_ids))
+                    .group_by(Payment.orderId)
+                )
+            ).all()
+        paid_by_order = {oid: float(total or 0) for oid, total in rows}
+
+    from app.services.gr_status_service import classify
+
     items = []
     for order in orders:
         attachments = await attachment_repo.find_by_order(order.id)
+        raw_status = order.status.value if hasattr(order.status, "value") else order.status
+        ledger_paid = paid_by_order.get(order.id, 0.0)
+        legacy_paid = float(order.paymentAmount) if order.paymentAmount is not None else 0.0
+        total_paid = max(ledger_paid, legacy_paid)
+        to_pay = float(order.toPay) if order.toPay is not None else 0.0
+        reporting_status = classify(raw_status != "pending", total_paid, to_pay)
         items.append(
             {
                 "id": str(order.id),
@@ -163,9 +197,17 @@ async def list_grs(
                 "driverId": str(order.driverId) if order.driverId else None,
                 "assignedStaffId": str(order.assignedStaffId) if order.assignedStaffId else None,
                 "area": order.area,
-                "status": order.status.value if hasattr(order.status, "value") else order.status,
+                # `status` stays the raw lifecycle value (unchanged for existing
+                # API consumers); `reportingStatus` is the canonical bucket the
+                # mobile GR list badges + filters use (see gr_status_service).
+                "status": raw_status,
+                "reportingStatus": reporting_status,
                 "createdAt": order.createdAt.isoformat(),
-                "hasSlip": bool(attachments),
+                "hasSlip": bool(attachments) or bool(getattr(order, "hasSlip", False)),
+                "source": getattr(order, "source", None) or "manual",
+                "toPay": to_pay,
+                "totalPaid": total_paid,
+                "paymentAmount": legacy_paid,
             }
         )
     return success(
@@ -192,13 +234,37 @@ async def create_gr(payload: GRCreateRequest, admin: GRAccessUser) -> dict:
     if existing is not None:
         raise ValidationBusinessError(f"GR number '{payload.grNumber}' already exists.")
 
+    # ``effective_company_id`` raises ForbiddenError for a company-scoped
+    # caller (Staff/Driver/Company Admin) that has no company assigned — that
+    # gate is preserved. It returns None only for platform ADMIN/SUPER_ADMIN,
+    # who then fall back to the payload's companyId or their own user.companyId
+    # (mobile admins are linked to a company via user.companyId).
     company_id = await effective_company_id(admin)
+    if company_id is None:
+        company_id = payload.companyId or getattr(admin, "companyId", None)
+    if company_id is None:
+        raise ValidationBusinessError(
+            "Your account is not linked to a company. Ask an administrator to "
+            "assign one before creating GRs."
+        )
+    extended = {f: getattr(payload, f, None) for f in _EXTENDED_FIELDS}
+    # Stamp the creating user's area (Staff only — Admin/Owner have none) so a
+    # Staff-created GR is immediately visible in that Staff member's own
+    # area-scoped list instead of silently vanishing for lacking an area.
+    creator_area = getattr(admin, "area", None)
+    # `assignedStaffId` from the client is a users.id (what every staff picker
+    # returns); Order.assignedStaffId FKs employees.id — resolve it.
+    assigned_staff = (
+        await _resolve_employee_id(payload.assignedStaffId, company_id)
+        if payload.assignedStaffId is not None
+        else None
+    )
     order = await order_repo.create_order(
         orderNumber=payload.grNumber,
-        companyId=company_id if company_id is not None else payload.companyId,
+        companyId=company_id,
         customerId=payload.customerId,
         driverId=payload.driverId,
-        assignedStaffId=payload.assignedStaffId,
+        assignedStaffId=assigned_staff,
         pickupAddress=payload.pickupAddress,
         deliveryAddress=payload.deliveryAddress,
         pickupTime=payload.pickupTime,
@@ -209,42 +275,24 @@ async def create_gr(payload: GRCreateRequest, admin: GRAccessUser) -> dict:
         weight=payload.weight,
         notes=payload.notes,
         status=OrderStatus.PENDING,
-        grDate=payload.grDate,
-        transportCompanyName=payload.transportCompanyName,
-        transportGstin=payload.transportGstin,
-        ewbNumber=payload.ewbNumber,
-        billType=payload.billType,
-        specialService=payload.specialService,
-        fromLocation=payload.fromLocation,
-        toLocation=payload.toLocation,
-        deliveryAt=payload.deliveryAt,
-        rate=payload.rate,
-        goodsValue=payload.goodsValue,
-        grCharge=payload.grCharge,
-        freight=payload.freight,
-        labour=payload.labour,
-        pf=payload.pf,
-        doorDelivery=payload.doorDelivery,
-        taxGst=payload.taxGst,
-        netAmount=payload.netAmount,
-        toPay=payload.toPay,
-        proprietorName=payload.proprietorName,
-        proprietorPhone=payload.proprietorPhone,
-        packageType=payload.packageType,
-        consignorGstin=payload.consignorGstin,
-        consignorPhone=payload.consignorPhone,
-        consigneeGstin=payload.consigneeGstin,
-        consigneePhone=payload.consigneePhone,
+        area=creator_area,
+        source=getattr(payload, "source", None) or "manual",
+        slipData=getattr(payload, "slipData", None),
+        **extended,
     )
-    return success((await _gr_out(order)).model_dump(mode="json"), message="GR created successfully.")
+    await order_repo.append_status_history(order.id, "pending", "Created")
+    await order_repo.reconcile_delivered_status(order.id)
+    fresh = await order_repo.get_order_with_details(order.id)
+    return success((await _gr_out(fresh or order)).model_dump(mode="json"), message="GR created successfully.")
 
 
 @router.post("/ocr-extract")
 async def extract_gr_from_slip(admin: GRAccessUser, file: UploadFile = File(...)) -> dict:
     """Extracts GR fields from an uploaded transport slip (image or PDF) via
     OCR.Space. Stateless: the extracted JSON is returned to the caller and is
-    never persisted here — the mobile app saves it into its on-device SQLite
-    repository. The user's original file is untouched; only a temporary,
+    never persisted here — the mobile app sends the reviewed fields back via
+    POST /admin/orders to be stored in Neon. The user's original file is
+    untouched; only a temporary,
     in-memory optimized copy (when needed) is sent to the OCR provider.
     Requires `OCR_SPACE_API_KEY` to be configured."""
     mime_type = file.content_type or "image/jpeg"
@@ -283,7 +331,12 @@ async def update_gr(order_id: UUID, payload: GRUpdateRequest, admin: GRAccessUse
     order = await order_repo.update_fields(order_id, **updates)
     if order is None:
         raise NotFoundError("GR not found.")
-    return success((await _gr_out(order)).model_dump(mode="json"), message="GR updated successfully.")
+    # Edit GR can lower toPay to/under what's already paid, or set the legacy
+    # paymentAmount directly — re-check whether nothing is outstanding.
+    if "toPay" in updates or "paymentAmount" in updates:
+        await order_repo.reconcile_delivered_status(order_id)
+    fresh = await order_repo.get_order_with_details(order_id)
+    return success((await _gr_out(fresh or order)).model_dump(mode="json"), message="GR updated successfully.")
 
 
 @router.patch("/{order_id}/status")

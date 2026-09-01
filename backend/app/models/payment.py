@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.base import Base
@@ -17,6 +17,12 @@ from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin, utcnow
 
 class Payment(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "payments"
+    __table_args__ = (
+        # Supports the Staff Daily Collection / Staff Work "payments by this
+        # staff member on this day" query pattern.
+        Index("ix_payments_recordedBy", "recordedBy"),
+        Index("ix_payments_createdAt", "createdAt"),
+    )
 
     orderId: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("orders.id", ondelete="CASCADE"), index=True

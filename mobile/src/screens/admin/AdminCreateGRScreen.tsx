@@ -184,10 +184,9 @@ type Mode = 'choose' | 'manual' | 'slip';
 
 /**
  * Mobile equivalent of the web `CreateGRModal`
- * (`admin/src/app/dashboard/orders/page.tsx`). In the local-first
- * architecture the GR is created directly in the on-device SQLite
- * repository (`orderRepository.create`) rather than via `POST /admin/orders`,
- * so it works fully offline.
+ * (`admin/src/app/dashboard/orders/page.tsx`). The GR is created through
+ * `orderRepository.create`, which calls the FastAPI backend
+ * (`POST /admin/orders`) — the record is stored in Neon.
  *
  * Offers two creation modes:
  *   1. Manual — type every field as before.

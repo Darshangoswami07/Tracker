@@ -124,7 +124,7 @@ export const OrderDetailsScreen = ({ route }: any) => {
   const fetchOrder = useCallback(async () => {
     if (!accessToken || !orderId) return;
     try {
-      const res = await api.get(ENDPOINTS.orders.detail(orderId), {
+      const res = await api.get(ENDPOINTS.admin.orders.detail(orderId), {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       setOrder(res.data.data);
