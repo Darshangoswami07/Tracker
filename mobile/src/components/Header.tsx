@@ -16,11 +16,18 @@ interface HeaderProps {
   title: string;
   leftAction?: HeaderAction;
   rightAction?: HeaderAction & { badge?: number };
+  /** A second right-side icon, rendered to the left of `rightAction` (so the
+   * primary action stays in the outermost/thumb-friendliest slot). Additive
+   * and optional — existing screens that only pass `rightAction` render
+   * identically to before. Used for a page-level admin actions entry point
+   * (e.g. Delete All) that must stay visible without displacing the
+   * existing primary action (e.g. "+ Create"). */
+  secondaryRightAction?: HeaderAction;
   showBack?: boolean;
   onBack?: () => void;
 }
 
-export const Header = ({ title, leftAction, rightAction, showBack = false, onBack }: HeaderProps) => {
+export const Header = ({ title, leftAction, rightAction, secondaryRightAction, showBack = false, onBack }: HeaderProps) => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
 
   const styles = StyleSheet.create({
@@ -60,6 +67,17 @@ export const Header = ({ title, leftAction, rightAction, showBack = false, onBac
         <Text style={[styles.title, { color: colors.textPrimary, fontSize: fonts.size.lg }]}>{title}</Text>
 
         <View style={styles.rightActions}>
+          {secondaryRightAction && (
+            <TouchableOpacity
+              style={styles.action}
+              onPress={secondaryRightAction.onPress}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={secondaryRightAction.accessibilityLabel ?? 'More actions'}
+            >
+              <Ionicons name={secondaryRightAction.icon} size={24} color={colors.textPrimary} />
+            </TouchableOpacity>
+          )}
           {rightAction && (
             <TouchableOpacity
               style={styles.action}

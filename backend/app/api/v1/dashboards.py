@@ -267,6 +267,13 @@ async def update_order_status_shared(
     if not new_status:
         raise ValidationBusinessError("status is required.")
 
+    # Same role gate as PATCH /admin/orders/{id}/status: STAFF/EMPLOYEE may
+    # only move a GR pending→delivered — never to cleared/uncleared, never
+    # out of a terminal status. Admin-tier callers are unaffected.
+    from app.services.gr_status_service import assert_status_transition_allowed
+
+    assert_status_transition_allowed(user, order.status, new_status)
+
     updated = await order_repo.update_status(parsed, new_status, user_id=user.id)
     return success(await _order_detail_dict(updated), message="Status updated successfully.")
 

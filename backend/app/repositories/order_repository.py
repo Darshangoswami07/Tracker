@@ -5,7 +5,7 @@ from datetime import datetime, date, timedelta, timezone
 from typing import Optional, Tuple, List
 from uuid import UUID
 
-from sqlalchemy import select, func, and_, or_, desc, case, literal_column
+from sqlalchemy import select, func, and_, or_, desc, case, literal_column, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.db import session_scope
@@ -425,7 +425,14 @@ class OrderRepository(BaseRepository[Order]):
                 query = query.where(Order.area == area)
 
             if consignor:
-                query = query.where(Order.consignorName == consignor)
+                # The ``consignor`` param name is historical — it is the
+                # shop-owner / shop-identity filter, and the shop identity is
+                # the **consignee**. Match case-insensitively on the trimmed
+                # name so a "Shop History" drill-down from the shop list
+                # (whose names are normalized) still finds every GR.
+                query = query.where(
+                    func.lower(func.trim(Order.consigneeName)) == consignor.strip().lower()
+                )
 
             if staff_scope is not None:
                 # A Staff member's GRs come from two independent mechanisms
@@ -573,6 +580,33 @@ class OrderRepository(BaseRepository[Order]):
             await session.refresh(order)
             return order
 
+    async def soft_delete_all_orders(self, company_id: UUID | None) -> int:
+        """Bulk soft-deletes every not-yet-deleted GR in scope: one UPDATE
+        statement (no per-row ORM `session.delete`/loop), so it stays cheap
+        regardless of how many GRs exist. Sets exactly the same two columns
+        as `soft_delete_order` (`deletedAt`, `isActive`) and nothing else —
+        `orders` rows are never physically removed, so `shopId` (ON DELETE
+        SET NULL, never touched by an UPDATE) and every `order_status_history`
+        row (FK `orderId` NOT NULL, cascade-deletes only on a real DELETE)
+        stay exactly as they were. Shops/Users/Staff/Drivers/Vehicles/
+        Companies are untouched — this statement only ever targets `orders`.
+        `company_id=None` (platform ADMIN/SUPER_ADMIN) matches every company,
+        the same unscoped access already granted to that tier by
+        `assert_same_company`/`delete_gr`. Returns the number of GRs newly
+        soft-deleted."""
+        async with session_scope(self._session) as session:
+            now = datetime.now(timezone.utc)
+            stmt = (
+                update(Order)
+                .where(Order.deletedAt.is_(None))
+                .values(deletedAt=now, isActive=False, updatedAt=now)
+                .execution_options(synchronize_session=False)
+            )
+            if company_id is not None:
+                stmt = stmt.where(Order.companyId == company_id)
+            result = await session.execute(stmt)
+            return result.rowcount or 0
+
     async def append_status_history(
         self, order_id: UUID, status: str, note: str | None = None
     ) -> None:
@@ -624,21 +658,25 @@ class OrderRepository(BaseRepository[Order]):
             )
             await session.flush()
 
-    async def distinct_consignors(
+    async def distinct_shop_names(
         self, company_id: UUID | None = None, area: str | None = None
     ) -> list[str]:
+        """Distinct shop names for the "Shop Owner" filter dropdown. The shop
+        identity is the **consignee** (never the consignor), collapsed
+        case-insensitively so spacing/casing variants list once."""
+        name_key = func.lower(func.trim(Order.consigneeName))
         async with session_scope(self._session) as session:
-            q = select(Order.consignorName).where(
+            q = select(func.min(func.trim(Order.consigneeName))).where(
                 Order.isActive == True,
                 Order.deletedAt.is_(None),
-                Order.consignorName.isnot(None),
-                Order.consignorName != "",
+                Order.consigneeName.isnot(None),
+                func.trim(Order.consigneeName) != "",
             )
             if company_id is not None:
                 q = q.where(Order.companyId == company_id)
             if area:
                 q = q.where(Order.area == area)
-            q = q.distinct().order_by(Order.consignorName.asc())
+            q = q.group_by(name_key).order_by(func.min(func.trim(Order.consigneeName)).asc())
             return [r for (r,) in (await session.execute(q)).all()]
 
     async def assign_vehicle(self, order_id: UUID, vehicle_id: UUID) -> Optional[Order]:

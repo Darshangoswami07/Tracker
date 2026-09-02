@@ -43,14 +43,14 @@ const minGrLabel = (value: number | null, anyLabel: string): string =>
 /**
  * Staff Dashboard → "All Shops".
  *
- * Lists every shop (i.e. distinct `consignorName`) that has at least one
- * active GR in the signed-in Staff member's OWN assigned area, with a live
- * GR count per shop. The area restriction is enforced server-side in
- * `orderRepository.getShopsWithCounts` via `resolveAreaScope`, so a Staff
- * user can never see shops from another area, and an unassigned Staff member
- * (no area) sees the "No area assigned" state instead of any data.
+ * Lists every shop (the GR's `consigneeName` — the destination customer
+ * shop, NOT the consignor) that has at least one active GR in the signed-in
+ * Staff member's OWN assigned area, with a live GR count per shop. The area
+ * restriction is enforced server-side in `orderRepository.getShopsWithCounts`,
+ * so a Staff user can never see shops from another area, and an unassigned
+ * Staff member (no area) sees the "No area assigned" state instead of any data.
  *
- * Search runs server-side (LIKE on `consignorName`). The Filter sheet offers
+ * Search runs server-side (LIKE on the consignee name). The Filter sheet offers
  * A Minimum-GR filter is applied client-side over the already area-scoped
  * results — no invented fields, counts always come from the query.
  *
@@ -248,9 +248,9 @@ export const StaffAllShopsScreen = () => {
           </View>
         ) : (
           <View style={styles.shopList}>
-            {displayedShops.map((shop) => (
+            {displayedShops.map((shop, i) => (
               <TouchableOpacity
-                key={shop.name}
+                key={shop.name || `shop-${i}`}
                 style={[styles.shopCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
                 onPress={() => navigate('StaffShopHistory', { shopName: shop.name })}
                 activeOpacity={0.85}

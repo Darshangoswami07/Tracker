@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -61,6 +61,9 @@ export const AdminExcelImportScreen = ({ route }: any) => {
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [challanNo, setChallanNo] = useState('');
   const [fallbackConfirmOpen, setFallbackConfirmOpen] = useState(false);
+  // True for the whole lifetime of the in-flight import POST — blocks a
+  // second submission of the same file even before `stage` re-renders.
+  const importInFlight = useRef(false);
 
   const reset = () => {
     setStage('select');
@@ -69,6 +72,7 @@ export const AdminExcelImportScreen = ({ route }: any) => {
     setFileError(null);
     setSummary(null);
     setFallbackConfirmOpen(false);
+    importInFlight.current = false;
   };
 
   /** Rows whose area could not be auto-matched from their own data
@@ -187,6 +191,12 @@ export const AdminExcelImportScreen = ({ route }: any) => {
 
   const runImport = async () => {
     if (!parsed || !file) return;
+    // Re-entrancy guard: a large import request stays open for minutes, and
+    // `stage` state may not have flushed between two fast taps (button +
+    // confirm dialog). Never let the same file be POSTed twice — that would
+    // race the backend's own duplicate detection.
+    if (importInFlight.current) return;
+    importInFlight.current = true;
     setFallbackConfirmOpen(false);
     setStage('importing');
     try {
@@ -197,8 +207,13 @@ export const AdminExcelImportScreen = ({ route }: any) => {
       setSummary(result);
       setStage('result');
     } catch (err: any) {
+      // Only a real backend error or a genuine socket failure lands here —
+      // the 15s timeout no longer does. Surface the actual message; the
+      // parsed rows are kept so the admin can retry without re-picking.
       setFileError(err?.message ?? 'Import failed. Please try again.');
       setStage('preview');
+    } finally {
+      importInFlight.current = false;
     }
   };
 
@@ -389,7 +404,13 @@ export const AdminExcelImportScreen = ({ route }: any) => {
         {stage === 'importing' && (
           <View style={styles.centered}>
             <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={[styles.subtitle, { color: colors.textMuted, marginTop: 12 }]}>Importing GRs…</Text>
+            <Text style={[styles.title, { color: colors.textPrimary, marginTop: 16, textAlign: 'center' }]}>
+              Importing {parsed?.validRows.length ?? 0} GRs…
+            </Text>
+            <Text style={[styles.subtitle, { color: colors.textMuted, marginTop: 8, textAlign: 'center' }]}>
+              Please wait — large Excel files can take several minutes. Keep this
+              screen open; the import is still running.
+            </Text>
           </View>
         )}
 

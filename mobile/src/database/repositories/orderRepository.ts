@@ -572,6 +572,12 @@ export const orderRepository = {
     };
   },
 
+  /**
+   * Distinct shop names for the "Shop Owner" filter dropdown. The shop
+   * identity is the GR's **consignee** (not the consignor); the backend
+   * endpoint keeps its historical `/meta/consignors` path but now returns
+   * normalized, de-duplicated consignee names.
+   */
   async getDistinctConsignors(area?: string): Promise<string[]> {
     const res = await api.get(ENDPOINTS.admin.orders.consignors, {
       params: area ? { area } : undefined,
@@ -630,6 +636,16 @@ export const orderRepository = {
 
   async delete(id: string): Promise<void> {
     await api.delete(ENDPOINTS.admin.orders.remove(id));
+  },
+
+  /** Admin-only bulk delete of every GR in the caller's company scope —
+   * one backend request, one DB statement (see `DELETE /admin/orders`).
+   * Never loops per-GR delete calls. Returns how many GRs were deleted. */
+  async deleteAll(): Promise<number> {
+    return withApiError(async () => {
+      const res = await api.delete(ENDPOINTS.admin.orders.removeAll);
+      return body<{ deletedCount: number }>(res).deletedCount ?? 0;
+    });
   },
 
   async updateStatus(id: string, status: string): Promise<LocalGRDetail | null> {

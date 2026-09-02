@@ -7,6 +7,7 @@
  */
 import { api } from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
+import { ENV } from '../../config/env';
 import type { ValidGRRow } from '../../services/excelImport';
 
 const body = <T>(res: { data: { data: T } }): T => res.data.data;
@@ -45,6 +46,11 @@ export const importRepository = {
     importedByName: string | null,
     area?: string
   ): Promise<ImportSummary> {
+    // Excel imports run for as long as the backend needs (each row is created
+    // in Neon in one synchronous request). Override the default 15s client
+    // timeout for THIS request only — see `ENV.excelImportTimeoutMs`. Nothing
+    // retries or re-sends: the one request stays open until the backend
+    // returns its real summary (or the socket genuinely fails).
     const res = await api.post(ENDPOINTS.admin.orders.import, {
       fileName,
       importedByName,
@@ -69,7 +75,7 @@ export const importRepository = {
         grSourceLabel: r.grSourceLabel ?? null,
         resolvedArea: r.resolvedArea ?? null,
       })),
-    });
+    }, { timeout: ENV.excelImportTimeoutMs });
     const d = body<any>(res);
     return {
       totalRows: Number(d.totalRows ?? rows.length),

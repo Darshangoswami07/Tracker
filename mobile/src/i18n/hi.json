@@ -583,7 +583,18 @@
     "grShipmentsSingular": "GR shipment",
     "grShipmentsPlural": "GR shipments",
     "allLocations": "Sabhi sthaan",
-    "filterByLocation": "Sthaan se filter karein"
+    "filterByLocation": "Sthaan se filter karein",
+    "deleteAllGRs": "सभी GR हटाएं",
+    "deleteAllTitle": "सभी GR हटाएं?",
+    "deleteAllMessage": "इससे सभी GR/शिपमेंट रिकॉर्ड हट जाएंगे। यह क्रिया पूर्ववत नहीं की जा सकती।",
+    "deleteAllTypePrompt": "पुष्टि करने के लिए DELETE टाइप करें।",
+    "deleteAllTypePlaceholder": "DELETE टाइप करें",
+    "deleteAllConfirm": "सभी हटाएं",
+    "deleteAllDeleting": "हटाया जा रहा है…",
+    "deleteAllSuccess": "सभी {{count}} GR सफलतापूर्वक हटा दिए गए।",
+    "deleteAllError": "सभी GR हटाए नहीं जा सके। कृपया पुनः प्रयास करें।",
+    "adminActions": "एडमिन कार्रवाई",
+    "deleteAllTitleCount": "सभी {{count}} GR हटाएं?"
   },
   "tracking": {
     "title": "ट्रैकिंग",

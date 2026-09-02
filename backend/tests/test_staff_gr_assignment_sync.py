@@ -38,15 +38,17 @@ async def create_company(name: str = "Acme Transport") -> str:
         return str(company.id)
 
 
-def gr_payload(gr_number: str, consignor_name: str, company_id: str, assigned_staff_id: str | None = None) -> dict:
+def gr_payload(gr_number: str, consignee_name: str, company_id: str, assigned_staff_id: str | None = None) -> dict:
+    # The Shop identity is the CONSIGNEE — the varying name is the consignee;
+    # the consignor is held constant (GR metadata only).
     payload = {
         "grNumber": gr_number,
         "companyId": company_id,
         "pickupAddress": "Haldwani Depot",
         "deliveryAddress": "Bageshwar Depot",
         "pickupTime": "2026-08-11T10:00:00Z",
-        "consignorName": consignor_name,
-        "consigneeName": "Suresh & Co",
+        "consignorName": "Jai Kailash Forwarding Agency",
+        "consigneeName": consignee_name,
         "particulars": "3 boxes of textiles",
         "packageCount": 3,
         "weight": 45.5,
@@ -211,3 +213,59 @@ async def test_staff_sees_area_routed_grs_without_explicit_assignment(client):
     data = listed.json()["data"]
     assert data["total"] == 1
     assert data["items"][0]["orderNumber"] == "GR9001"
+
+
+async def test_staff_status_update_is_pending_to_delivered_only(client):
+    """Staff may move an assigned GR pending->delivered and NOTHING else.
+    cleared/uncleared and any move out of a terminal status are 403 — from
+    the API directly, not just hidden in the UI. Admin is unrestricted.
+    Staff B cannot touch Staff A's GR."""
+    company_id = await create_company("Gamma Transport")
+
+    async def _staff(email, phone):
+        repo = UserRepository()
+        u = await repo.create(
+            full_name="S", email=email, phone=phone,
+            password_hash=hash_password("Password123!"), role=UserRole.STAFF,
+        )
+        async with session_scope() as s:
+            du = await s.get(type(u), u.id)
+            du.status = RegistrationStatus.ACTIVE
+            du.isActive = du.isApproved = du.isVerified = du.otpVerified = True
+            du.companyId = uuid.UUID(company_id)
+            await s.flush()
+        r = await client.post(f"{AUTH_BASE}/login", json={"email": email, "password": "Password123!"})
+        return str(u.id), r.json()["data"]["tokens"]["accessToken"]
+
+    au = await UserRepository().create(
+        full_name="A", email="gamma-admin@example.com", phone="+15554100000",
+        password_hash=hash_password("Password123!"), role=UserRole.ADMIN,
+    )
+    async with session_scope() as s:
+        du = await s.get(type(au), au.id)
+        du.status = RegistrationStatus.ACTIVE
+        du.isActive = du.isApproved = du.isVerified = du.otpVerified = True
+        du.companyId = uuid.UUID(company_id)
+        await s.flush()
+    admin_tok = (await client.post(f"{AUTH_BASE}/login", json={"email": "gamma-admin@example.com", "password": "Password123!"})).json()["data"]["tokens"]["accessToken"]
+
+    staff_a_id, staff_a_tok = await _staff("gamma-a@example.com", "+15554100001")
+    _, staff_b_tok = await _staff("gamma-b@example.com", "+15554100002")
+
+    gid = (await client.post(
+        GR_BASE, json=gr_payload("GRP001", "P Shop", company_id, assigned_staff_id=staff_a_id),
+        headers=auth_headers(admin_tok),
+    )).json()["data"]["id"]
+
+    def patch(tok, st):
+        return client.patch(f"{GR_BASE}/{gid}/status", json={"status": st}, headers=auth_headers(tok))
+
+    assert (await patch(staff_a_tok, "cleared")).status_code == 403
+    assert (await patch(staff_a_tok, "uncleared")).status_code == 403
+    assert (await patch(staff_b_tok, "delivered")).status_code == 403  # not owner
+    assert (await patch(staff_a_tok, "delivered")).status_code == 200
+    assert (await patch(staff_a_tok, "pending")).status_code == 403
+    assert (await patch(staff_a_tok, "cleared")).status_code == 403
+    # admin unrestricted
+    assert (await patch(admin_tok, "cleared")).status_code == 200
+    assert (await patch(admin_tok, "pending")).status_code == 200

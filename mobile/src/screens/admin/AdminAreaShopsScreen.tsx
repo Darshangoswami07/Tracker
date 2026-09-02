@@ -13,17 +13,17 @@ import type { AppTheme } from '../../theme/types';
 /**
  * All Shops → tap an area (Bageshwar/Almora/Garur Someshwar) → this screen.
  *
- * Lists every shop (distinct `consignorName`) with at least one active GR in
- * THIS area — however that GR was created (manual entry, slip upload, or
- * Excel import all stamp `consignorName`), so the list always reflects
- * exactly what's in the data, live. Area scoping happens server-side in
- * `orderRepository.getShopsWithCounts` (via `resolveAreaScope`), so this is
- * never wider than the area the admin tapped into.
+ * Lists every shop (the GR's `consigneeName` — the destination customer
+ * shop, NOT the consignor) with at least one active GR in THIS area —
+ * however that GR was created (manual entry, slip upload, or Excel import),
+ * so the list always reflects exactly what's in the data, live. The backend
+ * (`GET /admin/orders/shops/counts`) collapses spacing/casing variants of a
+ * consignee to one row, so names here are unique. Area scoping happens
+ * server-side, so this is never wider than the area the admin tapped into.
  *
  * Tapping a shop opens `ShopHistory` pinned to that shop + area — that
  * screen's own list query is scoped the same way, so a shop's GR list can
- * never include another area's rows even if two areas happen to share a
- * shop/consignor name.
+ * never include another area's rows even if two areas share a consignee name.
  */
 export const AdminAreaShopsScreen = ({ route }: any) => {
   const { area } = (route?.params as { area: string }) ?? { area: '' };
@@ -111,9 +111,9 @@ export const AdminAreaShopsScreen = ({ route }: any) => {
           />
         ) : (
           <View style={styles.shopList}>
-            {shops.map((shop) => (
+            {shops.map((shop, i) => (
               <TouchableOpacity
-                key={shop.name}
+                key={shop.name || `shop-${i}`}
                 style={[styles.shopCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
                 onPress={() => navigate('ShopHistory', { shopName: shop.name, area })}
                 activeOpacity={0.85}

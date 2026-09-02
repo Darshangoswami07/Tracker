@@ -104,7 +104,7 @@ async def gr_status_counts(
 
 @router.get("/meta/consignors")
 async def list_consignors(admin: GRAccessUser) -> dict:
-    names = await order_repo.distinct_consignors(
+    names = await order_repo.distinct_shop_names(
         company_id=await effective_company_id(admin), area=_effective_area(admin)
     )
     return success(names, message="Consignors retrieved successfully.")
@@ -473,11 +473,16 @@ async def shops_with_counts(
     area: Optional[str] = None,
     session: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    """Every registered Shop (master data) in scope, each with its live count
-    of active (non-deleted) GRs. Queries FROM the Shop master table with a
-    LEFT OUTER JOIN to Order — not the other way around — so a Shop with
-    zero active GRs (including one whose only/last GR was just deleted)
-    still appears here instead of silently disappearing."""
+    """Every registered Shop (consignee master data) in scope, each with its
+    live count of active (non-deleted) GRs. Queries FROM the Shop master table
+    with a LEFT OUTER JOIN to Order — not the other way around — so a Shop
+    with zero active GRs (including one whose only/last GR was just deleted)
+    still appears here instead of silently disappearing.
+
+    Rows are collapsed by **normalized, case-insensitive name**: two Shop
+    records that represent the same consignee (e.g. one per area, or a
+    spacing/casing variant) come back as ONE card with the GR counts summed,
+    so the client never sees — or key-collides on — duplicate shop names."""
     company_id = await effective_company_id(admin)
     scoped_area = _effective_area(admin) or area
     conds = []
@@ -488,14 +493,15 @@ async def shops_with_counts(
     if search and search.strip():
         conds.append(Shop.name.ilike(f"%{search.strip()}%"))
     active_gr_count = func.count(Order.id).filter(Order.deletedAt.is_(None))
+    name_key = func.lower(func.trim(Shop.name))
     rows = (
         await session.execute(
-            select(Shop.name, active_gr_count)
+            select(func.min(Shop.name), active_gr_count)
             .select_from(Shop)
             .outerjoin(Order, Order.shopId == Shop.id)
             .where(*conds)
-            .group_by(Shop.id, Shop.name)
-            .order_by(Shop.name.asc())
+            .group_by(name_key)
+            .order_by(func.min(Shop.name).asc())
         )
     ).all()
     return success(
@@ -566,8 +572,24 @@ async def bulk_import(
     imported = failed = 0
     duplicate_numbers: list[str] = []
     failures: list[dict] = []
-    repo = OrderRepository(session)  # bound to the request session — no nested txn
-    shop_repo = ShopRepository(session)
+    shop_repo = ShopRepository(session)  # bound to the request session — no nested txn
+    # In-batch Shop cache: a single import file usually repeats the same
+    # consignee across many rows. Resolve each distinct (area, consignee) once
+    # instead of a round-trip to Neon per row. Keyed on the same normalized,
+    # case-insensitive form ShopRepository matches on.
+    from app.repositories.shop_repository import normalize_shop_name
+
+    shop_cache: dict[tuple[str | None, str | None], object] = {}
+
+    async def resolve_shop(area_val: str | None, consignee: str | None):
+        norm = normalize_shop_name(consignee)
+        key = (area_val, norm.lower() if norm else None)
+        if key not in shop_cache:
+            shop_cache[key] = await shop_repo.get_or_create(
+                company_id=company_id, area=area_val, name=consignee
+            )
+        return shop_cache[key]
+
     for r in payload.rows:
         gr_number = (r.grNumber or "").strip()
         logger.info("GR import row %s: GR from Excel=%r normalized=%r", r.rowNumber, r.grNumber, gr_number)
@@ -575,6 +597,12 @@ async def bulk_import(
             duplicate_numbers.append(r.grNumber)
             continue
         try:
+            row_area = staff_area if is_staff else (r.resolvedArea or payload.area)
+            # Resolve the consignee Shop BEFORE the per-row SAVEPOINT: a Shop is
+            # master data (a get-or-create that a failing GR row must never roll
+            # back), and resolving it outside the savepoint also keeps the
+            # in-batch `shop_cache` consistent with what's actually committed.
+            shop = await resolve_shop(row_area, r.consigneeName)
             # SAVEPOINT per row: a single bad row rolls back only itself and the
             # loop continues, instead of aborting the whole batch transaction.
             async with session.begin_nested():
@@ -593,11 +621,6 @@ async def bulk_import(
                         # their NOT NULL orderId FK before the parent delete.
                         await session.delete(stale)
                         await session.flush()
-                row_area = staff_area if is_staff else (r.resolvedArea or payload.area)
-                # Master-data upsert — see gr.py:create_gr for why this must
-                # happen before the Order is created, and why deleting a GR
-                # later can never cascade back to remove this Shop.
-                shop = await shop_repo.get_or_create(company_id=company_id, area=row_area, name=r.consignorName)
                 order = Order(
                     orderNumber=gr_number,
                     companyId=company_id,
@@ -640,7 +663,13 @@ async def bulk_import(
                 session.add(history)
                 await session.flush()
                 logger.info("GR %s: created order_status_history id=%s orderId=%s", gr_number, history.id, history.orderId)
-                await repo.reconcile_delivered_status(order.id)
+                # NO reconcile_delivered_status here. Business rule: every GR
+                # created by Excel import starts in `pending`, full stop — the
+                # sheet's toPay / paymentAmount / payment-mode columns are
+                # financial metadata, not workflow state, and must never
+                # auto-advance a brand-new import to delivered/cleared. A
+                # staff/admin action (or a later real payment via the payments
+                # endpoint, which runs its own reconcile) is what moves it on.
             active.add(gr_number)
             imported += 1
         except Exception as exc:  # noqa: BLE001 — per-row isolation

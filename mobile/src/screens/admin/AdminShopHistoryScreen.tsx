@@ -80,6 +80,9 @@ export const AdminShopHistoryScreen = ({ route }: any) => {
           status: statusFilter === 'all' ? undefined : statusFilter,
           search: search || undefined,
           area,
+          // `consignor` is the historical param name for the shop-identity
+          // filter; the backend matches it against the GR's consignee (the
+          // shop), case-insensitively. `shopName` is a normalized consignee.
           consignor: shopName,
         });
         setTotal(result.total);

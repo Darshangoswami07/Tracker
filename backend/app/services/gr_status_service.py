@@ -36,6 +36,37 @@ REPORTING_STATUSES = ("pending", "cleared", "uncleared", "delivered")
 _EPS = 0.005
 
 
+def _status_str(value) -> str:
+    return value.value if hasattr(value, "value") else str(value)
+
+
+def assert_status_transition_allowed(user, current_status, new_status) -> None:
+    """Authorize a GR workflow-status change by the caller's role.
+
+    * STAFF / EMPLOYEE — their entire workflow is a single step: a GR they
+      may act on goes ``pending -> delivered`` and nothing else. Any other
+      request (pending->cleared/uncleared, moving a GR out of
+      delivered/cleared/uncleared, a delivered->delivered no-op) is rejected
+      403. They can never mark a GR cleared or uncleared.
+    * Every other GR-access role (ADMIN / SUPER_ADMIN / Company-Admin /
+      Dispatcher) — unchanged: any transition the existing admin workflow
+      allowed still works.
+
+    The role comes from the authenticated ``user`` object, never the request
+    body. Call this in every endpoint that can change ``Order.status``.
+    """
+    from app.models.enums import UserRole
+
+    role = user.role if not isinstance(user.role, str) else UserRole(user.role)
+    if role not in (UserRole.STAFF, UserRole.EMPLOYEE):
+        return
+    cur, nxt = _status_str(current_status), _status_str(new_status)
+    if not (cur == "pending" and nxt == "delivered"):
+        from app.core.exceptions import ForbiddenError
+
+        raise ForbiddenError("Staff users can only change Pending GRs to Delivered.")
+
+
 def classify(delivered: bool, total_paid: float | None, total_bill: float | None) -> str:
     """Pure-Python classifier - the single source of truth, mirrored exactly by
     the SQL ``reporting_status_expr`` below. Use for per-record checks / tests."""
@@ -119,7 +150,12 @@ def _list_filters(company_id, area, search, consignor, date_from, staff_scope=No
             )
         )
     if consignor:
-        conds.append(Order.consignorName == consignor)
+        # Historical param name: this is the shop-owner filter, and the shop
+        # identity is the consignee (matched case-insensitively, as in
+        # OrderRepository.get_all_orders, so the counts and the list agree).
+        conds.append(
+            func.lower(func.trim(Order.consigneeName)) == consignor.strip().lower()
+        )
     if date_from is not None:
         conds.append(func.coalesce(Order.grDate, Order.createdAt) >= date_from)
     return conds
