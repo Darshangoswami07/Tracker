@@ -144,7 +144,7 @@ async def test_delete_one_gr_leaves_other_gr_and_shop_intact(client):
     token = await create_active_admin(client, "shop3@example.com", "+15553000003", company_id)
 
     order_1 = await create_gr(client, token, "GR006951", "Ramesh Traders", company_id)
-    _order_2 = await create_gr(client, token, "GR006952", "Ramesh Traders", company_id)
+    order_2 = await create_gr(client, token, "GR006952", "Ramesh Traders", company_id)
     assert await shop_gr_count(client, token, "Ramesh Traders") == 2
 
     await delete_gr(client, token, order_1)
@@ -152,11 +152,11 @@ async def test_delete_one_gr_leaves_other_gr_and_shop_intact(client):
     assert "Ramesh Traders" in await shop_names(client, token)
     assert await shop_gr_count(client, token, "Ramesh Traders") == 1
 
-    resp = await client.get(f"{GR_BASE}/GR006952", headers=auth_headers(token))
+    resp = await client.get(f"{GR_BASE}/{order_2}", headers=auth_headers(token))
     assert resp.status_code == 200, resp.text
     assert resp.json()["data"]["consignorName"] == "Ramesh Traders"
 
-    resp_deleted = await client.get(f"{GR_BASE}/GR006951", headers=auth_headers(token))
+    resp_deleted = await client.get(f"{GR_BASE}/{order_1}", headers=auth_headers(token))
     assert resp_deleted.status_code == 404
 
 

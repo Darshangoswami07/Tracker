@@ -377,6 +377,7 @@ class OrderRepository(BaseRepository[Order]):
         customer_id: Optional[UUID] = None,
         area: Optional[str] = None,
         consignor: Optional[str] = None,
+        staff_scope: Optional[Tuple[Optional[UUID], Optional[str]]] = None,
     ) -> Tuple[List[Order], int]:
         async with session_scope(self._session) as session:
             query = select(Order).where(Order.isActive == True)
@@ -425,6 +426,24 @@ class OrderRepository(BaseRepository[Order]):
 
             if consignor:
                 query = query.where(Order.consignorName == consignor)
+
+            if staff_scope is not None:
+                # A Staff member's GRs come from two independent mechanisms
+                # that must NOT gate each other: an explicit per-GR
+                # assignment (`assignedStaffId`, set via `assign-staff`) and
+                # area-based routing (a GR whose `area` matches the Staff's
+                # own profile area). Either one qualifying is sufficient —
+                # a GR assigned directly to this Staff member must show up
+                # even if its `area` differs, and vice-versa. With neither
+                # an assignment nor an area on file, the Staff member has no
+                # GRs (never falls through to an unscoped/all-GRs query).
+                employee_id, staff_area = staff_scope
+                conditions = []
+                if employee_id is not None:
+                    conditions.append(Order.assignedStaffId == employee_id)
+                if staff_area:
+                    conditions.append(Order.area == staff_area)
+                query = query.where(or_(*conditions)) if conditions else query.where(literal_column("false"))
 
             count_query = select(func.count()).select_from(query.subquery())
             total_result = await session.execute(count_query)

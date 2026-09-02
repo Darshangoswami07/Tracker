@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from app.api.deps import AdminUser, GRAccessUser
 from app.core.config import settings
 from app.core.exceptions import NotFoundError, ValidationBusinessError
-from app.core.tenancy import assert_same_company, effective_company_id
+from app.core.tenancy import assert_same_company, effective_company_id, resolve_gr_staff_scope
 from app.models.enums import FileKind, OrderStatus
 from app.repositories.order_attachment_repository import OrderAttachmentRepository
 from app.repositories.order_repository import OrderRepository
@@ -142,12 +142,13 @@ async def list_grs(
     consignor: Annotated[str | None, Query(max_length=160)] = None,
 ) -> dict:
     """List GRs/shipments. Super Admin sees every company; every other role
-    is scoped to their own company. Staff users are automatically filtered
-    to their assigned area."""
-    # Auto-filter staff users to their assigned area
-    effective_area = area
-    if effective_area is None and hasattr(admin, "area") and admin.area:
-        effective_area = admin.area
+    is scoped to their own company. Staff (EMPLOYEE/STAFF) users only ever
+    see GRs that are actually theirs — either explicitly assigned to them
+    (`Order.assignedStaffId`) or routed to them by area — derived from the
+    AUTHENTICATED user, never from a client-supplied staff id (see
+    `resolve_gr_staff_scope`)."""
+    staff_scope = await resolve_gr_staff_scope(admin, area)
+    effective_area = None if staff_scope is not None else (area or getattr(admin, "area", None))
 
     orders, total = await order_repo.get_all_orders(
         page=page,
@@ -157,6 +158,7 @@ async def list_grs(
         company_id=await effective_company_id(admin),
         area=effective_area,
         consignor=consignor,
+        staff_scope=staff_scope,
     )
     # One grouped query for the whole page's payment totals (no N+1).
     paid_by_order: dict = {}
@@ -316,7 +318,7 @@ async def extract_gr_from_slip(admin: GRAccessUser, file: UploadFile = File(...)
 @router.get("/{order_id}")
 async def get_gr(order_id: UUID, admin: GRAccessUser) -> dict:
     order = await order_repo.get_order_with_details(order_id)
-    if order is None:
+    if order is None or order.deletedAt is not None:
         raise NotFoundError("GR not found.")
     await assert_same_company(admin, order.companyId)
     return success((await _gr_out(order)).model_dump(mode="json"), message="GR retrieved successfully.")

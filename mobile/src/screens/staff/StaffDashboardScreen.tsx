@@ -23,8 +23,6 @@ interface Overview {
 const formatCurrency = (amount: number): string =>
   `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
-const ASSIGNED_STATUSES = ['uncleared'];
-
 /**
  * Staff's home screen — welcome header, today's delivery overview (counts
  * derived from the same local `orderRepository` the Deliveries tab reads),
@@ -41,28 +39,32 @@ export const StaffDashboardScreen = () => {
   const [overview, setOverview] = useState<Overview>({ assigned: 0, pending: 0, completed: 0, outstanding: 0, todayCollection: 0 });
   const [refreshing, setRefreshing] = useState(false);
 
-  // Every call below is automatically scoped to this Staff member's own
-  // assigned area/id at the repository level (see `orderRepository`'s
-  // `resolveAreaScope`/`resolveStaffScope`) — never the whole system's
-  // numbers, never another staff member's.
+  // Counts come from ONE server-side aggregate (`GET
+  // /admin/orders/meta/status-counts`), scoped by the auth token to *this*
+  // Staff member's own GRs — assignment (`Order.assignedStaffId`) OR area
+  // routing, matching "My Slips" exactly (backend `resolve_gr_staff_scope`).
+  // `assigned` is the unfiltered total of the staff's GRs; `pending` /
+  // `completed` are the canonical `pending` / `delivered` reporting buckets
+  // (backend `gr_status_service`). Independent of any list search/filter/
+  // pagination — never `slips.length`.
   const loadOverview = useCallback(async () => {
     if (!user?.id) return;
     try {
-      const [pending, completed, receiving, dailyCollection, ...assignedLists] = await Promise.all([
-        orderRepository.list({ status: 'pending', pageSize: 1 }),
-        orderRepository.list({ status: 'delivered', pageSize: 1 }),
+      const [counts, receiving, dailyCollection] = await Promise.all([
+        orderRepository.getStatusCounts(),
         orderRepository.getReceivingOverview(),
         orderRepository.getStaffDailyCollection(user.id, new Date().toISOString()),
-        ...ASSIGNED_STATUSES.map((status) => orderRepository.list({ status, pageSize: 1 })),
       ]);
       setOverview({
-        pending: pending.total,
-        completed: completed.total,
+        assigned: counts.total,
+        pending: counts.pending,
+        completed: counts.delivered,
         outstanding: receiving.outstanding,
         todayCollection: dailyCollection.totalCollection,
-        assigned: assignedLists.reduce((sum, r) => sum + r.total, 0),
       });
     } catch (error) {
+      // Keep the last good counts on a transient failure — never overwrite
+      // real numbers with zeros. The next focus/foreground/pull refreshes.
       console.error('Failed to load Staff dashboard overview:', error);
     }
   }, [user?.id]);
@@ -102,16 +104,18 @@ export const StaffDashboardScreen = () => {
   }, [navigation, loadOverview, refreshUser]);
 
   // Also refresh on app foreground — covers the case where an Admin
-  // reassigns the location while this device's app is backgrounded (not
-  // just navigated away from within the app), without resorting to polling.
+  // reassigns GRs / changes the staff's location while this device's app is
+  // backgrounded (not just navigated away from within the app), without
+  // resorting to polling. Re-pulls both the profile and the dashboard counts.
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       if (nextState === 'active') {
         void refreshUser();
+        void loadOverview();
       }
     });
     return () => subscription.remove();
-  }, [refreshUser]);
+  }, [refreshUser, loadOverview]);
 
   const onRefresh = async () => {
     setRefreshing(true);

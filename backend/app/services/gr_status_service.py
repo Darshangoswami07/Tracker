@@ -24,7 +24,7 @@ delivered-reconcile already treats it the same way.
 """
 from __future__ import annotations
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, literal_column, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.order import Order
@@ -86,7 +86,7 @@ def reporting_status_expr(paid_col):
     )
 
 
-def _list_filters(company_id, area, search, consignor, date_from):
+def _list_filters(company_id, area, search, consignor, date_from, staff_scope=None):
     """Same predicate set as ``OrderRepository.get_all_orders`` so counts and
     the paginated list always reconcile."""
     conds = [Order.isActive == True]  # noqa: E712 - SQLAlchemy boolean column
@@ -94,6 +94,18 @@ def _list_filters(company_id, area, search, consignor, date_from):
         conds.append(Order.companyId == company_id)
     if area:
         conds.append(Order.area == area)
+    if staff_scope is not None:
+        # Mirror ``OrderRepository.get_all_orders``: a Staff member's GRs are
+        # those assigned to them (``assignedStaffId``) OR routed by area —
+        # either one qualifying is enough; with neither on file the Staff
+        # member has no GRs (never falls through to an unscoped count).
+        employee_id, staff_area = staff_scope
+        or_conds = []
+        if employee_id is not None:
+            or_conds.append(Order.assignedStaffId == employee_id)
+        if staff_area:
+            or_conds.append(Order.area == staff_area)
+        conds.append(or_(*or_conds) if or_conds else literal_column("false"))
     if search:
         like = f"%{search}%"
         conds.append(
@@ -121,17 +133,23 @@ async def status_counts(
     search: str | None = None,
     consignor: str | None = None,
     date_from=None,
+    staff_scope=None,
 ) -> dict:
     """One aggregate query -> the four reporting counts + the matching money
     totals for the same filtered dataset.
 
     Guarantees ``pending + cleared + uncleared + delivered == total``.
+
+    ``staff_scope`` (an ``(employee_id, area)`` tuple from
+    ``resolve_gr_staff_scope``) narrows the dataset to a single Staff
+    member's own GRs, exactly as ``OrderRepository.get_all_orders`` does, so
+    the Staff Dashboard counts reconcile with the Staff "My Slips" list.
     """
     paid = paid_subquery()
     rs = reporting_status_expr(paid.c.paid)
     tp = total_paid_expr(paid.c.paid)
     tb = func.coalesce(Order.toPay, 0)
-    conds = _list_filters(company_id, area, search, consignor, date_from)
+    conds = _list_filters(company_id, area, search, consignor, date_from, staff_scope)
 
     row = (
         await session.execute(

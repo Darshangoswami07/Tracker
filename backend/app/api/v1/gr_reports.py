@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import GRAccessUser
 from app.core.exceptions import NotFoundError, ValidationBusinessError
-from app.core.tenancy import assert_same_company, effective_company_id
+from app.core.tenancy import assert_same_company, effective_company_id, resolve_gr_staff_scope
 from app.database.db import get_db_session
 from app.models.order import Order
 from app.models.order_status_history import OrderStatusHistory
@@ -82,7 +82,11 @@ async def gr_status_counts(
     ``pending + cleared + uncleared + delivered == total``. Used by both the
     Admin Dashboard status overview and the GR / Shipments summary cards."""
     company_id = await effective_company_id(admin)
-    scoped_area = _effective_area(admin) or area
+    # STAFF callers are scoped to their *own* GRs (assignment OR area — see
+    # resolve_gr_staff_scope), exactly like GET /admin/orders, so the Staff
+    # Dashboard's Assigned/Pending/Completed cards reconcile with My Slips.
+    staff_scope = await resolve_gr_staff_scope(admin, area)
+    scoped_area = None if staff_scope is not None else (_effective_area(admin) or area)
     parsed_from = (
         datetime.fromisoformat(dateFrom.replace("Z", "+00:00")) if dateFrom else None
     )
@@ -93,6 +97,7 @@ async def gr_status_counts(
         search=search,
         consignor=consignor,
         date_from=parsed_from,
+        staff_scope=staff_scope,
     )
     return success(counts, message="GR status counts retrieved successfully.")
 

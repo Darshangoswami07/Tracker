@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ForbiddenError
 from app.core.rbac import is_admin
 from app.database.db import session_scope
+from app.models.enums import UserRole
 from app.models.user import User
 
 
@@ -54,6 +55,34 @@ async def effective_company_id(user: User, session: Optional[AsyncSession] = Non
     if company_id is None:
         raise ForbiddenError()
     return company_id
+
+
+async def resolve_gr_staff_scope(
+    user: User, requested_area: str | None = None, session: Optional[AsyncSession] = None
+) -> tuple[uuid.UUID | None, str | None] | None:
+    """The ``(employee_id, area)`` pair that scopes a GR query to a STAFF
+    member's *own* GRs, or ``None`` for every other role.
+
+    A Staff member's GRs come from two independent mechanisms that must NOT
+    gate each other (see ``OrderRepository.get_all_orders``): an explicit
+    per-GR assignment (``Order.assignedStaffId``) and area-based routing
+    (``Order.area`` == the staff's profile area). Either one qualifying is
+    sufficient. ``employee_id`` is ``None`` when the staff member has no
+    ``employees`` row yet (registration-approved staff only get one on their
+    first explicit assignment); scoping then falls back to area alone.
+
+    Returns ``None`` for ADMIN/SUPER_ADMIN/Company-Admin/Driver — those are
+    scoped by company (+ optional area) only, never by assignment.
+    """
+    if user.role not in (UserRole.EMPLOYEE, UserRole.STAFF):
+        return None
+    from app.models.employee import Employee
+
+    async with session_scope(session) as sess:
+        employee_id = await sess.scalar(
+            select(Employee.id).where(Employee.userId == str(user.id))
+        )
+    return (employee_id, requested_area or getattr(user, "area", None))
 
 
 async def assert_same_company(user: User, record_company_id: uuid.UUID | None, session: Optional[AsyncSession] = None) -> None:

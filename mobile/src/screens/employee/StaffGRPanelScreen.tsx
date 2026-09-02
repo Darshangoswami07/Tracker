@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, AppState, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import type { AppStateStatus } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useRoute } from '@react-navigation/native';
+import { useFocusEffect, useRoute } from '@react-navigation/native';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAppNav } from '../../hooks/useAppNav';
 import { orderRepository } from '../../database/repositories/orderRepository';
@@ -13,6 +14,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { useUserStore } from '../../store/userStore';
+import { useAuthStore } from '../../store/authStore';
 import { canDeleteGR as roleCanDeleteGR } from '../../constants/roles';
 import { AREAS } from '../../constants/areas';
 import type { AppTheme } from '../../theme/types';
@@ -166,6 +168,40 @@ export const StaffGRPanelScreen = () => {
     }, 0);
     return () => clearTimeout(timer);
   }, [statusFilterParam]);
+
+  const refreshUser = useAuthStore((state) => state.refreshUser);
+
+  // The Deliveries tab stays mounted once visited (React Navigation keeps
+  // backgrounded tabs alive), so without this, an Admin assigning/removing
+  // GRs for this Staff member while they're on another tab would never be
+  // reflected here until an unrelated filter change happened to re-run
+  // `fetchEntries`. Refetch — and refresh the profile `refreshUser` reads
+  // `area` from, since GR routing can depend on it — every time this screen
+  // regains focus. `didMount` skips the first 'focus' (fired on initial
+  // mount too, which the mount effect above already covers).
+  const didMount = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (!didMount.current) {
+        didMount.current = true;
+        return;
+      }
+      void refreshUser();
+      fetchEntries();
+    }, [refreshUser, fetchEntries])
+  );
+
+  // Also refresh on app foreground — covers an Admin assignment made while
+  // this device's app was backgrounded, not just navigated away from.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      if (nextState === 'active') {
+        void refreshUser();
+        fetchEntries();
+      }
+    });
+    return () => subscription.remove();
+  }, [refreshUser, fetchEntries]);
 
   const onRefresh = () => {
     setRefreshing(true);
