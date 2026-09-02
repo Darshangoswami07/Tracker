@@ -126,9 +126,16 @@ class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     vehicle: Mapped["Vehicle | None"] = relationship(back_populates="orders", lazy="selectin")
     assignedStaff: Mapped["Employee | None"] = relationship(lazy="selectin")
     statusHistory: Mapped[list["OrderStatusHistory"]] = relationship(
-        back_populates="order", lazy="selectin"
+        back_populates="order",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     attachments: Mapped[list["OrderAttachment"]] = relationship(
-        back_populates="order", lazy="selectin", order_by="desc(OrderAttachment.createdAt)"
+        back_populates="order",
+        lazy="selectin",
+        order_by="desc(OrderAttachment.createdAt)",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
