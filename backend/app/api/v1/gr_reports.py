@@ -6,6 +6,7 @@ API. Server-side filtering only — the mobile app never pulls the whole table.
 """
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated, Optional
 from uuid import UUID
@@ -31,6 +32,7 @@ from app.utils.responses import success
 
 router = APIRouter(prefix="/admin/orders", tags=["gr-reports"])
 order_repo = OrderRepository()
+logger = logging.getLogger(__name__)
 
 
 def _effective_area(admin) -> str | None:
@@ -543,7 +545,7 @@ async def bulk_import(
     existing = (
         await session.execute(
             select(Order.orderNumber, Order.deletedAt, Order.id).where(
-                Order.orderNumber.in_([r.grNumber for r in payload.rows])
+                Order.orderNumber.in_([(r.grNumber or "").strip() for r in payload.rows])
             )
         )
     ).all()
@@ -555,21 +557,33 @@ async def bulk_import(
     failures: list[dict] = []
     repo = OrderRepository(session)  # bound to the request session — no nested txn
     for r in payload.rows:
-        if r.grNumber in active:
+        gr_number = (r.grNumber or "").strip()
+        logger.info("GR import row %s: GR from Excel=%r normalized=%r", r.rowNumber, r.grNumber, gr_number)
+        if gr_number in active:
             duplicate_numbers.append(r.grNumber)
             continue
         try:
             # SAVEPOINT per row: a single bad row rolls back only itself and the
             # loop continues, instead of aborting the whole batch transaction.
             async with session.begin_nested():
-                if r.grNumber in soft_deleted:
-                    stale = await session.get(Order, soft_deleted[r.grNumber])
+                if gr_number in soft_deleted:
+                    stale_id = soft_deleted[gr_number]
+                    logger.info(
+                        "GR %s: lookup field=orders.id value=%s (soft-deleted order being replaced)",
+                        gr_number, stale_id,
+                    )
+                    stale = await session.get(Order, stale_id)
                     if stale is not None:
+                        # Relies on Order.statusHistory / Order.attachments being
+                        # configured with cascade="all, delete-orphan" +
+                        # passive_deletes=True so the DB's ON DELETE CASCADE
+                        # removes dependent rows instead of the ORM nulling out
+                        # their NOT NULL orderId FK before the parent delete.
                         await session.delete(stale)
                         await session.flush()
                 row_area = staff_area if is_staff else (r.resolvedArea or payload.area)
                 order = Order(
-                    orderNumber=r.grNumber,
+                    orderNumber=gr_number,
                     companyId=company_id,
                     consignorName=r.consignorName,
                     consigneeName=r.consigneeName,
@@ -595,15 +609,26 @@ async def bulk_import(
                 )
                 session.add(order)
                 await session.flush()
-                session.add(
-                    OrderStatusHistory(orderId=order.id, status="pending", notes="Imported from Excel")
+                logger.info(
+                    "GR %s: matched/created Order id=%s orderNumber=%s",
+                    gr_number, order.id, order.orderNumber,
                 )
+
+                # Defensive guard (required — never let a status-history row be
+                # written with a missing/None orderId).
+                if not order or not order.id:
+                    raise ValueError(f"Unable to resolve order for GR {gr_number}")
+
+                history = OrderStatusHistory(orderId=order.id, status="pending", notes="Imported from Excel")
+                session.add(history)
                 await session.flush()
+                logger.info("GR %s: created order_status_history id=%s orderId=%s", gr_number, history.id, history.orderId)
                 await repo.reconcile_delivered_status(order.id)
-            active.add(r.grNumber)
+            active.add(gr_number)
             imported += 1
         except Exception as exc:  # noqa: BLE001 — per-row isolation
             failed += 1
+            logger.warning("GR import row %s (GR %s) failed: %s", r.rowNumber, gr_number, exc)
             failures.append({"rowNumber": r.rowNumber, "grNumber": r.grNumber, "message": str(exc)})
 
     hist = ImportHistory(
