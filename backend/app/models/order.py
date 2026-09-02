@@ -15,6 +15,7 @@ from app.models.driver import Driver
 from app.models.employee import Employee
 from app.models.enums import OrderPriority, OrderStatus
 from app.models.mixins import UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin
+from app.models.shop import Shop
 from app.models.sql_enum import enum_column
 from app.models.vehicle import Vehicle
 
@@ -36,6 +37,14 @@ class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     driverId: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("drivers.id"), nullable=True, index=True)
     vehicleId: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vehicles.id"), nullable=True, index=True)
     assignedStaffId: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("employees.id"), nullable=True, index=True)
+    # Master-data link to the consignor (Shop). SET NULL (never CASCADE): a
+    # Shop is master data and must survive regardless of what happens to any
+    # GR that references it; conversely deleting/soft-deleting a GR must
+    # never delete the Shop it points to (that's the normal direction FKs
+    # already work in — Order is the child here).
+    shopId: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("shops.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Area assignment for staff-based access control. Stores the area name
     # (e.g. "Bageshwar", "Almora", "Garur Someshwar") to scope staff
@@ -125,6 +134,7 @@ class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     driver: Mapped["Driver | None"] = relationship(back_populates="orders", lazy="selectin")
     vehicle: Mapped["Vehicle | None"] = relationship(back_populates="orders", lazy="selectin")
     assignedStaff: Mapped["Employee | None"] = relationship(lazy="selectin")
+    shop: Mapped["Shop | None"] = relationship(back_populates="orders", lazy="selectin", passive_deletes=True)
     statusHistory: Mapped[list["OrderStatusHistory"]] = relationship(
         back_populates="order",
         lazy="selectin",

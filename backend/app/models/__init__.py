@@ -12,6 +12,7 @@ from app.models.employee import Employee
 from app.models.vehicle import Vehicle
 from app.models.vehicle_assignment import VehicleAssignment
 from app.models.vehicle_image import VehicleImage
+from app.models.shop import Shop
 from app.models.order import Order
 from app.models.order_status_history import OrderStatusHistory
 from app.models.order_attachment import OrderAttachment
@@ -48,6 +49,7 @@ __all__ = [
     "Vehicle",
     "VehicleAssignment",
     "VehicleImage",
+    "Shop",
     "Order",
     "OrderStatusHistory",
     "OrderAttachment",

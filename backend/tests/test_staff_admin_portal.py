@@ -219,3 +219,41 @@ async def test_staff_approve_endpoint_rejects_non_staff_account(client):
 
     resp = await client.post(f"{BASE}/admin/staff-approvals/{other_admin.id}/approve", headers=headers)
     assert resp.status_code == 403
+
+
+async def test_area_change_reflected_on_me_without_relogin(client):
+    """Reproduces the staff-location-sync bug end-to-end at the API layer:
+    an Admin reassigning a Staff member's area must be visible on the very
+    next GET /users/me call for that Staff's existing session — no new
+    login/token required. This is the backend contract the mobile app's
+    dashboard-refresh fix (StaffDashboardScreen + authStore.refreshUser)
+    depends on."""
+    staff = await _create_user(
+        "staff-area@example.com", "StaffPass123!", UserRole.STAFF, "active", area="Bageshwar"
+    )
+    admin_headers, _admin, _company_id = await _admin_headers(
+        client, email="admin-area@example.com", password="AdminPass123!"
+    )
+
+    login_resp = await client.post(
+        f"{BASE}/auth/staff/login",
+        json={"email": "staff-area@example.com", "password": "StaffPass123!"},
+    )
+    assert login_resp.status_code == 200, login_resp.text
+    staff_token = login_resp.json()["data"]["tokens"]["accessToken"]
+    staff_headers = {"Authorization": f"Bearer {staff_token}"}
+
+    me_before = await client.get(f"{BASE}/users/me", headers=staff_headers)
+    assert me_before.status_code == 200, me_before.text
+    assert me_before.json()["data"]["area"] == "Bageshwar"
+
+    reassign = await client.patch(
+        f"{BASE}/admin/users/{staff.id}/area",
+        json={"area": "Almora"},
+        headers=admin_headers,
+    )
+    assert reassign.status_code == 200, reassign.text
+
+    me_after = await client.get(f"{BASE}/users/me", headers=staff_headers)
+    assert me_after.status_code == 200, me_after.text
+    assert me_after.json()["data"]["area"] == "Almora"

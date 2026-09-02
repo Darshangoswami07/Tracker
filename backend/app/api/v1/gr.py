@@ -17,10 +17,11 @@ from fastapi.responses import FileResponse, RedirectResponse
 from app.api.deps import AdminUser, GRAccessUser
 from app.core.config import settings
 from app.core.exceptions import NotFoundError, ValidationBusinessError
-from app.core.tenancy import assert_same_company, effective_company_id
+from app.core.tenancy import assert_same_company, effective_company_id, resolve_gr_staff_scope
 from app.models.enums import FileKind, OrderStatus
 from app.repositories.order_attachment_repository import OrderAttachmentRepository
 from app.repositories.order_repository import OrderRepository
+from app.repositories.shop_repository import ShopRepository
 from app.schemas.order import (
     GRAssignDriverRequest,
     GRAssignStaffRequest,
@@ -44,6 +45,7 @@ router = APIRouter(prefix="/admin/orders", tags=["gr"])
 
 order_repo = OrderRepository()
 attachment_repo = OrderAttachmentRepository()
+shop_repo = ShopRepository()
 
 
 def _attachment_url(order_id: UUID, attachment_id: UUID) -> str:
@@ -140,12 +142,13 @@ async def list_grs(
     consignor: Annotated[str | None, Query(max_length=160)] = None,
 ) -> dict:
     """List GRs/shipments. Super Admin sees every company; every other role
-    is scoped to their own company. Staff users are automatically filtered
-    to their assigned area."""
-    # Auto-filter staff users to their assigned area
-    effective_area = area
-    if effective_area is None and hasattr(admin, "area") and admin.area:
-        effective_area = admin.area
+    is scoped to their own company. Staff (EMPLOYEE/STAFF) users only ever
+    see GRs that are actually theirs — either explicitly assigned to them
+    (`Order.assignedStaffId`) or routed to them by area — derived from the
+    AUTHENTICATED user, never from a client-supplied staff id (see
+    `resolve_gr_staff_scope`)."""
+    staff_scope = await resolve_gr_staff_scope(admin, area)
+    effective_area = None if staff_scope is not None else (area or getattr(admin, "area", None))
 
     orders, total = await order_repo.get_all_orders(
         page=page,
@@ -155,6 +158,7 @@ async def list_grs(
         company_id=await effective_company_id(admin),
         area=effective_area,
         consignor=consignor,
+        staff_scope=staff_scope,
     )
     # One grouped query for the whole page's payment totals (no N+1).
     paid_by_order: dict = {}
@@ -259,12 +263,17 @@ async def create_gr(payload: GRCreateRequest, admin: GRAccessUser) -> dict:
         if payload.assignedStaffId is not None
         else None
     )
+    # Master-data upsert: the Shop (consignor) must exist independently of
+    # this GR, so it's resolved/created before the Order — deleting the GR
+    # later must never be able to take the Shop down with it.
+    shop = await shop_repo.get_or_create(company_id=company_id, area=creator_area, name=payload.consignorName)
     order = await order_repo.create_order(
         orderNumber=payload.grNumber,
         companyId=company_id,
         customerId=payload.customerId,
         driverId=payload.driverId,
         assignedStaffId=assigned_staff,
+        shopId=shop.id if shop else None,
         pickupAddress=payload.pickupAddress,
         deliveryAddress=payload.deliveryAddress,
         pickupTime=payload.pickupTime,
@@ -309,7 +318,7 @@ async def extract_gr_from_slip(admin: GRAccessUser, file: UploadFile = File(...)
 @router.get("/{order_id}")
 async def get_gr(order_id: UUID, admin: GRAccessUser) -> dict:
     order = await order_repo.get_order_with_details(order_id)
-    if order is None:
+    if order is None or order.deletedAt is not None:
         raise NotFoundError("GR not found.")
     await assert_same_company(admin, order.companyId)
     return success((await _gr_out(order)).model_dump(mode="json"), message="GR retrieved successfully.")
@@ -328,6 +337,14 @@ async def update_gr(order_id: UUID, payload: GRUpdateRequest, admin: GRAccessUse
     # that would let a company-scoped caller move a GR out of their own
     # tenant (or a stray payload field move it into another one).
     updates.pop("companyId", None)
+    if "consignorName" in updates:
+        # Re-point at the (possibly new) Shop master record for the edited
+        # name; the old Shop, if now unused, is left in place untouched —
+        # Shops are never deleted as a side effect of editing/removing GRs.
+        shop = await shop_repo.get_or_create(
+            company_id=existing.companyId, area=existing.area, name=updates["consignorName"]
+        )
+        updates["shopId"] = shop.id if shop else None
     order = await order_repo.update_fields(order_id, **updates)
     if order is None:
         raise NotFoundError("GR not found.")

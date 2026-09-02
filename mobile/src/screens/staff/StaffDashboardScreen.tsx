@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { AppState, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import type { AppStateStatus } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAppNav } from '../../hooks/useAppNav';
 import { useUserStore } from '../../store/userStore';
+import { useAuthStore } from '../../store/authStore';
 import { orderRepository } from '../../database/repositories/orderRepository';
 import { Header } from '../../components/Header';
 import type { AppTheme } from '../../theme/types';
@@ -21,8 +23,6 @@ interface Overview {
 const formatCurrency = (amount: number): string =>
   `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
-const ASSIGNED_STATUSES = ['uncleared'];
-
 /**
  * Staff's home screen — welcome header, today's delivery overview (counts
  * derived from the same local `orderRepository` the Deliveries tab reads),
@@ -33,49 +33,63 @@ export const StaffDashboardScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { navigate, navigation } = useAppNav();
   const user = useUserStore((state) => state.user);
+  const refreshUser = useAuthStore((state) => state.refreshUser);
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
   const [overview, setOverview] = useState<Overview>({ assigned: 0, pending: 0, completed: 0, outstanding: 0, todayCollection: 0 });
   const [refreshing, setRefreshing] = useState(false);
 
-  // Every call below is automatically scoped to this Staff member's own
-  // assigned area/id at the repository level (see `orderRepository`'s
-  // `resolveAreaScope`/`resolveStaffScope`) — never the whole system's
-  // numbers, never another staff member's.
+  // Counts come from ONE server-side aggregate (`GET
+  // /admin/orders/meta/status-counts`), scoped by the auth token to *this*
+  // Staff member's own GRs — assignment (`Order.assignedStaffId`) OR area
+  // routing, matching "My Slips" exactly (backend `resolve_gr_staff_scope`).
+  // `assigned` is the unfiltered total of the staff's GRs; `pending` /
+  // `completed` are the canonical `pending` / `delivered` reporting buckets
+  // (backend `gr_status_service`). Independent of any list search/filter/
+  // pagination — never `slips.length`.
   const loadOverview = useCallback(async () => {
     if (!user?.id) return;
     try {
-      const [pending, completed, receiving, dailyCollection, ...assignedLists] = await Promise.all([
-        orderRepository.list({ status: 'pending', pageSize: 1 }),
-        orderRepository.list({ status: 'delivered', pageSize: 1 }),
+      const [counts, receiving, dailyCollection] = await Promise.all([
+        orderRepository.getStatusCounts(),
         orderRepository.getReceivingOverview(),
         orderRepository.getStaffDailyCollection(user.id, new Date().toISOString()),
-        ...ASSIGNED_STATUSES.map((status) => orderRepository.list({ status, pageSize: 1 })),
       ]);
       setOverview({
-        pending: pending.total,
-        completed: completed.total,
+        assigned: counts.total,
+        pending: counts.pending,
+        completed: counts.delivered,
         outstanding: receiving.outstanding,
         todayCollection: dailyCollection.totalCollection,
-        assigned: assignedLists.reduce((sum, r) => sum + r.total, 0),
       });
     } catch (error) {
+      // Keep the last good counts on a transient failure — never overwrite
+      // real numbers with zeros. The next focus/foreground/pull refreshes.
       console.error('Failed to load Staff dashboard overview:', error);
     }
   }, [user?.id]);
 
   useEffect(() => {
-    const timer = setTimeout(() => loadOverview(), 0);
+    const timer = setTimeout(() => {
+      loadOverview();
+      // Backend (not the login-time cache) is the source of truth for the
+      // staff's current area assignment — an Admin can reassign it at any
+      // time from the web/admin portal while this session stays logged in.
+      void refreshUser();
+    }, 0);
     return () => clearTimeout(timer);
-  }, [loadOverview]);
+  }, [loadOverview, refreshUser]);
 
   // Re-load every time this screen regains focus — e.g. coming back here
   // after receiving a payment (which can flip a GR from Pending to
   // Delivered) on another screen. Without this, the stats stayed frozen at
   // whatever they were on the last mount/pull-to-refresh, showing stale
-  // Pending/Completed counts instead of the current real ones. `didMount`
-  // skips the first 'focus' (React Navigation fires it on initial mount
-  // too, which would otherwise double the mount effect's own load).
+  // Pending/Completed counts instead of the current real ones. Also
+  // refreshes the user profile here so a location reassignment made by an
+  // Admin while Staff was on another tab/screen shows up as soon as they
+  // return to the Dashboard. `didMount` skips the first 'focus' (React
+  // Navigation fires it on initial mount too, which would otherwise double
+  // the mount effect's own load).
   const didMount = useRef(false);
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -84,9 +98,24 @@ export const StaffDashboardScreen = () => {
         return;
       }
       loadOverview();
+      void refreshUser();
     });
     return unsubscribe;
-  }, [navigation, loadOverview]);
+  }, [navigation, loadOverview, refreshUser]);
+
+  // Also refresh on app foreground — covers the case where an Admin
+  // reassigns GRs / changes the staff's location while this device's app is
+  // backgrounded (not just navigated away from within the app), without
+  // resorting to polling. Re-pulls both the profile and the dashboard counts.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      if (nextState === 'active') {
+        void refreshUser();
+        void loadOverview();
+      }
+    });
+    return () => subscription.remove();
+  }, [refreshUser, loadOverview]);
 
   const onRefresh = async () => {
     setRefreshing(true);

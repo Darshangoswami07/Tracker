@@ -19,13 +19,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import GRAccessUser
 from app.core.exceptions import NotFoundError, ValidationBusinessError
-from app.core.tenancy import assert_same_company, effective_company_id
+from app.core.tenancy import assert_same_company, effective_company_id, resolve_gr_staff_scope
 from app.database.db import get_db_session
 from app.models.order import Order
 from app.models.order_status_history import OrderStatusHistory
+from app.models.shop import Shop
 from app.models.payment import Payment
 from app.models.import_history import ImportHistory
 from app.repositories.order_repository import OrderRepository
+from app.repositories.shop_repository import ShopRepository
 from app.schemas.order import GRCreateRequest
 from app.services.gr_status_service import status_counts
 from app.utils.responses import success
@@ -80,7 +82,11 @@ async def gr_status_counts(
     ``pending + cleared + uncleared + delivered == total``. Used by both the
     Admin Dashboard status overview and the GR / Shipments summary cards."""
     company_id = await effective_company_id(admin)
-    scoped_area = _effective_area(admin) or area
+    # STAFF callers are scoped to their *own* GRs (assignment OR area — see
+    # resolve_gr_staff_scope), exactly like GET /admin/orders, so the Staff
+    # Dashboard's Assigned/Pending/Completed cards reconcile with My Slips.
+    staff_scope = await resolve_gr_staff_scope(admin, area)
+    scoped_area = None if staff_scope is not None else (_effective_area(admin) or area)
     parsed_from = (
         datetime.fromisoformat(dateFrom.replace("Z", "+00:00")) if dateFrom else None
     )
@@ -91,6 +97,7 @@ async def gr_status_counts(
         search=search,
         consignor=consignor,
         date_from=parsed_from,
+        staff_scope=staff_scope,
     )
     return success(counts, message="GR status counts retrieved successfully.")
 
@@ -466,25 +473,29 @@ async def shops_with_counts(
     area: Optional[str] = None,
     session: AsyncSession = Depends(get_db_session),
 ) -> dict:
+    """Every registered Shop (master data) in scope, each with its live count
+    of active (non-deleted) GRs. Queries FROM the Shop master table with a
+    LEFT OUTER JOIN to Order — not the other way around — so a Shop with
+    zero active GRs (including one whose only/last GR was just deleted)
+    still appears here instead of silently disappearing."""
     company_id = await effective_company_id(admin)
     scoped_area = _effective_area(admin) or area
-    conds = [
-        Order.deletedAt.is_(None),
-        Order.consignorName.isnot(None),
-        Order.consignorName != "",
-    ]
+    conds = []
     if company_id is not None:
-        conds.append(Order.companyId == company_id)
+        conds.append(Shop.companyId == company_id)
     if scoped_area:
-        conds.append(Order.area == scoped_area)
+        conds.append(Shop.area == scoped_area)
     if search and search.strip():
-        conds.append(Order.consignorName.ilike(f"%{search.strip()}%"))
+        conds.append(Shop.name.ilike(f"%{search.strip()}%"))
+    active_gr_count = func.count(Order.id).filter(Order.deletedAt.is_(None))
     rows = (
         await session.execute(
-            select(Order.consignorName, func.count(Order.id))
+            select(Shop.name, active_gr_count)
+            .select_from(Shop)
+            .outerjoin(Order, Order.shopId == Shop.id)
             .where(*conds)
-            .group_by(Order.consignorName)
-            .order_by(Order.consignorName.asc())
+            .group_by(Shop.id, Shop.name)
+            .order_by(Shop.name.asc())
         )
     ).all()
     return success(
@@ -556,6 +567,7 @@ async def bulk_import(
     duplicate_numbers: list[str] = []
     failures: list[dict] = []
     repo = OrderRepository(session)  # bound to the request session — no nested txn
+    shop_repo = ShopRepository(session)
     for r in payload.rows:
         gr_number = (r.grNumber or "").strip()
         logger.info("GR import row %s: GR from Excel=%r normalized=%r", r.rowNumber, r.grNumber, gr_number)
@@ -582,9 +594,14 @@ async def bulk_import(
                         await session.delete(stale)
                         await session.flush()
                 row_area = staff_area if is_staff else (r.resolvedArea or payload.area)
+                # Master-data upsert — see gr.py:create_gr for why this must
+                # happen before the Order is created, and why deleting a GR
+                # later can never cascade back to remove this Shop.
+                shop = await shop_repo.get_or_create(company_id=company_id, area=row_area, name=r.consignorName)
                 order = Order(
                     orderNumber=gr_number,
                     companyId=company_id,
+                    shopId=shop.id if shop else None,
                     consignorName=r.consignorName,
                     consigneeName=r.consigneeName,
                     particulars=r.particulars,

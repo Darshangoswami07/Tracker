@@ -48,6 +48,12 @@ interface AuthState {
   activateSession: () => void;
   updateTokens: (tokens: TokenPair) => void;
   setUser: (user: User) => void;
+  /** Re-fetches GET /users/me and refreshes the shared user store in place —
+   *  used to pick up server-side changes made outside this session (e.g. an
+   *  Admin reassigning a Staff member's area) without requiring logout/login.
+   *  Never throws: on failure the previously-loaded user is left untouched
+   *  so a transient network error can't blank out a valid profile. */
+  refreshUser: () => Promise<void>;
   setRefreshing: (isRefreshing: boolean) => void;
   clearSession: () => void;
 }
@@ -144,6 +150,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setUser: (user) => {
     useUserStore.getState().setUser(user);
+  },
+
+  refreshUser: async () => {
+    const { status, epoch } = get();
+    if (status !== 'authenticated') return;
+    try {
+      const user = await getCurrentUser();
+      if (get().epoch !== epoch) return;
+      useUserStore.getState().setUser(user);
+    } catch (error) {
+      logger.warn('Failed to refresh current user', error);
+    }
   },
 
   setRefreshing: (isRefreshing) => set({ isRefreshing }),
