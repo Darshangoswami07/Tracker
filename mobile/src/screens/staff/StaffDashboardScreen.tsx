@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { AppState, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import type { AppStateStatus } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useAppNav } from '../../hooks/useAppNav';
 import { useUserStore } from '../../store/userStore';
+import { useAuthStore } from '../../store/authStore';
 import { orderRepository } from '../../database/repositories/orderRepository';
 import { Header } from '../../components/Header';
 import type { AppTheme } from '../../theme/types';
@@ -33,6 +35,7 @@ export const StaffDashboardScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { navigate, navigation } = useAppNav();
   const user = useUserStore((state) => state.user);
+  const refreshUser = useAuthStore((state) => state.refreshUser);
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
   const [overview, setOverview] = useState<Overview>({ assigned: 0, pending: 0, completed: 0, outstanding: 0, todayCollection: 0 });
@@ -65,17 +68,26 @@ export const StaffDashboardScreen = () => {
   }, [user?.id]);
 
   useEffect(() => {
-    const timer = setTimeout(() => loadOverview(), 0);
+    const timer = setTimeout(() => {
+      loadOverview();
+      // Backend (not the login-time cache) is the source of truth for the
+      // staff's current area assignment — an Admin can reassign it at any
+      // time from the web/admin portal while this session stays logged in.
+      void refreshUser();
+    }, 0);
     return () => clearTimeout(timer);
-  }, [loadOverview]);
+  }, [loadOverview, refreshUser]);
 
   // Re-load every time this screen regains focus — e.g. coming back here
   // after receiving a payment (which can flip a GR from Pending to
   // Delivered) on another screen. Without this, the stats stayed frozen at
   // whatever they were on the last mount/pull-to-refresh, showing stale
-  // Pending/Completed counts instead of the current real ones. `didMount`
-  // skips the first 'focus' (React Navigation fires it on initial mount
-  // too, which would otherwise double the mount effect's own load).
+  // Pending/Completed counts instead of the current real ones. Also
+  // refreshes the user profile here so a location reassignment made by an
+  // Admin while Staff was on another tab/screen shows up as soon as they
+  // return to the Dashboard. `didMount` skips the first 'focus' (React
+  // Navigation fires it on initial mount too, which would otherwise double
+  // the mount effect's own load).
   const didMount = useRef(false);
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -84,9 +96,22 @@ export const StaffDashboardScreen = () => {
         return;
       }
       loadOverview();
+      void refreshUser();
     });
     return unsubscribe;
-  }, [navigation, loadOverview]);
+  }, [navigation, loadOverview, refreshUser]);
+
+  // Also refresh on app foreground — covers the case where an Admin
+  // reassigns the location while this device's app is backgrounded (not
+  // just navigated away from within the app), without resorting to polling.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      if (nextState === 'active') {
+        void refreshUser();
+      }
+    });
+    return () => subscription.remove();
+  }, [refreshUser]);
 
   const onRefresh = async () => {
     setRefreshing(true);

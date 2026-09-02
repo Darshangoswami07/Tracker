@@ -568,7 +568,7 @@
     "deleting": "Delete ho raha hai…",
     "delete": "Delete",
     "cancel": "Cancel",
-    "deleteTitle": "GR {number} delete karein?",
+    "deleteTitle": "GR {{number}} delete karein?",
     "retry": "Dobara try karein",
     "somethingWrong": "Shipment padhte waqt kuch problem aa gayi.",
     "couldNotLoadEntries": "GR entries load nahi ho payin. Dobara try karein.",

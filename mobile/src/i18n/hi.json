@@ -568,7 +568,7 @@
     "deleting": "Hata rahe hain…",
     "delete": "Hataein",
     "cancel": "Radd karein",
-    "deleteTitle": "GR {number} hatayein?",
+    "deleteTitle": "GR {{number}} hatayein?",
     "retry": "Punah prayas karein",
     "somethingWrong": "Aapke shipments padhte samay kuch gadbad ho gayi.",
     "couldNotLoadEntries": "GR entries load nahi ho saki. Kripya phir se prayas karein.",

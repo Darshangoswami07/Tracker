@@ -21,6 +21,7 @@ from app.core.tenancy import assert_same_company, effective_company_id
 from app.models.enums import FileKind, OrderStatus
 from app.repositories.order_attachment_repository import OrderAttachmentRepository
 from app.repositories.order_repository import OrderRepository
+from app.repositories.shop_repository import ShopRepository
 from app.schemas.order import (
     GRAssignDriverRequest,
     GRAssignStaffRequest,
@@ -44,6 +45,7 @@ router = APIRouter(prefix="/admin/orders", tags=["gr"])
 
 order_repo = OrderRepository()
 attachment_repo = OrderAttachmentRepository()
+shop_repo = ShopRepository()
 
 
 def _attachment_url(order_id: UUID, attachment_id: UUID) -> str:
@@ -259,12 +261,17 @@ async def create_gr(payload: GRCreateRequest, admin: GRAccessUser) -> dict:
         if payload.assignedStaffId is not None
         else None
     )
+    # Master-data upsert: the Shop (consignor) must exist independently of
+    # this GR, so it's resolved/created before the Order — deleting the GR
+    # later must never be able to take the Shop down with it.
+    shop = await shop_repo.get_or_create(company_id=company_id, area=creator_area, name=payload.consignorName)
     order = await order_repo.create_order(
         orderNumber=payload.grNumber,
         companyId=company_id,
         customerId=payload.customerId,
         driverId=payload.driverId,
         assignedStaffId=assigned_staff,
+        shopId=shop.id if shop else None,
         pickupAddress=payload.pickupAddress,
         deliveryAddress=payload.deliveryAddress,
         pickupTime=payload.pickupTime,
@@ -328,6 +335,14 @@ async def update_gr(order_id: UUID, payload: GRUpdateRequest, admin: GRAccessUse
     # that would let a company-scoped caller move a GR out of their own
     # tenant (or a stray payload field move it into another one).
     updates.pop("companyId", None)
+    if "consignorName" in updates:
+        # Re-point at the (possibly new) Shop master record for the edited
+        # name; the old Shop, if now unused, is left in place untouched —
+        # Shops are never deleted as a side effect of editing/removing GRs.
+        shop = await shop_repo.get_or_create(
+            company_id=existing.companyId, area=existing.area, name=updates["consignorName"]
+        )
+        updates["shopId"] = shop.id if shop else None
     order = await order_repo.update_fields(order_id, **updates)
     if order is None:
         raise NotFoundError("GR not found.")

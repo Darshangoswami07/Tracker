@@ -568,7 +568,7 @@
     "deleting": "Deleting…",
     "delete": "Delete",
     "cancel": "Cancel",
-    "deleteTitle": "Delete GR {number}?",
+    "deleteTitle": "Delete GR {{number}}?",
     "retry": "Retry",
     "somethingWrong": "Something went wrong while reading your shipments.",
     "couldNotLoadEntries": "Could not load GR entries. Please try again.",
