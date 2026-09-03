@@ -17,6 +17,7 @@ import { useUserStore } from '../../store/userStore';
 import { useTranslation } from 'react-i18next';
 import { canDeleteGR as roleCanDeleteGR, canImportExcel as roleCanImportExcel } from '../../constants/roles';
 import { AREAS } from '../../constants/areas';
+import { grRealtime, type GrEvent } from '../../services/grRealtime';
 import type { AppTheme } from '../../theme/types';
 
 const PAGE_SIZE = 20;
@@ -389,6 +390,102 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
     fetchGRs(1, 'reload');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusTab, consignorFilter, effectiveArea, dateFilter]);
+
+  // ── Live GR updates ──────────────────────────────────────────────────────
+  // One shared WebSocket (see `services/grRealtime`). When staff/another
+  // admin changes a GR's status (or deletes one), we (a) patch the affected
+  // card + the five counters IMMEDIATELY from the event so the badge flips
+  // and "Pending -1 / Delivered +1" happen with no round trip, then (b)
+  // schedule ONE debounced refetch so the list + counters land on the
+  // authoritative server numbers and any filter add/remove is handled. Never
+  // reloads the app, never loops (the refetch is coalesced).
+  const rtReloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleRtReload = useCallback(() => {
+    if (rtReloadTimer.current) return;
+    rtReloadTimer.current = setTimeout(() => {
+      rtReloadTimer.current = null;
+      fetchGRs(1, 'reload');
+    }, 350);
+  }, [fetchGRs]);
+
+  useEffect(() => {
+    const reportBucket = (rawStatus: string, toPay: number, totalPaid: number): string => {
+      const EPS = 0.005;
+      if (rawStatus === 'pending') return 'pending';
+      if (toPay > 0) {
+        if (totalPaid >= toPay - EPS) return 'cleared';
+        if (totalPaid > 0) return 'uncleared';
+        return 'delivered';
+      }
+      return totalPaid > 0 ? 'cleared' : 'delivered';
+    };
+
+    const onEvent = (evt: GrEvent) => {
+      if (evt.type === 'resync') {
+        scheduleRtReload();
+        return;
+      }
+      if (evt.type === 'gr.deleted') {
+        const ids = new Set(evt.ids ?? (evt.id ? [evt.id] : []));
+        setItems((prev) => {
+          const removed = prev.filter((g) => ids.has(g.id));
+          if (removed.length === 0) return prev;
+          setSummary((s) => {
+            const next = { ...s, total: Math.max(0, s.total - removed.length) };
+            removed.forEach((g) => {
+              const b = g.status as 'pending' | 'cleared' | 'uncleared' | 'delivered';
+              if (b in next) (next as any)[b] = Math.max(0, (next as any)[b] - 1);
+            });
+            return next;
+          });
+          return prev.filter((g) => !ids.has(g.id));
+        });
+        setSelectedIds((prev) => {
+          if (![...ids].some((i) => prev.has(i))) return prev;
+          const n = new Set(prev);
+          ids.forEach((i) => n.delete(i));
+          return n;
+        });
+        scheduleRtReload();
+        return;
+      }
+      if (evt.type === 'gr.status' && evt.id && evt.status) {
+        setItems((prev) => {
+          const idx = prev.findIndex((g) => g.id === evt.id);
+          if (idx < 0) return prev; // card not on screen — the refetch handles it
+          const card = prev[idx];
+          const newBucket = reportBucket(evt.status!, evt.toPay ?? card.toPay, card.totalPaid);
+          if (newBucket === card.status) return prev;
+          const oldBucket = card.status;
+          setSummary((s) => {
+            const next = { ...s } as any;
+            if (oldBucket in next) next[oldBucket] = Math.max(0, next[oldBucket] - 1);
+            if (newBucket in next) next[newBucket] = next[newBucket] + 1;
+            return next;
+          });
+          const activeFilter = FILTER_TO_STATUS[statusTab];
+          const copy = prev.slice();
+          if (activeFilter && activeFilter !== newBucket) {
+            copy.splice(idx, 1); // no longer matches the active tab — drop it
+          } else {
+            copy[idx] = { ...card, status: newBucket };
+          }
+          return copy;
+        });
+        scheduleRtReload();
+        return;
+      }
+      // gr.created
+      scheduleRtReload();
+    };
+
+    const unsub = grRealtime.subscribe(onEvent);
+    return () => {
+      unsub();
+      if (rtReloadTimer.current) clearTimeout(rtReloadTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusTab, scheduleRtReload]);
 
   // Shop-owner (consignee) dropdown options — LAZY: this list is only needed
   // when the user actually opens the "Shop Owner" filter sheet, so it no

@@ -29,6 +29,7 @@ import {
   useUpdateGRStatus,
   useUploadSlip,
   useCompanies,
+  useGREvents,
 } from '@/hooks';
 import {
   Card,
@@ -117,6 +118,10 @@ export default function GRShipmentsPage() {
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+
+  // Live GR changes (staff/other admins) → the filtered list below refetches
+  // itself, no manual refresh.
+  useGREvents();
 
   const { data, isLoading, error, refetch, isFetching } = useGRList({
     page,

@@ -272,9 +272,15 @@ async def update_order_status_shared(
     # out of a terminal status. Admin-tier callers are unaffected.
     from app.services.gr_status_service import assert_status_transition_allowed
 
+    previous_status = order.status.value if hasattr(order.status, "value") else order.status
     assert_status_transition_allowed(user, order.status, new_status)
 
     updated = await order_repo.update_status(parsed, new_status, user_id=user.id)
+    # Fan the committed change out to connected GR dashboards (same helper the
+    # /admin/orders/{id}/status route uses).
+    from app.api.v1.gr import _publish_gr_change
+
+    await _publish_gr_change(updated, previous_status=previous_status, actor=user)
     return success(await _order_detail_dict(updated), message="Status updated successfully.")
 
 

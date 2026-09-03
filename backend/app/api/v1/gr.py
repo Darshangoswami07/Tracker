@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, File, Form, Query, UploadFile
+from fastapi import APIRouter, File, Form, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse
 
 from app.api.deps import AdminUser, GRAccessUser
@@ -130,6 +130,84 @@ async def _gr_out(order) -> GROut:
         attachments=attachments,
         **extended,
     )
+
+
+async def _publish_gr_change(order, *, previous_status: str | None, event: str = "gr.status", actor=None) -> None:
+    """Fan a committed GR change out to connected dashboards. Best-effort — a
+    realtime hiccup must never fail the status write that triggered it, and it
+    adds NO database round trip (the client recomputes the reporting bucket
+    from the payment figures it already has cached for that card)."""
+    try:
+        from app.realtime import publish_gr_event
+
+        raw = order.status.value if hasattr(order.status, "value") else order.status
+        payload = {
+            "type": event,
+            "id": str(order.id),
+            "orderNumber": order.orderNumber,
+            "status": raw,
+            "previousStatus": previous_status,
+            "toPay": float(order.toPay) if order.toPay is not None else 0.0,
+            "paymentAmount": float(order.paymentAmount) if order.paymentAmount is not None else 0.0,
+            "area": getattr(order, "area", None),
+            "companyId": str(order.companyId),
+            "updatedAt": (order.updatedAt or order.createdAt).isoformat(),
+            "actorRole": getattr(getattr(actor, "role", None), "value", None) or getattr(actor, "role", None),
+        }
+        await publish_gr_event(order.companyId, payload)
+    except Exception:  # noqa: BLE001 — realtime is advisory, never load-bearing
+        import logging
+
+        logging.getLogger(__name__).warning("realtime publish failed", exc_info=True)
+
+
+@router.websocket("/ws")
+async def gr_events_ws(websocket: WebSocket, token: Annotated[str | None, Query()] = None) -> None:
+    """Push channel for GR changes. The admin/staff app opens this once and
+    patches its GR list/counters from the events instead of polling. Auth is
+    the same access token as every REST call (passed as ``?token=`` since a
+    browser/RN WebSocket can't set an Authorization header); the same
+    ``_require_gr_access`` roles may connect, and events are scoped to the
+    caller's ``effective_company_id`` (platform admins see every company)."""
+    from app.core.security import decode_token
+    from app.core.tenancy import effective_company_id
+    from app.database.db import session_scope
+    from app.models.enums import RegistrationStatus
+    from app.realtime import subscribe
+    from app.repositories.user_repository import UserRepository
+
+    await websocket.accept()
+    try:
+        payload = decode_token(token or "", expected_type="access")
+        async with session_scope() as sess:
+            user = await UserRepository(session=sess).find_by_id(payload.subject)
+        if user is None or user.status != RegistrationStatus.ACTIVE:
+            await websocket.close(code=4401)
+            return
+        from app.api.deps import _require_gr_access
+
+        try:
+            _require_gr_access(user)
+        except Exception:
+            await websocket.close(code=4403)
+            return
+        company_id = await effective_company_id(user)
+    except Exception:
+        await websocket.close(code=4401)
+        return
+
+    import asyncio
+
+    async with subscribe(company_id) as queue:
+        try:
+            while True:
+                try:
+                    evt = await asyncio.wait_for(queue.get(), timeout=25)
+                    await websocket.send_json(evt)
+                except asyncio.TimeoutError:
+                    await websocket.send_json({"type": "ping"})
+        except (WebSocketDisconnect, RuntimeError):
+            return
 
 
 @router.get("")
@@ -420,8 +498,12 @@ async def update_gr_status(order_id: UUID, payload: GRStatusUpdateRequest, admin
     # Role-gated transition: Staff = pending→delivered only; Admin = unchanged.
     from app.services.gr_status_service import assert_status_transition_allowed
 
+    previous_status = order.status.value if hasattr(order.status, "value") else order.status
     assert_status_transition_allowed(admin, order.status, payload.status)
     updated = await order_repo.update_status(order_id, payload.status.value, user_id=admin.id)
+    # DB write is committed by now (update_status uses its own session_scope) —
+    # safe to fan the change out to connected dashboards.
+    await _publish_gr_change(updated, previous_status=previous_status, actor=admin)
     return success((await _gr_out(updated)).model_dump(mode="json"), message="GR status updated.")
 
 
@@ -441,6 +523,13 @@ async def delete_gr(order_id: UUID, admin: AdminUser) -> dict:
         raise NotFoundError("GR not found.")
     await assert_same_company(admin, existing.companyId)
     await order_repo.soft_delete_order(order_id)
+    from app.realtime import publish_gr_event
+
+    await publish_gr_event(
+        existing.companyId,
+        {"type": "gr.deleted", "id": str(order_id), "orderNumber": existing.orderNumber,
+         "companyId": str(existing.companyId)},
+    )
     return success(None, message="GR deleted successfully.")
 
 
@@ -463,6 +552,13 @@ async def bulk_delete_grs(payload: GRBulkDeleteRequest, admin: AdminUser) -> dic
     deleted = await order_repo.soft_delete_orders(payload.ids, company_id)
     deleted_set = {str(i) for i in deleted}
     skipped = [str(i) for i in payload.ids if str(i) not in deleted_set]
+    if deleted:
+        from app.realtime import publish_gr_event
+
+        await publish_gr_event(
+            company_id,
+            {"type": "gr.deleted", "ids": [str(i) for i in deleted], "companyId": str(company_id) if company_id else None},
+        )
     return success(
         {
             "requested": len(payload.ids),

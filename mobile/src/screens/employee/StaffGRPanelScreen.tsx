@@ -17,6 +17,7 @@ import { useUserStore } from '../../store/userStore';
 import { useAuthStore } from '../../store/authStore';
 import { canDeleteGR as roleCanDeleteGR, allowedGrStatusTargets } from '../../constants/roles';
 import { AREAS } from '../../constants/areas';
+import { grRealtime } from '../../services/grRealtime';
 import type { AppTheme } from '../../theme/types';
 
 interface GREntry {
@@ -145,6 +146,23 @@ export const StaffGRPanelScreen = () => {
     }, 400);
     return () => clearTimeout(timer);
   }, [search, statusFilter, effectiveArea, consignorFilter, fetchEntries]);
+
+  // Live updates: another admin/staff (or an Admin reassigning) changing a GR
+  // this list shows → one debounced refetch, no polling, no app reload.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsub = grRealtime.subscribe(() => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        fetchEntries();
+      }, 350);
+    });
+    return () => {
+      unsub();
+      if (timer) clearTimeout(timer);
+    };
+  }, [fetchEntries]);
 
   // Load distinct consignor names scoped to the effective area
   useEffect(() => {
