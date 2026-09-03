@@ -499,7 +499,9 @@
     "searchGrConsignee": "GR नंबर / प्राप्तकर्ता खोजें",
     "noGrsFound": "कोई GR नहीं मिला",
     "noGrsMatchFilters": "{{area}} में {{shop}} के लिए कोई GR आपके फ़िल्टर से मेल नहीं खाता।",
-    "noGrsForShop": "{{area}} में {{shop}} के लिए अभी कोई GR नहीं है।"
+    "noGrsForShop": "{{area}} में {{shop}} के लिए अभी कोई GR नहीं है।",
+    "cleared": "क्लियर",
+    "uncleared": "अनक्लियर"
   },
   "errors": {
     "networkError": "नेटवर्क त्रुटि। कृपया अपना कनेक्शन जांचें।",

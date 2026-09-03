@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,7 +13,17 @@ import {
   type StaffDailyActivity,
   type StaffActivityEvent,
 } from '../../database/repositories/orderRepository';
+import { grRealtime } from '../../services/grRealtime';
 import type { AppTheme } from '../../theme/types';
+
+/** `YYYY-MM-DD` in local time — the stable per-day cache/query key. */
+const dayKey = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** Small in-memory cache so stepping Today⇄Yesterday⇄… reuses already-loaded
+ * days instantly (no skeleton, no refetch) within a session. Keyed by
+ * `staffId|day`. A realtime GR/payment/status event clears it. */
+const workCache = new Map<string, StaffDailyActivity>();
 
 const formatCurrency = (amount: number): string =>
   `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -74,22 +84,62 @@ export const AdminStaffDailyWorkScreen = ({ route }: any) => {
   const [activity, setActivity] = useState<StaffDailyActivity | null>(null);
   const [dateSheetOpen, setDateSheetOpen] = useState(false);
 
-  const load = useCallback(async (date: Date) => {
-    setLoadStatus('loading');
+  const reqIdRef = useRef(0);
+  const selectedDateRef = useRef(selectedDate);
+  useEffect(() => {
+    selectedDateRef.current = selectedDate;
+  }, [selectedDate]);
+
+  const load = useCallback(async (date: Date, opts: { force?: boolean } = {}) => {
+    const key = `${staffId}|${dayKey(date)}`;
+    const cached = workCache.get(key);
+    if (cached && !opts.force) {
+      // Instant paint from cache; still revalidate quietly in the background
+      // so numbers stay live without a skeleton flash.
+      setActivity(cached);
+      setLoadStatus('success');
+    } else {
+      setLoadStatus(cached ? 'success' : 'loading');
+      if (cached) setActivity(cached);
+    }
+
+    const reqId = ++reqIdRef.current;
     try {
-      const iso = date.toISOString();
-      const data = await orderRepository.getStaffDailyActivity(staffId, iso);
+      const data = await orderRepository.getStaffDailyActivity(staffId, date.toISOString());
+      if (reqId !== reqIdRef.current) return; // a newer date/refresh superseded this
+      workCache.set(key, data);
       setActivity(data);
       setLoadStatus('success');
     } catch (error) {
+      if (reqId !== reqIdRef.current) return;
       console.error('Failed to load Staff Work activity:', error);
-      setLoadStatus('error');
+      // Keep any cached data on screen; only show the error state if we have nothing.
+      setLoadStatus(workCache.get(key) ? 'success' : 'error');
     }
   }, [staffId]);
 
   useEffect(() => {
-    load(selectedDate);
+    void load(selectedDate);
   }, [load, selectedDate]);
+
+  // Live updates: subscribe ONCE. Any GR status / payment / assignment /
+  // delete event → clear the day cache and re-pull the current day (one
+  // debounced request). No polling, no per-render re-subscription.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsub = grRealtime.subscribe(() => {
+      workCache.clear();
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void load(selectedDateRef.current, { force: true });
+      }, 400);
+    });
+    return () => {
+      unsub();
+      if (timer) clearTimeout(timer);
+    };
+  }, [load]);
 
   const today = new Date();
   const onToday = isSameDay(selectedDate, today);
@@ -153,7 +203,7 @@ export const AdminStaffDailyWorkScreen = ({ route }: any) => {
             title="Unable to load staff activity"
             subtitle="Something went wrong while loading this staff member's work."
             actionLabel="Retry"
-            onActionPress={() => load(selectedDate)}
+            onActionPress={() => load(selectedDate, { force: true })}
             iconColor={colors.error}
           />
         )}

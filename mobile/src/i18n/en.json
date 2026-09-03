@@ -499,7 +499,9 @@
     "searchGrConsignee": "Search GR number / consignee",
     "noGrsFound": "No GRs found",
     "noGrsMatchFilters": "No GRs match your filters for {{shop}} in {{area}}.",
-    "noGrsForShop": "No GRs for {{shop}} in {{area}} yet."
+    "noGrsForShop": "No GRs for {{shop}} in {{area}} yet.",
+    "cleared": "Cleared",
+    "uncleared": "Uncleared"
   },
   "errors": {
     "networkError": "Network error. Please check your connection.",

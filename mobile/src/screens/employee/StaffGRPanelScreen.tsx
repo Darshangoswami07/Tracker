@@ -40,6 +40,20 @@ interface GREntry {
 const rupees = (n: number): string =>
   `₹${Math.round(n).toLocaleString('en-IN')}`;
 
+/**
+ * Tiny in-memory stale-while-revalidate cache for the GR list, keyed by the
+ * full query signature (search + status + area + shop owner). Switching to a
+ * status filter that was already loaded paints its rows instantly; a network
+ * call only fires when the entry is missing or older than `CACHE_TTL_MS`.
+ * Any realtime GR change clears the whole cache (a status flip can move a GR
+ * between buckets), so it never serves a stale bucket. Module-level so it
+ * survives the Deliveries tab unmount/remount within a session.
+ */
+interface CachedList { entries: GREntry[]; ts: number }
+const slipsCache = new Map<string, CachedList>();
+const CACHE_TTL_MS = 15_000;
+const clearSlipsCache = () => slipsCache.clear();
+
 /** Every GR status, matching the web Staff Panel's `<select>`
  * (`admin/src/components/tracker/StaffPanel.tsx`'s `STATUS_OPTIONS`) — that
  * dropdown lets any GR-access role set a GR to any status at any time, not
@@ -61,14 +75,24 @@ const STATUS_LABELS: Record<string, string> = {
 interface StaffGRPanelParams {
   statusFilter?: string;
   title?: string;
+  /** Bumped by the caller (Staff Dashboard status cards) on every tap so the
+   * status re-sync effect below fires even when the same card is tapped
+   * twice — the Deliveries tab stays mounted, so `statusFilter` alone
+   * wouldn't change. */
+  filterNonce?: number;
 }
+
+/** `'all'` (from the Dashboard's "Assigned" card) means "no status filter" —
+ * every active assigned GR, All Statuses. Any other value is a real bucket. */
+const normalizeStatusParam = (v?: string): string | null =>
+  v && v !== 'all' ? v : null;
 
 export const StaffGRPanelScreen = () => {
   const theme = useAppTheme();
   const { colors, radii, shadows } = theme;
   const { navigate, goBack, goToNotifications } = useAppNav();
   const route = useRoute();
-  const { statusFilter: statusFilterParam, title } = (route.params as StaffGRPanelParams | undefined) ?? {};
+  const { statusFilter: statusFilterParam, title, filterNonce } = (route.params as StaffGRPanelParams | undefined) ?? {};
 
   const styles = createStyles(theme);
 
@@ -84,7 +108,7 @@ export const StaffGRPanelScreen = () => {
   const [consignorFilter, setConsignorFilter] = useState<string | null>(null);
   const [consignorOptions, setConsignorOptions] = useState<string[]>([]);
   const [consignorSheetOpen, setConsignorSheetOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string | null>(statusFilterParam ?? null);
+  const [statusFilter, setStatusFilter] = useState<string | null>(normalizeStatusParam(statusFilterParam));
   const [statusSheetOpen, setStatusSheetOpen] = useState(false);
 
   const role = useUserStore((state) => state.user?.role);
@@ -110,8 +134,41 @@ export const StaffGRPanelScreen = () => {
     return () => clearTimeout(timer);
   }, [actionMessage]);
 
+  // Full query signature — the cache key AND the only thing that should ever
+  // drive a new list request. UI-only state (open sheets, menus, checkboxes)
+  // is deliberately excluded.
+  const queryKey = `${search.trim()}|${statusFilter ?? ''}|${effectiveArea ?? ''}|${consignorFilter ?? ''}`;
+
+  // Bumped on every request; a response whose id is stale (a newer filter was
+  // picked while it was in flight) is dropped so it can't overwrite the list.
+  const reqIdRef = useRef(0);
+  // A background refresh is running for a filter we already had rows for —
+  // dims the list slightly instead of blanking the screen.
+  const [listBusy, setListBusy] = useState(false);
+
   const fetchEntries = useCallback(
-    async (_isRefresh = false) => {
+    async (opts: { force?: boolean; paintCached?: boolean; filterChanged?: boolean } = {}) => {
+      const key = queryKey;
+      const cached = slipsCache.get(key);
+      if (cached && opts.paintCached) setEntries(cached.entries);
+      // Fresh cache hit and not forced → no network at all.
+      if (cached && !opts.force && Date.now() - cached.ts < CACHE_TTL_MS) {
+        setLoading(false);
+        return;
+      }
+
+      // Switching to a filter (e.g. Cleared → Uncleared) we have NO cached
+      // rows for: clear the list and show the skeleton. Never leave the
+      // previous bucket's GRs on screen under the new filter's header —
+      // that was the "Uncleared shows a Cleared GR" bug. Background
+      // refreshes (realtime / pull-to-refresh) keep the current rows.
+      if (opts.filterChanged && !cached) {
+        setEntries([]);
+        setLoading(true);
+      }
+
+      const reqId = ++reqIdRef.current;
+      setListBusy(true);
       try {
         const { items } = await orderRepository.list({
           page: 1,
@@ -121,59 +178,81 @@ export const StaffGRPanelScreen = () => {
           area: effectiveArea || undefined,
           consignor: consignorFilter || undefined,
         });
-        setEntries(
-          items.map((o) => ({
-            id: o.id,
-            orderNumber: o.orderNumber,
-            consignorName: o.consignorName ?? undefined,
-            consigneeName: o.consigneeName ?? undefined,
-            pickupAddress: o.pickupAddress,
-            deliveryAddress: o.deliveryAddress,
-            status: o.status,
-            hasSlip: o.hasSlip,
-            toPay: o.toPay ?? 0,
-            totalPaid: o.totalPaid ?? 0,
-          }))
-        );
+        if (reqId !== reqIdRef.current) return; // a newer request supersedes this one
+        const mapped: GREntry[] = items.map((o) => ({
+          id: o.id,
+          orderNumber: o.orderNumber,
+          consignorName: o.consignorName ?? undefined,
+          consigneeName: o.consigneeName ?? undefined,
+          pickupAddress: o.pickupAddress,
+          deliveryAddress: o.deliveryAddress,
+          status: o.status,
+          hasSlip: o.hasSlip,
+          toPay: o.toPay ?? 0,
+          totalPaid: o.totalPaid ?? 0,
+        }));
+        slipsCache.set(key, { entries: mapped, ts: Date.now() });
+        setEntries(mapped);
       } catch (error) {
+        if (reqId !== reqIdRef.current) return;
         console.error('Failed to fetch GR entries:', error);
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        if (reqId === reqIdRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+          setListBusy(false);
+        }
       }
     },
-    [search, statusFilter, effectiveArea, consignorFilter]
+    [queryKey, search, statusFilter, effectiveArea, consignorFilter]
   );
 
+  // Always-current pointer to `fetchEntries` so the subscription / focus /
+  // foreground effects can stay mounted ONCE (empty deps) instead of tearing
+  // down and re-running — and re-subscribing the WebSocket — on every filter
+  // change. That churn was the source of the request storm.
+  const fetchRef = useRef(fetchEntries);
   useEffect(() => {
-    const timer = setTimeout(() => fetchEntries(), 0);
-    return () => clearTimeout(timer);
-  }, [fetchEntries]);
+    fetchRef.current = fetchEntries;
+  });
 
-  // Debounce filter changes
+  // A real filter-value change → paint any cached rows immediately, then
+  // fetch only if the cache is missing/stale. Status/area/shop-owner feel
+  // instant; NOT debounced.
   useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchEntries();
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [search, statusFilter, effectiveArea, consignorFilter, fetchEntries]);
+    void fetchRef.current({ paintCached: true, filterChanged: true });
+  }, [statusFilter, effectiveArea, consignorFilter]);
 
-  // Live updates: another admin/staff (or an Admin reassigning) changing a GR
-  // this list shows → one debounced refetch, no polling, no app reload.
+  // Search is the ONLY debounced input (300ms). Skips the initial mount.
+  const didMountSearch = useRef(false);
+  useEffect(() => {
+    if (!didMountSearch.current) {
+      didMountSearch.current = true;
+      return;
+    }
+    const timer = setTimeout(() => void fetchRef.current({ force: true, paintCached: true }), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Live updates: subscribe ONCE for the screen's lifetime. Any GR change
+  // clears the cache (a status flip moves a GR between buckets) then triggers
+  // one debounced refetch of the current filter. No polling, no per-filter
+  // re-subscription.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const unsub = grRealtime.subscribe(() => {
+      clearSlipsCache();
       if (timer) return;
       timer = setTimeout(() => {
         timer = null;
-        fetchEntries();
+        void fetchRef.current({ force: true });
       }, 350);
     });
     return () => {
       unsub();
       if (timer) clearTimeout(timer);
     };
-  }, [fetchEntries]);
+  }, []);
 
   // Load distinct consignor names scoped to the effective area
   useEffect(() => {
@@ -190,13 +269,16 @@ export const StaffGRPanelScreen = () => {
   // a different filter. Re-sync the local filter (and clear any shop-owner
   // filter) whenever the incoming param actually changes, so the correct
   // status is always applied — even on a re-navigation that doesn't remount.
+  // Re-apply ONLY the status filter from the incoming params (a dashboard
+  // card tap). Other user-selected filters (search / location / shop owner)
+  // are deliberately left untouched. `filterNonce` is in the deps so tapping
+  // the same card twice still re-syncs.
   useEffect(() => {
     const timer = setTimeout(() => {
-      setStatusFilter(statusFilterParam ?? null);
-      setConsignorFilter(null);
+      setStatusFilter(normalizeStatusParam(statusFilterParam));
     }, 0);
     return () => clearTimeout(timer);
-  }, [statusFilterParam]);
+  }, [statusFilterParam, filterNonce]);
 
   const refreshUser = useAuthStore((state) => state.refreshUser);
 
@@ -208,6 +290,13 @@ export const StaffGRPanelScreen = () => {
   // `area` from, since GR routing can depend on it — every time this screen
   // regains focus. `didMount` skips the first 'focus' (fired on initial
   // mount too, which the mount effect above already covers).
+  // On focus we only re-pull the *profile* (an Admin may have changed this
+  // staff's area, which affects GR routing). The GR list itself is NOT
+  // refetched here — the always-mounted realtime subscription already keeps
+  // it current (assignments/deletes arrive as `gr.updated` / `gr.deleted`
+  // even while this tab is backgrounded), and a stale-but-cached list is
+  // repainted instantly by the filter effect. This is what stopped every
+  // dashboard→My-Slips navigation from firing a `/me` + duplicate `/orders`.
   const didMount = useRef(false);
   useFocusEffect(
     useCallback(() => {
@@ -216,8 +305,7 @@ export const StaffGRPanelScreen = () => {
         return;
       }
       void refreshUser();
-      fetchEntries();
-    }, [refreshUser, fetchEntries])
+    }, [refreshUser])
   );
 
   // Also refresh on app foreground — covers an Admin assignment made while
@@ -226,15 +314,15 @@ export const StaffGRPanelScreen = () => {
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       if (nextState === 'active') {
         void refreshUser();
-        fetchEntries();
+        void fetchRef.current({ force: true });
       }
     });
     return () => subscription.remove();
-  }, [refreshUser, fetchEntries]);
+  }, [refreshUser]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchEntries(true);
+    void fetchEntries({ force: true });
   };
 
   const confirmDeleteGR = async () => {
@@ -242,6 +330,7 @@ export const StaffGRPanelScreen = () => {
     setDeleting(true);
     try {
       await orderRepository.delete(deleteTarget.id);
+      clearSlipsCache();
       setEntries((prev) => prev.filter((entry) => entry.id !== deleteTarget.id));
       setActionMessage({ kind: 'success', text: `GR ${deleteTarget.orderNumber} deleted successfully.` });
       setDeleteTarget(null);
@@ -260,7 +349,8 @@ export const StaffGRPanelScreen = () => {
     setUpdatingId(orderId);
     try {
       await orderRepository.updateStatus(orderId, status);
-      fetchEntries(true);
+      clearSlipsCache();
+      void fetchEntries({ force: true });
     } catch (error) {
       console.error('Failed to update status:', error);
       Alert.alert('Error', 'Could not update the status. Please try again.');
@@ -290,7 +380,8 @@ export const StaffGRPanelScreen = () => {
         localUri: persisted.localUri,
         fileSizeBytes: persisted.fileSizeBytes,
       });
-      fetchEntries(true);
+      clearSlipsCache();
+      void fetchEntries({ force: true });
     } catch (error) {
       console.error('Failed to upload photo:', error);
       Alert.alert('Upload Failed', 'Could not upload the photo. Please try again.');
@@ -343,7 +434,7 @@ export const StaffGRPanelScreen = () => {
             value={search}
             onChangeText={setSearch}
             returnKeyType="search"
-            onSubmitEditing={() => fetchEntries()}
+            onSubmitEditing={() => fetchEntries({ force: true })}
           />
         </View>
 
@@ -413,6 +504,7 @@ export const StaffGRPanelScreen = () => {
       ) : (
         <ScrollView
           contentContainerStyle={styles.scrollContent}
+          style={{ opacity: listBusy ? 0.55 : 1 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} progressBackgroundColor={colors.surface} />}
         >
           {entries.length === 0 ? (

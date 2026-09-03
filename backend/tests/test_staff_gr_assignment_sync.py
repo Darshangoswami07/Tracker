@@ -353,3 +353,97 @@ async def test_staff_status_update_is_pending_to_delivered_only(client):
     # admin unrestricted
     assert (await patch(admin_tok, "cleared")).status_code == 200
     assert (await patch(admin_tok, "pending")).status_code == 200
+
+
+async def test_staff_status_counts_five_buckets_date_independent(client):
+    """The Staff Dashboard's five clickable cards read ONE aggregate
+    (`GET /admin/orders/meta/status-counts`), scoped to the staff's own GRs,
+    never filtered by today's date. A payment that clears a delivered GR
+    moves it delivered->cleared in the same aggregate."""
+    company_id = await create_company("Dashboard Counts Co")
+
+    async def _staff(email, phone):
+        repo = UserRepository()
+        u = await repo.create(
+            full_name="S", email=email, phone=phone,
+            password_hash=hash_password("Password123!"), role=UserRole.STAFF,
+        )
+        async with session_scope() as s:
+            du = await s.get(type(u), u.id)
+            du.status = RegistrationStatus.ACTIVE
+            du.isActive = du.isApproved = du.isVerified = du.otpVerified = True
+            du.companyId = uuid.UUID(company_id)
+            await s.flush()
+        r = await client.post(f"{AUTH_BASE}/login", json={"email": email, "password": "Password123!"})
+        return str(u.id), r.json()["data"]["tokens"]["accessToken"]
+
+    au = await UserRepository().create(
+        full_name="A", email="dcc-admin@example.com", phone="+15554300000",
+        password_hash=hash_password("Password123!"), role=UserRole.ADMIN,
+    )
+    async with session_scope() as s:
+        du = await s.get(type(au), au.id)
+        du.status = RegistrationStatus.ACTIVE
+        du.isActive = du.isApproved = du.isVerified = du.otpVerified = True
+        du.companyId = uuid.UUID(company_id)
+        await s.flush()
+    admin_tok = (await client.post(f"{AUTH_BASE}/login", json={"email": "dcc-admin@example.com", "password": "Password123!"})).json()["data"]["tokens"]["accessToken"]
+
+    staff_id, staff_tok = await _staff("dcc-staff@example.com", "+15554300001")
+    _, other_tok = await _staff("dcc-other@example.com", "+15554300002")
+
+    COUNTS = f"{GR_BASE}/meta/status-counts"
+
+    async def counts(tok) -> dict:
+        r = await client.get(COUNTS, headers=auth_headers(tok))
+        assert r.status_code == 200, r.text
+        return r.json()["data"]
+
+    # Three GRs assigned to our staff, each with a bill.
+    ids = {}
+    for n in ("DC1", "DC2", "DC3"):
+        r = await client.post(
+            GR_BASE,
+            json={**gr_payload(n, f"Shop {n}", company_id, assigned_staff_id=staff_id), "toPay": 500},
+            headers=auth_headers(admin_tok),
+        )
+        assert r.status_code == 201, r.text
+        ids[n] = r.json()["data"]["id"]
+
+    # Back-date every one of them well into the past — visibility/counts must
+    # not care about creation date.
+    async with session_scope() as s:
+        from datetime import datetime, timedelta, timezone
+        from app.models.order import Order
+        old = datetime.now(timezone.utc) - timedelta(days=90)
+        for oid in ids.values():
+            o = await s.get(Order, uuid.UUID(oid))
+            o.createdAt = old
+        await s.flush()
+
+    c = await counts(staff_tok)
+    assert (c["total"], c["pending"], c["delivered"], c["cleared"], c["uncleared"]) == (3, 3, 0, 0, 0)
+    # Another staff member sees none of them.
+    assert (await counts(other_tok))["total"] == 0
+
+    # DC1 -> delivered
+    assert (await client.patch(f"{GR_BASE}/{ids['DC1']}/status", json={"status": "delivered"}, headers=auth_headers(staff_tok))).status_code == 200
+    c = await counts(staff_tok)
+    assert (c["pending"], c["delivered"], c["cleared"], c["uncleared"]) == (2, 1, 0, 0)
+
+    # Partial payment on delivered DC1 -> uncleared
+    assert (await client.post("/api/v1/payments", json={"orderId": ids["DC1"], "amount": 200, "recordedBy": None}, headers=auth_headers(admin_tok))).status_code == 201
+    c = await counts(staff_tok)
+    assert (c["pending"], c["delivered"], c["cleared"], c["uncleared"]) == (2, 0, 0, 1)
+
+    # Pay the rest -> cleared
+    assert (await client.post("/api/v1/payments", json={"orderId": ids["DC1"], "amount": 300, "recordedBy": None}, headers=auth_headers(admin_tok))).status_code == 201
+    c = await counts(staff_tok)
+    assert (c["pending"], c["delivered"], c["cleared"], c["uncleared"]) == (2, 0, 1, 0)
+    assert c["total"] == 3  # still visible under "Assigned" / All
+
+    # Admin deletes a still-pending GR -> total + pending both drop.
+    assert (await client.delete(f"{GR_BASE}/{ids['DC2']}", headers=auth_headers(admin_tok))).status_code == 200
+    c = await counts(staff_tok)
+    assert (c["total"], c["pending"], c["cleared"]) == (2, 1, 1)
+    assert c["pending"] + c["delivered"] + c["cleared"] + c["uncleared"] == c["total"]

@@ -499,7 +499,9 @@
     "searchGrConsignee": "GR number / consignee search karein",
     "noGrsFound": "Koi GR nahi mila",
     "noGrsMatchFilters": "{{area}} mein {{shop}} ke liye koi GR aapke filters se match nahi karta.",
-    "noGrsForShop": "{{area}} mein {{shop}} ke liye abhi koi GR nahi hai."
+    "noGrsForShop": "{{area}} mein {{shop}} ke liye abhi koi GR nahi hai.",
+    "cleared": "Cleared",
+    "uncleared": "Uncleared"
   },
   "errors": {
     "networkError": "Network error hai. Kripya apna connection check karein.",
