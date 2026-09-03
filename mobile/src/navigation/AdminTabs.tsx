@@ -27,6 +27,7 @@ import { AdminCreateGRScreen } from '../screens/admin/AdminCreateGRScreen';
 import { AdminGRDetailsScreen } from '../screens/admin/AdminGRDetailsScreen';
 import { AdminEditGRScreen } from '../screens/admin/AdminEditGRScreen';
 import { AdminAreasScreen } from '../screens/admin/AdminAreasScreen';
+import { AdminSelectStaffScreen } from '../screens/admin/AdminSelectStaffScreen';
 import { AdminExcelImportScreen } from '../screens/admin/AdminExcelImportScreen';
 import { ExcelImportHistoryScreen } from '../screens/admin/ExcelImportHistoryScreen';
 import { PaymentHistoryScreen } from '../screens/admin/PaymentHistoryScreen';
@@ -90,6 +91,7 @@ const DashboardTabStack = () => (
      * came from, instead of jumping into the Shipments tab. See useAppNav.ts. */}
     <DashboardStack.Screen name="CreateGR" component={AdminCreateGRScreen} />
     <DashboardStack.Screen name="Areas" component={AdminAreasScreen} />
+    <DashboardStack.Screen name="SelectStaff" component={AdminSelectStaffScreen} />
     <DashboardStack.Screen name="ExcelImport" component={AdminExcelImportScreen} />
     <DashboardStack.Screen name="ExcelImportHistory" component={ExcelImportHistoryScreen} />
     <DashboardStack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
@@ -107,6 +109,7 @@ const ShipmentsTabStack = () => (
     <ShipmentsStack.Screen name="GRDetails" component={AdminGRDetailsScreen} />
     <ShipmentsStack.Screen name="EditGR" component={AdminEditGRScreen} />
     <ShipmentsStack.Screen name="Areas" component={AdminAreasScreen} />
+    <ShipmentsStack.Screen name="SelectStaff" component={AdminSelectStaffScreen} />
     <ShipmentsStack.Screen name="ExcelImport" component={AdminExcelImportScreen} />
     <ShipmentsStack.Screen name="ExcelImportHistory" component={ExcelImportHistoryScreen} />
     <ShipmentsStack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />

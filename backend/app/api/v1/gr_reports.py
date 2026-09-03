@@ -535,6 +535,11 @@ class ImportRequest(BaseModel):
     fileName: str
     importedByName: Optional[str] = None
     area: Optional[str] = None
+    # Staff member the WHOLE batch is assigned to (the new mandatory
+    # "Select Staff" step). A User id — resolved to an `employees.id` via
+    # `_resolve_employee_id`, same as `POST /{order_id}/assign-staff`.
+    # Optional so older clients / other callers keep working unchanged.
+    staffId: Optional[UUID] = None
     rows: list[ImportRow] = Field(default_factory=list)
 
 
@@ -558,6 +563,34 @@ async def bulk_import(
         )
     staff_area = _effective_area(admin)
     is_staff = staff_area is not None
+
+    # Resolve + validate the batch-level staff assignment (the mandatory
+    # "Select Staff" step). The backend never trusts the frontend's choice:
+    # the target user must exist, belong to this company, actually be a
+    # staff-tier role, be active, and — when a location was also picked —
+    # actually belong to that location. `assignedStaffId` on every row this
+    # batch creates comes from here (same resolution `assign-staff` uses).
+    staff_employee_id = None
+    if payload.staffId is not None:
+        from app.models.enums import RegistrationStatus, UserRole
+        from app.services.user_service import user_service
+
+        target_staff = await user_service.get_by_id(str(payload.staffId))
+        if target_staff is None or target_staff.companyId != company_id:
+            raise ValidationBusinessError("Selected staff member was not found.")
+        if target_staff.role not in (UserRole.EMPLOYEE, UserRole.STAFF):
+            raise ValidationBusinessError("Selected user is not a staff member.")
+        if not target_staff.isActive or target_staff.status != RegistrationStatus.ACTIVE:
+            raise ValidationBusinessError(
+                f"{target_staff.firstName} {target_staff.lastName} is not an active staff member."
+            )
+        if payload.area and target_staff.area and target_staff.area != payload.area:
+            raise ValidationBusinessError(
+                f"{target_staff.firstName} {target_staff.lastName} is not assigned to {payload.area}."
+            )
+        from app.api.v1.gr import _resolve_employee_id
+
+        staff_employee_id = await _resolve_employee_id(target_staff.id, company_id)
 
     existing = (
         await session.execute(
@@ -625,6 +658,7 @@ async def bulk_import(
                     orderNumber=gr_number,
                     companyId=company_id,
                     shopId=shop.id if shop else None,
+                    assignedStaffId=staff_employee_id,
                     consignorName=r.consignorName,
                     consigneeName=r.consigneeName,
                     particulars=r.particulars,

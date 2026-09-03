@@ -44,7 +44,8 @@ export const importRepository = {
     rows: ValidGRRow[],
     fileName: string,
     importedByName: string | null,
-    area?: string
+    area?: string,
+    staffId?: string
   ): Promise<ImportSummary> {
     // Excel imports run for as long as the backend needs (each row is created
     // in Neon in one synchronous request). Override the default 15s client
@@ -55,6 +56,7 @@ export const importRepository = {
       fileName,
       importedByName,
       area: area ?? null,
+      staffId: staffId ?? null,
       rows: rows.map((r) => ({
         rowNumber: r.rowNumber,
         grNumber: r.grNumber,

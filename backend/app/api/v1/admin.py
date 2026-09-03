@@ -199,13 +199,14 @@ async def list_users(
     status: str | None = None,
     search: str | None = None,
     role: str | None = None,
+    area: str | None = None,
 ) -> dict:
-    """List users with pagination, optionally filtered by role/status. Super
-    Admin sees every company; Company Admin sees only their own company's
-    users."""
+    """List users with pagination, optionally filtered by role/status/area.
+    Super Admin sees every company; Company Admin sees only their own
+    company's users."""
     user_repo = UserRepository(session=db)
     users, total = await user_repo.get_all_users(
-        page, page_size, status, search, role, company_id=await effective_company_id(admin, db)
+        page, page_size, status, search, role, company_id=await effective_company_id(admin, db), area=area
     )
     return success(
         {

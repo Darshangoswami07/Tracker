@@ -13,6 +13,7 @@
  */
 import { api } from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
+import { ENV } from '../../config/env';
 import { uuid } from '../../utils/uuid';
 
 /**
@@ -505,7 +506,10 @@ export const orderRepository = {
     if (params.search) query.search = params.search;
     if (params.area) query.area = params.area;
     if (params.consignor) query.consignor = params.consignor;
-    const res = await api.get(ENDPOINTS.admin.orders.list, { params: query });
+    const res = await api.get(ENDPOINTS.admin.orders.list, {
+      params: query,
+      timeout: ENV.ordersListTimeoutMs,
+    });
     const data = body<{ items: any[]; total: number }>(res);
     let items = data.items.map(mapListItem);
     // The GR list's "Date Range" filter (Today/Week/Month) — backend list has

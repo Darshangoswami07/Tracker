@@ -162,6 +162,7 @@ async def list_grs(
     )
     # One grouped query for the whole page's payment totals (no N+1).
     paid_by_order: dict = {}
+    attachments_by_order: dict = {}
     if orders:
         from sqlalchemy import func as _func, select as _select
 
@@ -178,12 +179,15 @@ async def list_grs(
                 )
             ).all()
         paid_by_order = {oid: float(total or 0) for oid, total in rows}
+        # One grouped query for the whole page's attachments (avoids an
+        # N+1 per-order round trip that dominates latency on a remote DB).
+        attachments_by_order = await attachment_repo.find_by_orders(order_ids)
 
     from app.services.gr_status_service import classify
 
     items = []
     for order in orders:
-        attachments = await attachment_repo.find_by_order(order.id)
+        attachments = attachments_by_order.get(order.id, [])
         raw_status = order.status.value if hasattr(order.status, "value") else order.status
         ledger_paid = paid_by_order.get(order.id, 0.0)
         legacy_paid = float(order.paymentAmount) if order.paymentAmount is not None else 0.0

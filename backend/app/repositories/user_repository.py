@@ -148,6 +148,7 @@ class UserRepository(BaseRepository[User]):
         search: str | None = None,
         role: str | None = None,
         company_id=None,
+        area: str | None = None,
     ) -> tuple[list[User], int]:
         async with session_scope(self._session) as session:
             stmt = select(User)
@@ -157,6 +158,8 @@ class UserRepository(BaseRepository[User]):
                 stmt = stmt.where(User.role == role)
             if company_id is not None:
                 stmt = stmt.where(User.companyId == company_id)
+            if area:
+                stmt = stmt.where(User.area == area)
             if search:
                 search_term = f"%{search.lower()}%"
                 stmt = stmt.where(

@@ -126,16 +126,18 @@ def _list_filters(company_id, area, search, consignor, date_from, staff_scope=No
     if area:
         conds.append(Order.area == area)
     if staff_scope is not None:
-        # Mirror ``OrderRepository.get_all_orders``: a Staff member's GRs are
-        # those assigned to them (``assignedStaffId``) OR routed by area —
-        # either one qualifying is enough; with neither on file the Staff
-        # member has no GRs (never falls through to an unscoped count).
+        # Mirror ``OrderRepository.get_all_orders``: an explicit per-GR
+        # assignment always wins; area-based routing is only a fallback for
+        # GRs with no explicit assignment, so an assigned GR never leaks
+        # into another same-area Staff member's counts. With neither an
+        # assignment nor an area on file, the Staff member has no GRs
+        # (never falls through to an unscoped count).
         employee_id, staff_area = staff_scope
         or_conds = []
         if employee_id is not None:
             or_conds.append(Order.assignedStaffId == employee_id)
         if staff_area:
-            or_conds.append(Order.area == staff_area)
+            or_conds.append(and_(Order.assignedStaffId.is_(None), Order.area == staff_area))
         conds.append(or_(*or_conds) if or_conds else literal_column("false"))
     if search:
         like = f"%{search}%"

@@ -47,6 +47,23 @@ class OrderAttachmentRepository(BaseRepository[OrderAttachment]):
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
+    async def find_by_orders(self, order_ids: list[UUID]) -> dict[UUID, list[OrderAttachment]]:
+        """Batched form of ``find_by_order`` for a page of orders - one round
+        trip instead of one per order (avoids N+1 latency on remote DBs)."""
+        if not order_ids:
+            return {}
+        async with session_scope(self._session) as session:
+            stmt = (
+                select(OrderAttachment)
+                .where(OrderAttachment.orderId.in_(order_ids))
+                .order_by(desc(OrderAttachment.createdAt))
+            )
+            result = await session.execute(stmt)
+            by_order: dict[UUID, list[OrderAttachment]] = {}
+            for attachment in result.scalars().all():
+                by_order.setdefault(attachment.orderId, []).append(attachment)
+            return by_order
+
     async def find_latest_by_kind(self, order_id: UUID, file_kind: str) -> Optional[OrderAttachment]:
         async with session_scope(self._session) as session:
             stmt = (

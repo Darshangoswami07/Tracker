@@ -57,11 +57,16 @@ export type DashboardStackParamList = {
   /** Area selection screen shown before Excel Import — picks which area
    * the imported GRs belong to. */
   Areas: undefined;
+  /** Area → Select Staff — the mandatory staff-assignment step between
+   * picking a location and uploading the Excel file. Every imported GR is
+   * assigned to both `selectedArea` and the staff member picked here. */
+  SelectStaff: { selectedArea?: string } | undefined;
   /** Also registered here (in addition to `ShipmentsStackParamList`) so the
    * Dashboard's "Import GRs from Excel" quick action pushes onto THIS
    * stack — same dual-registration reasoning as `CreateGR` above.
-   * `selectedArea` is set when navigating from the Areas screen. */
-  ExcelImport: { selectedArea?: string } | undefined;
+   * `selectedArea`/`selectedStaffId`/`selectedStaffName` are set when
+   * navigating from the SelectStaff screen. */
+  ExcelImport: { selectedArea?: string; selectedStaffId?: string; selectedStaffName?: string } | undefined;
   ExcelImportHistory: undefined;
   PaymentHistory: undefined;
   /** All Staff (or Payment History) → Staff Work → one staff member's GR/
@@ -92,7 +97,8 @@ export type ShipmentsStackParamList = {
   GRDetails: { orderId: string };
   EditGR: { orderId: string };
   Areas: undefined;
-  ExcelImport: { selectedArea?: string } | undefined;
+  SelectStaff: { selectedArea?: string } | undefined;
+  ExcelImport: { selectedArea?: string; selectedStaffId?: string; selectedStaffName?: string } | undefined;
   ExcelImportHistory: undefined;
   PaymentHistory: undefined;
   StaffDailyWork: { staffId: string; fullName: string; area: string | null; status?: string };

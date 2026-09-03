@@ -435,21 +435,26 @@ class OrderRepository(BaseRepository[Order]):
                 )
 
             if staff_scope is not None:
-                # A Staff member's GRs come from two independent mechanisms
-                # that must NOT gate each other: an explicit per-GR
-                # assignment (`assignedStaffId`, set via `assign-staff`) and
-                # area-based routing (a GR whose `area` matches the Staff's
-                # own profile area). Either one qualifying is sufficient —
-                # a GR assigned directly to this Staff member must show up
-                # even if its `area` differs, and vice-versa. With neither
-                # an assignment nor an area on file, the Staff member has no
-                # GRs (never falls through to an unscoped/all-GRs query).
+                # A Staff member's GRs come from two mechanisms, but they are
+                # NOT both always-on: an explicit per-GR assignment
+                # (`assignedStaffId`, set via `assign-staff` or an Excel
+                # import's "Select Staff" step) always wins outright — a GR
+                # assigned directly to this Staff member must show up even
+                # if its `area` differs. Area-based routing is only a
+                # FALLBACK for GRs with no explicit assignment; it must
+                # never leak an already-assigned GR to a different
+                # same-area Staff member (that was the exact bug: an
+                # Excel import explicitly assigned to Staff A was still
+                # showing on every other same-area Staff member's
+                # dashboard). With neither an assignment nor an area on
+                # file, the Staff member has no GRs (never falls through to
+                # an unscoped/all-GRs query).
                 employee_id, staff_area = staff_scope
                 conditions = []
                 if employee_id is not None:
                     conditions.append(Order.assignedStaffId == employee_id)
                 if staff_area:
-                    conditions.append(Order.area == staff_area)
+                    conditions.append(and_(Order.assignedStaffId.is_(None), Order.area == staff_area))
                 query = query.where(or_(*conditions)) if conditions else query.where(literal_column("false"))
 
             count_query = select(func.count()).select_from(query.subquery())

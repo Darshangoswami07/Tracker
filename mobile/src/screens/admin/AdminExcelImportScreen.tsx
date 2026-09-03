@@ -47,7 +47,12 @@ const readWebAssetAsBase64 = async (asset: DocumentPicker.DocumentPickerAsset): 
  * overwritten.
  */
 export const AdminExcelImportScreen = ({ route }: any) => {
-  const selectedArea = (route?.params as { selectedArea?: string } | undefined)?.selectedArea ?? null;
+  const params = route?.params as
+    | { selectedArea?: string; selectedStaffId?: string; selectedStaffName?: string }
+    | undefined;
+  const selectedArea = params?.selectedArea ?? null;
+  const selectedStaffId = params?.selectedStaffId ?? null;
+  const selectedStaffName = params?.selectedStaffName ?? null;
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { goBack, navigate } = useAppNav();
   const fullName = useUserStore((state) => state.user?.fullName ?? null);
@@ -203,7 +208,13 @@ export const AdminExcelImportScreen = ({ route }: any) => {
       const rowsToImport = challanNo.trim()
         ? parsed.validRows.map((r) => ({ ...r, chalaanNo: challanNo.trim() }))
         : parsed.validRows;
-      const result = await importRepository.bulkImportGRs(rowsToImport, file.name, fullName, selectedArea ?? undefined);
+      const result = await importRepository.bulkImportGRs(
+        rowsToImport,
+        file.name,
+        fullName,
+        selectedArea ?? undefined,
+        selectedStaffId ?? undefined
+      );
       setSummary(result);
       setStage('result');
     } catch (err: any) {
@@ -217,6 +228,27 @@ export const AdminExcelImportScreen = ({ route }: any) => {
     }
   };
 
+  // Every stage below this needs the staff member visible so the admin
+  // always knows where the Excel data will go — and the upload step itself
+  // must not be reachable without one (Areas → SelectStaff → here is the
+  // only path that sets it, but guard anyway in case of a stale/direct nav).
+  const LocationStaffBar = () => (
+    <View style={styles.badgeRow}>
+      <View style={[styles.areaBadge, { backgroundColor: `${colors.primary}15`, borderRadius: radii.md }]}>
+        <Ionicons name="location-outline" size={16} color={colors.primary} />
+        <Text style={[styles.areaBadgeText, { color: colors.primary }]}>
+          {selectedArea ? `Location: ${selectedArea}` : 'Location: Auto-detect'}
+        </Text>
+      </View>
+      <View style={[styles.areaBadge, { backgroundColor: `${colors.success}15`, borderRadius: radii.md }]}>
+        <Ionicons name="person-outline" size={16} color={colors.success} />
+        <Text style={[styles.areaBadgeText, { color: colors.success }]}>
+          {selectedStaffName ? `Staff: ${selectedStaffName}` : 'Staff: Not selected'}
+        </Text>
+      </View>
+    </View>
+  );
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <Header title="Excel GR Import" leftAction={{ icon: 'chevron-back', onPress: goBack }} />
@@ -229,11 +261,13 @@ export const AdminExcelImportScreen = ({ route }: any) => {
               Upload an Excel file containing GR records. Each valid row becomes one GR.
             </Text>
 
-            {selectedArea && (
-              <View style={[styles.areaBadge, { backgroundColor: `${colors.primary}15`, borderRadius: radii.md }]}>
-                <Ionicons name="location-outline" size={16} color={colors.primary} />
-                <Text style={[styles.areaBadgeText, { color: colors.primary }]}>
-                  Fallback shop: {selectedArea}
+            <LocationStaffBar />
+
+            {!selectedStaffId && (
+              <View style={[styles.errorBanner, { backgroundColor: colors.errorSoft, borderRadius: radii.md }]}>
+                <Ionicons name="alert-circle-outline" size={18} color={colors.error} />
+                <Text style={[styles.errorBannerText, { color: colors.error }]}>
+                  Select a staff member before uploading a file.
                 </Text>
               </View>
             )}
@@ -246,9 +280,13 @@ export const AdminExcelImportScreen = ({ route }: any) => {
             )}
 
             <TouchableOpacity
-              style={[styles.primaryButton, { backgroundColor: colors.primary, borderRadius: radii.lg }]}
+              style={[
+                styles.primaryButton,
+                { backgroundColor: selectedStaffId ? colors.primary : colors.border, borderRadius: radii.lg },
+              ]}
               onPress={pickFile}
               activeOpacity={0.9}
+              disabled={!selectedStaffId}
             >
               <Ionicons name="document-attach-outline" size={20} color={colors.onPrimary} />
               <Text style={[styles.primaryButtonText, { color: colors.onPrimary }]}>Select Excel File</Text>
@@ -271,16 +309,14 @@ export const AdminExcelImportScreen = ({ route }: any) => {
 
         {stage === 'preview' && parsed && file && (
           <>
-            {selectedArea && (
-              <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
-                <View style={styles.areaBadge}>
-                  <Ionicons name="location-outline" size={16} color={colors.primary} />
-                  <Text style={[styles.areaBadgeText, { color: colors.primary }]}>
-                    Fallback shop for unmatched rows: {selectedArea}
-                  </Text>
-                </View>
-              </View>
-            )}
+            <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+              <LocationStaffBar />
+              {selectedArea && (
+                <Text style={[styles.hint, { color: colors.textMuted, marginTop: 4 }]}>
+                  Unmatched rows (no shop detected from their own data) will be filed under this location.
+                </Text>
+              )}
+            </View>
 
             <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
               <View style={styles.fileRow}>
@@ -375,6 +411,20 @@ export const AdminExcelImportScreen = ({ route }: any) => {
               </View>
             )}
 
+            {parsed.validRows.length > 0 && (
+              <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+                <Text style={[styles.subtitle, { color: colors.textPrimary }]}>
+                  <Text style={{ fontWeight: '800' }}>{parsed.validRows.length} GRs</Text> will be imported for:
+                </Text>
+                <Text style={[styles.detail, { color: colors.textSecondary }]}>
+                  Location: {selectedArea ?? 'Auto-detect per row'}
+                </Text>
+                <Text style={[styles.detail, { color: colors.textSecondary }]}>
+                  Staff: {selectedStaffName ?? 'Not selected'}
+                </Text>
+              </View>
+            )}
+
             <View style={styles.actionsRow}>
               <TouchableOpacity
                 style={[styles.secondaryButton, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
@@ -387,14 +437,18 @@ export const AdminExcelImportScreen = ({ route }: any) => {
                 style={[
                   styles.primaryButton,
                   styles.flexButton,
-                  { backgroundColor: parsed.validRows.length > 0 ? colors.primary : colors.border, borderRadius: radii.lg },
+                  {
+                    backgroundColor:
+                      parsed.validRows.length > 0 && selectedStaffId ? colors.primary : colors.border,
+                    borderRadius: radii.lg,
+                  },
                 ]}
                 onPress={handleImportPress}
                 activeOpacity={0.9}
-                disabled={parsed.validRows.length === 0}
+                disabled={parsed.validRows.length === 0 || !selectedStaffId}
               >
                 <Text style={[styles.primaryButtonText, { color: colors.onPrimary }]}>
-                  Import All GRs ({parsed.validRows.length})
+                  Confirm & Import {parsed.validRows.length} GRs
                 </Text>
               </TouchableOpacity>
             </View>
@@ -420,6 +474,22 @@ export const AdminExcelImportScreen = ({ route }: any) => {
               <Ionicons name="checkmark-circle" size={48} color={colors.success} />
             </View>
             <Text style={[styles.title, { color: colors.textPrimary, textAlign: 'center' }]}>Import Complete</Text>
+
+            <View style={styles.badgeRow}>
+              <View style={[styles.areaBadge, { backgroundColor: `${colors.primary}15`, borderRadius: radii.md }]}>
+                <Ionicons name="location-outline" size={16} color={colors.primary} />
+                <Text style={[styles.areaBadgeText, { color: colors.primary }]}>
+                  {selectedArea ? `Location: ${selectedArea}` : 'Location: Auto-detect'}
+                </Text>
+              </View>
+              <View style={[styles.areaBadge, { backgroundColor: `${colors.success}15`, borderRadius: radii.md }]}>
+                <Ionicons name="person-outline" size={16} color={colors.success} />
+                <Text style={[styles.areaBadgeText, { color: colors.success }]}>
+                  {selectedStaffName ? `Staff: ${selectedStaffName}` : 'Staff: Not selected'}
+                </Text>
+              </View>
+            </View>
+
             <View style={styles.statRow}>
               <Stat label="Total Rows" value={summary.totalRows} color={colors.textPrimary} />
               <Stat label="Imported" value={summary.importedRows} color={colors.success} />
@@ -456,13 +526,22 @@ export const AdminExcelImportScreen = ({ route }: any) => {
               </View>
             )}
 
-            <TouchableOpacity
-              style={[styles.primaryButton, { backgroundColor: colors.primary, borderRadius: radii.lg, marginTop: 16 }]}
-              onPress={() => navigate('GRShipments')}
-              activeOpacity={0.9}
-            >
-              <Text style={[styles.primaryButtonText, { color: colors.onPrimary }]}>Done</Text>
-            </TouchableOpacity>
+            <View style={[styles.actionsRow, { marginTop: 16 }]}>
+              <TouchableOpacity
+                style={[styles.secondaryButton, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
+                onPress={reset}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.secondaryButtonText, { color: colors.textPrimary }]}>Import Another File</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.primaryButton, styles.flexButton, { backgroundColor: colors.primary, borderRadius: radii.lg }]}
+                onPress={() => navigate('GRShipments')}
+                activeOpacity={0.9}
+              >
+                <Text style={[styles.primaryButtonText, { color: colors.onPrimary }]}>View Imported GRs</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       </ScrollView>
@@ -538,6 +617,8 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     textInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, fontWeight: '600' },
     areaBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 8, marginTop: 8 },
     areaBadgeText: { fontSize: 13, fontWeight: '700' },
+    badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    detail: { fontSize: theme.fonts.size.sm, fontWeight: '600', marginTop: 2 },
   });
 
 export default AdminExcelImportScreen;

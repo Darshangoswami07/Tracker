@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy import select
+
 from app.core.security import hash_password
 from app.database.db import session_scope
 from app.models.company import Company
@@ -213,6 +215,88 @@ async def test_staff_sees_area_routed_grs_without_explicit_assignment(client):
     data = listed.json()["data"]
     assert data["total"] == 1
     assert data["items"][0]["orderNumber"] == "GR9001"
+
+
+async def test_explicit_assignment_excludes_other_same_area_staff(client):
+    """Regression for the exact reported bug: Admin picks Area=Bageshwar +
+    Staff=Abhishek during Excel import; the GR must show ONLY on Abhishek's
+    dashboard, never on another Staff member's dashboard just because that
+    other Staff member's own profile `area` also happens to be Bageshwar
+    (previously: the area-match OR-condition leaked every same-area GR to
+    every same-area Staff member regardless of `assignedStaffId`). An
+    UNASSIGNED same-area GR must still reach both, via the untouched
+    fallback."""
+    company_id = await create_company("Bageshwar Transport")
+
+    async def _staff(email: str, phone: str, area: str) -> tuple[str, str]:
+        repo = UserRepository()
+        u = await repo.create(
+            full_name="Staff", email=email, phone=phone,
+            password_hash=hash_password("Password123!"), role=UserRole.STAFF, area=area,
+        )
+        async with session_scope() as s:
+            du = await s.get(type(u), u.id)
+            du.status = RegistrationStatus.ACTIVE
+            du.isActive = du.isApproved = du.isVerified = du.otpVerified = True
+            du.companyId = uuid.UUID(company_id)
+            await s.flush()
+        r = await client.post(f"{AUTH_BASE}/login", json={"email": email, "password": "Password123!"})
+        assert r.status_code == 200, r.text
+        return str(u.id), r.json()["data"]["tokens"]["accessToken"]
+
+    admin = await UserRepository().create(
+        full_name="Admin", email="bageshwar-admin@example.com", phone="+15554200000",
+        password_hash=hash_password("Password123!"), role=UserRole.ADMIN,
+    )
+    async with session_scope() as s:
+        du = await s.get(type(admin), admin.id)
+        du.status = RegistrationStatus.ACTIVE
+        du.isActive = du.isApproved = du.isVerified = du.otpVerified = True
+        du.companyId = uuid.UUID(company_id)
+        await s.flush()
+    admin_tok = (
+        await client.post(f"{AUTH_BASE}/login", json={"email": "bageshwar-admin@example.com", "password": "Password123!"})
+    ).json()["data"]["tokens"]["accessToken"]
+
+    abhishek_id, abhishek_tok = await _staff("abhishek-abhi@example.com", "+15554200001", "Bageshwar")
+    darshan_id, darshan_tok = await _staff("darshan-goswami@example.com", "+15554200002", "Bageshwar")
+
+    # Admin explicitly assigns a new GR to Abhishek (same shape as the Excel
+    # import's "Select Staff" step: an explicit assignedStaffId at create time).
+    created = await client.post(
+        GR_BASE,
+        json=gr_payload("GR5001", "Suresh & Co", company_id, assigned_staff_id=abhishek_id),
+        headers=auth_headers(admin_tok),
+    )
+    assert created.status_code == 201, created.text
+
+    abhishek_list = (await client.get(GR_BASE, headers=auth_headers(abhishek_tok))).json()["data"]
+    assert abhishek_list["total"] == 1, abhishek_list
+    assert abhishek_list["items"][0]["orderNumber"] == "GR5001"
+
+    darshan_list = (await client.get(GR_BASE, headers=auth_headers(darshan_tok))).json()["data"]
+    assert darshan_list["total"] == 0, darshan_list
+
+    # An UNASSIGNED same-area GR must still reach both (existing fallback,
+    # untouched) — proves this isn't a blanket area-routing removal.
+    unassigned = await client.post(
+        GR_BASE,
+        json=gr_payload("GR5002", "Other Shop", company_id),
+        headers=auth_headers(admin_tok),
+    )
+    assert unassigned.status_code == 201, unassigned.text
+    async with session_scope() as s:
+        from app.models.order import Order
+        order = (await s.execute(select(Order).where(Order.orderNumber == "GR5002")))
+        order = order.scalar_one()
+        order.area = "Bageshwar"
+        await s.flush()
+
+    abhishek_list2 = (await client.get(GR_BASE, headers=auth_headers(abhishek_tok))).json()["data"]
+    assert {i["orderNumber"] for i in abhishek_list2["items"]} == {"GR5001", "GR5002"}
+
+    darshan_list2 = (await client.get(GR_BASE, headers=auth_headers(darshan_tok))).json()["data"]
+    assert {i["orderNumber"] for i in darshan_list2["items"]} == {"GR5002"}
 
 
 async def test_staff_status_update_is_pending_to_delivered_only(client):

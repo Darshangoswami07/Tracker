@@ -9,8 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
     ForbiddenError,
-    TokenExpiredError,
-    TokenInvalidError,
     UnauthorizedError,
     UserInactiveError,
 )
@@ -34,12 +32,7 @@ async def _extract_user(
     if credentials is None or not credentials.credentials:
         raise UnauthorizedError()
 
-    try:
-        payload = decode_token(credentials.credentials, expected_type="access")
-    except TokenExpiredError as exc:
-        raise UnauthorizedError() from exc
-    except TokenInvalidError as exc:
-        raise UnauthorizedError() from exc
+    payload = decode_token(credentials.credentials, expected_type="access")
 
     repo = UserRepository(session=db)
     user = await repo.find_by_id(payload.subject)

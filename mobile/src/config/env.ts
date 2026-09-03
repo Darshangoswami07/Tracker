@@ -34,6 +34,11 @@ export const ENV = {
   // fails eventually). Applied per-request in `importRepository` — every
   // other endpoint keeps `requestTimeoutMs`.
   excelImportTimeoutMs: 10 * 60_000,
+  // The admin GR/orders list joins payments + attachments per page and can
+  // legitimately take longer than the default budget once a company has a
+  // large order history. Give it its own finite ceiling instead of raising
+  // `requestTimeoutMs` for every other (small, fast) request.
+  ordersListTimeoutMs: 30_000,
   tokenRefreshGraceMs: 60_000,
   isDev: __DEV__,
 } as const;

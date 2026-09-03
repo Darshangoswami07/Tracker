@@ -26,8 +26,10 @@ const AREA_COLORS: Record<Area, string> = {
  * The shop/area for each imported GR is now auto-detected from the
  * Consignee Name column (see `services/excelImport.ts#validateRows`), so
  * this screen is an OPTIONAL fallback: picking an area here only applies to
- * rows whose consignee name doesn't match a known shop. "Skip" proceeds
- * straight to Excel Import with no fallback area.
+ * rows whose consignee name doesn't match a known shop. Every path — a
+ * picked area or "Skip" — continues to the mandatory Select Staff step
+ * next; only the staff list shown there is scoped to this area (or
+ * unscoped, on Skip).
  */
 export const AdminAreasScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
@@ -37,7 +39,7 @@ export const AdminAreasScreen = () => {
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
   const handleSelectArea = (area: Area) => {
-    navigate('ExcelImport', { selectedArea: area });
+    navigate('SelectStaff', { selectedArea: area });
   };
 
   return (
@@ -72,7 +74,7 @@ export const AdminAreasScreen = () => {
           ))}
         </View>
 
-        <TouchableOpacity style={styles.skipLink} onPress={() => navigate('ExcelImport')}>
+        <TouchableOpacity style={styles.skipLink} onPress={() => navigate('SelectStaff')}>
           <Text style={[styles.skipLinkText, { color: colors.primary }]}>
             {t('areas.skip', 'Skip — auto-detect shop from Excel')}
           </Text>
