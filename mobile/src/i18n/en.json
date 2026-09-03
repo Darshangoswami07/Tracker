@@ -487,6 +487,8 @@
     "assigned": "Assigned",
     "completed": "Completed",
     "outstanding": "Amount to Collect",
+    "todayCollection": "Today's Collection",
+    "totalCollection": "Total Collection",
     "quickActions": "Quick Actions",
     "allShops": "All Shops",
     "mySlips": "My Slips",

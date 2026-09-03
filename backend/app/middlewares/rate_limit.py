@@ -17,6 +17,7 @@ Redis failure mode is configurable via RATE_LIMIT_REDIS_FAILURE_OPEN:
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -162,6 +163,13 @@ class RateLimitMiddleware:
         ("/api/v1/admin/", "admin_read"),
     ]
 
+    # When Redis is configured but unreachable, stop probing it on every
+    # request for this many seconds. Without the cool-down each request pays a
+    # fresh TCP connect + timeout (and, with parallel dashboard requests,
+    # races that surface as noisy mid-request tracebacks). During the
+    # cool-down the limiter simply applies its fail-open/closed policy.
+    _REDIS_DOWN_COOLDOWN_SECONDS = 30.0
+
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
         self._redis = None          # lazy-init async Redis client
@@ -169,6 +177,10 @@ class RateLimitMiddleware:
         self._lua_sha: str | None = None
         self._lua_script: str = _load_lua_script()
         self._memory_fallback: _InMemorySlidingWindow | None = None
+        # Circuit breaker for an unreachable Redis.
+        self._redis_down_until: float = 0.0
+        self._redis_probe_lock = asyncio.Lock()
+        self._redis_down_logged: bool = False
         # Pre-compute policy lookup from env vars (loaded once at startup).
         self._policy_cache: dict[str, tuple[int, int]] = {}
         self._build_policy_cache()
@@ -217,7 +229,14 @@ class RateLimitMiddleware:
     # --- Redis connection management (lazy, non-blocking) -------------------
 
     async def _get_redis(self):
-        """Return the async Redis client, initialising on first call."""
+        """Return a healthy async Redis client, or ``None`` when Redis is not
+        configured / currently unreachable.
+
+        A failed connection opens a circuit breaker: subsequent calls return
+        ``None`` immediately (no connect attempt) until the cool-down expires,
+        so an outage costs one probe every ``_REDIS_DOWN_COOLDOWN_SECONDS``
+        rather than one per request.
+        """
         global _redis_client
 
         if self._redis is not None:
@@ -225,33 +244,76 @@ class RateLimitMiddleware:
 
         redis_url = (settings.REDIS_URL or "").strip()
         if not redis_url:
-            logger.info("RATE_LIMIT: REDIS_URL not set — falling back to in-memory limiter")
-            self._memory_fallback = _InMemorySlidingWindow(
-                settings.RATE_LIMIT_MAX_REQUESTS,
-                settings.RATE_LIMIT_WINDOW_SECONDS,
-            )
+            if self._memory_fallback is None:
+                logger.info("RATE_LIMIT: REDIS_URL not set — falling back to in-memory limiter")
+                self._memory_fallback = _InMemorySlidingWindow(
+                    settings.RATE_LIMIT_MAX_REQUESTS,
+                    settings.RATE_LIMIT_WINDOW_SECONDS,
+                )
             return None
 
-        try:
-            import redis.asyncio as aioredis
+        # Circuit breaker is open — don't touch the network.
+        if time.monotonic() < self._redis_down_until:
+            return None
 
-            self._redis = aioredis.from_url(
-                redis_url,
-                decode_responses=True,
-                socket_connect_timeout=5,
-                socket_timeout=5,
-            )
-            # Verify connectivity (non-blocking but awaited).
-            pong = await self._redis.ping()
-            if pong:
-                self._redis_ok = True
-                _redis_client = self._redis
-                logger.info("RATE_LIMIT: connected to Redis (sorted-set sliding window)")
+        # Serialise the probe so parallel requests don't each open a socket
+        # (and don't observe a half-initialised client).
+        async with self._redis_probe_lock:
+            if self._redis is not None:
+                return self._redis
+            if time.monotonic() < self._redis_down_until:
+                return None
+
+            client = None
+            try:
+                import redis.asyncio as aioredis
+
+                client = aioredis.from_url(
+                    redis_url,
+                    decode_responses=True,
+                    socket_connect_timeout=2,
+                    socket_timeout=5,
+                )
+                await client.ping()
+            except Exception as exc:
+                if client is not None:
+                    try:
+                        await client.aclose()
+                    except Exception:
+                        pass
+                self._redis = None
+                self._redis_ok = False
+                self._redis_down_until = time.monotonic() + self._REDIS_DOWN_COOLDOWN_SECONDS
+                if not self._redis_down_logged:
+                    self._redis_down_logged = True
+                    if settings.ENV != "production":
+                        # Dev/test: quietly switch to the per-process limiter
+                        # instead of probing a Redis that isn't running.
+                        logger.info(
+                            "RATE_LIMIT: Redis unreachable (%s) — using in-memory limiter",
+                            exc,
+                        )
+                        self._memory_fallback = _InMemorySlidingWindow(
+                            settings.RATE_LIMIT_MAX_REQUESTS,
+                            settings.RATE_LIMIT_WINDOW_SECONDS,
+                        )
+                    else:
+                        logger.warning(
+                            "RATE_LIMIT: Redis unreachable (%s) — limiter degraded, "
+                            "retrying at most every %.0fs",
+                            exc,
+                            self._REDIS_DOWN_COOLDOWN_SECONDS,
+                        )
+                return None
+
+            # Healthy.
+            self._redis = client
+            self._redis_ok = True
+            self._redis_down_until = 0.0
+            self._redis_down_logged = False
+            _redis_client = client
+            logger.info("RATE_LIMIT: connected to Redis (sorted-set sliding window)")
             return self._redis
-        except Exception:
-            logger.warning("RATE_LIMIT: Redis unreachable — limiter degraded", exc_info=True)
-            self._redis = None
-            return None
 
     async def close(self) -> None:
         """Shut down the Redis connection cleanly (call from lifespan)."""
@@ -262,6 +324,36 @@ class RateLimitMiddleware:
                 pass
             self._redis = None
             self._redis_ok = False
+
+    async def _trip_redis_breaker(self, exc: Exception) -> None:
+        """Drop the current client and open the circuit breaker after a
+        mid-request Redis failure, so following requests skip the dead
+        connection instead of each raising the same error."""
+        stale, self._redis = self._redis, None
+        self._redis_ok = False
+        self._redis_down_until = time.monotonic() + self._REDIS_DOWN_COOLDOWN_SECONDS
+        if not self._redis_down_logged:
+            self._redis_down_logged = True
+            if settings.ENV != "production":
+                logger.info(
+                    "RATE_LIMIT: Redis error (%s) — using in-memory limiter", exc
+                )
+                self._memory_fallback = _InMemorySlidingWindow(
+                    settings.RATE_LIMIT_MAX_REQUESTS,
+                    settings.RATE_LIMIT_WINDOW_SECONDS,
+                )
+            else:
+                logger.warning(
+                    "RATE_LIMIT: Redis error (%s) — limiter degraded, "
+                    "retrying at most every %.0fs",
+                    exc,
+                    self._REDIS_DOWN_COOLDOWN_SECONDS,
+                )
+        if stale is not None:
+            try:
+                await stale.aclose()
+            except Exception:
+                pass
 
     # --- Lua script caching -------------------------------------------------
 
@@ -356,18 +448,15 @@ class RateLimitMiddleware:
         if redis_client is None:
             # Redis is configured but unreachable — apply the same
             # fail-open/fail-closed policy used for mid-request Redis errors,
-            # instead of unconditionally rejecting.
+            # instead of unconditionally rejecting. The outage itself was
+            # already logged once by _get_redis(); keep the per-request line
+            # at DEBUG so a Redis outage doesn't flood the log.
             if self._should_fail_open():
-                logger.warning(
-                    "RATE_LIMIT: Redis unavailable — allowing request (fail-open)"
-                )
+                logger.debug("RATE_LIMIT: Redis unavailable — allowing request (fail-open)")
+                await self.app(scope, receive, send)
             else:
-                logger.warning(
-                    "RATE_LIMIT: Redis unavailable — rejecting request (fail-closed)"
-                )
+                logger.debug("RATE_LIMIT: Redis unavailable — rejecting request (fail-closed)")
                 await self._send_429(send)
-                return
-            await self.app(scope, receive, send)
             return
 
         try:
@@ -380,18 +469,12 @@ class RateLimitMiddleware:
             if not allowed:
                 await self._send_429(send)
                 return
-        except Exception:
-            # Redis error — apply failure policy.
-            if self._should_fail_open():
-                logger.warning(
-                    "RATE_LIMIT: Redis error — allowing request (fail-open)",
-                    exc_info=True,
-                )
-            else:
-                logger.warning(
-                    "RATE_LIMIT: Redis error — rejecting request (fail-closed)",
-                    exc_info=True,
-                )
+        except Exception as exc:
+            # Redis died mid-request — open the breaker (logs once) so the
+            # next requests skip the dead socket, then apply the failure
+            # policy.
+            await self._trip_redis_breaker(exc)
+            if not self._should_fail_open():
                 await self._send_429(send)
                 return
 

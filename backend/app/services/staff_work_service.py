@@ -100,6 +100,18 @@ async def daily_collection(
     ).all()
 
     total_collection = sum(float(p.amount) for p, *_ in payment_rows)
+    # All-time amount this staff member has personally collected (same
+    # ``recordedBy`` scope as the day figure, without the date bound).
+    lifetime_collection = float(
+        (
+            await session.execute(
+                select(func.coalesce(func.sum(Payment.amount), 0)).where(
+                    Payment.recordedBy == str(staff_user_id)
+                )
+            )
+        ).scalar()
+        or 0
+    )
     st = await _settlement_totals(session, staff_user_id, day)
 
     collection_events = [
@@ -121,6 +133,7 @@ async def daily_collection(
     return {
         "date": day.isoformat(),
         "totalCollection": total_collection,
+        "lifetimeCollection": lifetime_collection,
         "ownerAmount": st["owner"],
         "labourAmount": st["labour"],
         "driverAmount": st["driver"],

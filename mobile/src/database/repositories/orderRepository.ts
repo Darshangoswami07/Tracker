@@ -302,6 +302,7 @@ export interface CollectionTransaction {
 export interface StaffDailyCollection {
   date: string;
   totalCollection: number;
+  lifetimeCollection: number;
   ownerAmount: number;
   labourAmount: number;
   driverAmount: number;
@@ -578,7 +579,7 @@ export const orderRepository = {
     if (params.area) query.area = params.area;
     if (params.consignor) query.consignor = params.consignor;
     if (params.dateFrom) query.dateFrom = params.dateFrom;
-    const res = await api.get(ENDPOINTS.admin.orders.statusCounts, { params: query });
+    const res = await api.get(ENDPOINTS.admin.orders.statusCounts, { params: query, timeout: ENV.dashboardTimeoutMs });
     const d = body<Partial<GRStatusCounts>>(res);
     return {
       total: Number(d.total ?? 0),
@@ -720,7 +721,7 @@ export const orderRepository = {
   },
 
   async listRecentActivity(limit = 10): Promise<ActivityEvent[]> {
-    const res = await api.get(ENDPOINTS.admin.orders.activity, { params: { limit } });
+    const res = await api.get(ENDPOINTS.admin.orders.activity, { params: { limit }, timeout: ENV.dashboardTimeoutMs });
     return body<ActivityEvent[]>(res);
   },
 
@@ -878,7 +879,7 @@ export const orderRepository = {
   },
 
   async getRevenueOverview() {
-    const res = await api.get(ENDPOINTS.admin.orders.revenueOverview);
+    const res = await api.get(ENDPOINTS.admin.orders.revenueOverview, { timeout: ENV.dashboardTimeoutMs });
     const d = body<any>(res);
     return {
       today: Number(d.today ?? 0),
@@ -937,7 +938,7 @@ export const orderRepository = {
   },
 
   async getReceivingOverview(): Promise<ReceivingOverview> {
-    const res = await api.get(ENDPOINTS.admin.orders.receivingOverview);
+    const res = await api.get(ENDPOINTS.admin.orders.receivingOverview, { timeout: ENV.dashboardTimeoutMs });
     const d = body<any>(res);
     return {
       totalToPay: Number(d.totalToPay ?? 0),
@@ -1000,7 +1001,7 @@ export const orderRepository = {
   },
 
   async getTodayCollection(): Promise<number> {
-    const res = await api.get(ENDPOINTS.admin.orders.todayCollection);
+    const res = await api.get(ENDPOINTS.admin.orders.todayCollection, { timeout: ENV.dashboardTimeoutMs });
     return Number(body<number>(res) ?? 0);
   },
 
@@ -1027,11 +1028,13 @@ export const orderRepository = {
   async getStaffDailyCollection(staffId: string, dateIso: string): Promise<StaffDailyCollection> {
     const res = await api.get(ENDPOINTS.staffWork.dailyCollection, {
       params: { staffId, date: dateIso },
+      timeout: ENV.dashboardTimeoutMs,
     });
     const d = body<any>(res);
     return {
       date: d.date,
       totalCollection: Number(d.totalCollection ?? 0),
+      lifetimeCollection: Number(d.lifetimeCollection ?? 0),
       ownerAmount: Number(d.ownerAmount ?? 0),
       labourAmount: Number(d.labourAmount ?? 0),
       driverAmount: Number(d.driverAmount ?? 0),

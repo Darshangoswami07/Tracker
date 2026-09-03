@@ -487,6 +487,8 @@
     "assigned": "Assigned",
     "completed": "Completed",
     "outstanding": "Amount to Collect",
+    "todayCollection": "Aaj ki Collection",
+    "totalCollection": "Total Collection",
     "quickActions": "Quick Actions",
     "allShops": "Sabhi Shops",
     "mySlips": "Meri Slips",

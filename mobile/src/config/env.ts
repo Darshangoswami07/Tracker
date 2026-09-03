@@ -39,6 +39,16 @@ export const ENV = {
   // large order history. Give it its own finite ceiling instead of raising
   // `requestTimeoutMs` for every other (small, fast) request.
   ordersListTimeoutMs: 30_000,
+  // The Admin/Staff dashboard aggregate endpoints (`revenue-overview`,
+  // `meta/activity`, `meta/status-counts`, `today-collection`,
+  // `receiving/overview`, `staff/daily-collection`) each run a full
+  // company-wide SUM/GROUP-BY over Neon. On a cold backend (first hit after
+  // the host has scaled to zero) these legitimately exceed the 15s default
+  // and Axios aborts them (shown as "(canceled)" in the network tab) — even
+  // though a retry seconds later, against the now-warm DB, returns in <5s.
+  // Give just these calls a longer finite ceiling instead of raising
+  // `requestTimeoutMs` for every small/fast request.
+  dashboardTimeoutMs: 45_000,
   tokenRefreshGraceMs: 60_000,
   isDev: __DEV__,
 } as const;

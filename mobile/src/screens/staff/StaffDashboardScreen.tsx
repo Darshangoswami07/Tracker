@@ -21,6 +21,7 @@ interface Overview {
   uncleared: number;
   outstanding: number;
   todayCollection: number;
+  totalCollection: number;
 }
 
 /** The five clickable status cards. `status` is the value handed to My Slips
@@ -49,7 +50,7 @@ export const StaffDashboardScreen = () => {
   const refreshUser = useAuthStore((state) => state.refreshUser);
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
-  const [overview, setOverview] = useState<Overview>({ assigned: 0, pending: 0, delivered: 0, cleared: 0, uncleared: 0, outstanding: 0, todayCollection: 0 });
+  const [overview, setOverview] = useState<Overview>({ assigned: 0, pending: 0, delivered: 0, cleared: 0, uncleared: 0, outstanding: 0, todayCollection: 0, totalCollection: 0 });
   const [refreshing, setRefreshing] = useState(false);
 
   // Counts come from ONE server-side aggregate (`GET
@@ -76,6 +77,7 @@ export const StaffDashboardScreen = () => {
         uncleared: counts.uncleared,
         outstanding: receiving.outstanding,
         todayCollection: dailyCollection.totalCollection,
+        totalCollection: dailyCollection.lifetimeCollection,
       });
     } catch (error) {
       // Keep the last good counts on a transient failure — never overwrite
@@ -203,13 +205,37 @@ export const StaffDashboardScreen = () => {
 
         {user?.area && (
           <View style={[styles.outstandingCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
-            <View style={styles.outstandingLeft}>
+            <View style={styles.outstandingHeader}>
               <Ionicons name="location-outline" size={16} color={colors.primary} />
               <Text style={[styles.outstandingArea, { color: colors.textSecondary }]}>{user.area}</Text>
             </View>
-            <View>
-              <Text style={[styles.outstandingValue, { color: '#F97316' }]}>{formatCurrency(overview.outstanding)}</Text>
-              <Text style={[styles.outstandingLabel, { color: colors.textMuted }]}>{t('staff.outstanding')}</Text>
+
+            <View style={[styles.collectRow, { borderColor: colors.border }]}>
+              <View style={styles.collectPrimary}>
+                <View style={styles.collectLabelRow}>
+                  <Ionicons name="cash-outline" size={13} color="#F97316" />
+                  <Text style={[styles.collectLabel, { color: colors.textMuted }]}>{t('staff.outstanding')}</Text>
+                </View>
+                <Text style={[styles.collectPrimaryValue, { color: '#F97316' }]}>{formatCurrency(overview.outstanding)}</Text>
+              </View>
+            </View>
+
+            <View style={styles.collectSplit}>
+              <View style={styles.collectCell}>
+                <View style={styles.collectLabelRow}>
+                  <Ionicons name="wallet-outline" size={13} color="#10B981" />
+                  <Text style={[styles.collectLabel, { color: colors.textMuted }]}>{t('staff.todayCollection')}</Text>
+                </View>
+                <Text style={[styles.collectValue, { color: '#10B981' }]}>{formatCurrency(overview.todayCollection)}</Text>
+              </View>
+              <View style={[styles.collectDivider, { backgroundColor: colors.border }]} />
+              <View style={styles.collectCell}>
+                <View style={styles.collectLabelRow}>
+                  <Ionicons name="checkmark-done-outline" size={13} color="#0EA5E9" />
+                  <Text style={[styles.collectLabel, { color: colors.textMuted }]}>{t('staff.totalCollection')}</Text>
+                </View>
+                <Text style={[styles.collectValue, { color: '#0EA5E9' }]}>{formatCurrency(overview.totalCollection)}</Text>
+              </View>
             </View>
           </View>
         )}
@@ -291,11 +317,18 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     statValue: { fontSize: theme.fonts.size.xxl, fontWeight: '900' },
     statLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
     statLabel: { fontSize: theme.fonts.size.xs, fontWeight: '600' },
-    outstandingCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: theme.spacing.lg, paddingVertical: theme.spacing.md },
-    outstandingLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    outstandingCard: { paddingHorizontal: theme.spacing.lg, paddingVertical: theme.spacing.md, gap: theme.spacing.md },
+    outstandingHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     outstandingArea: { fontSize: theme.fonts.size.sm, fontWeight: '700' },
-    outstandingValue: { fontSize: theme.fonts.size.lg, fontWeight: '800', textAlign: 'right' },
-    outstandingLabel: { fontSize: theme.fonts.size.xs, fontWeight: '600', textAlign: 'right' },
+    collectRow: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: theme.spacing.md },
+    collectPrimary: { gap: 4 },
+    collectSplit: { flexDirection: 'row', alignItems: 'stretch' },
+    collectCell: { flex: 1, gap: 4 },
+    collectDivider: { width: StyleSheet.hairlineWidth, marginHorizontal: theme.spacing.md },
+    collectLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+    collectLabel: { fontSize: theme.fonts.size.xs, fontWeight: '600' },
+    collectPrimaryValue: { fontSize: theme.fonts.size.xl, fontWeight: '900', letterSpacing: -0.3 },
+    collectValue: { fontSize: theme.fonts.size.lg, fontWeight: '800' },
     sectionTitle: { fontSize: theme.fonts.size.md, fontWeight: '800' },
     actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.md },
     actionCard: { flexGrow: 1, minWidth: 140, alignItems: 'center', paddingVertical: theme.spacing.lg, gap: theme.spacing.sm },

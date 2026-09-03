@@ -43,6 +43,7 @@ class CollectionTransactionOut(BaseModel):
 class StaffDailyCollectionOut(BaseModel):
     date: str
     totalCollection: float
+    lifetimeCollection: float = 0.0
     ownerAmount: float
     labourAmount: float
     driverAmount: float
