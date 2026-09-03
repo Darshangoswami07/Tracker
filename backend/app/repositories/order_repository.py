@@ -585,6 +585,34 @@ class OrderRepository(BaseRepository[Order]):
             await session.refresh(order)
             return order
 
+    async def soft_delete_orders(
+        self, order_ids: list[UUID], company_id: UUID | None
+    ) -> list[UUID]:
+        """Bulk soft-deletes a specific set of GRs by id in ONE
+        ``UPDATE ... WHERE id IN (...)`` statement — same two columns as
+        ``soft_delete_order`` (``deletedAt``, ``isActive``), never a physical
+        DELETE, so ``shopId`` / ``order_status_history`` / payments / staff
+        assignments are all left intact. Only rows still active
+        (``deletedAt IS NULL``) and — for a company-scoped caller — inside
+        ``company_id`` are touched; ids that are unknown, already deleted, or
+        another tenant's are silently skipped. Returns the ids actually
+        soft-deleted, so the caller can report partial results."""
+        if not order_ids:
+            return []
+        async with session_scope(self._session) as session:
+            now = datetime.now(timezone.utc)
+            stmt = (
+                update(Order)
+                .where(Order.id.in_(order_ids), Order.deletedAt.is_(None))
+                .values(deletedAt=now, isActive=False, updatedAt=now)
+                .returning(Order.id)
+                .execution_options(synchronize_session=False)
+            )
+            if company_id is not None:
+                stmt = stmt.where(Order.companyId == company_id)
+            result = await session.execute(stmt)
+            return [row[0] for row in result.all()]
+
     async def soft_delete_all_orders(self, company_id: UUID | None) -> int:
         """Bulk soft-deletes every not-yet-deleted GR in scope: one UPDATE
         statement (no per-row ORM `session.delete`/loop), so it stays cheap

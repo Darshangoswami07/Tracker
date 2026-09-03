@@ -652,6 +652,22 @@ export const orderRepository = {
     });
   },
 
+  /** Admin-only soft-delete of a specific set of GRs by real database id
+   * (checkbox multi-select). One backend request, one DB statement. Returns
+   * the split of ids actually deleted vs skipped (unknown / already deleted /
+   * other tenant) so the caller can show a partial result. */
+  async bulkDelete(ids: string[]): Promise<{ deletedCount: number; deleted: string[]; skipped: string[] }> {
+    return withApiError(async () => {
+      const res = await api.post(ENDPOINTS.admin.orders.bulkDelete, { ids });
+      const d = body<{ deletedCount?: number; deleted?: string[]; skipped?: string[] }>(res);
+      return {
+        deletedCount: Number(d.deletedCount ?? 0),
+        deleted: d.deleted ?? [],
+        skipped: d.skipped ?? [],
+      };
+    });
+  },
+
   async updateStatus(id: string, status: string): Promise<LocalGRDetail | null> {
     await api.patch(ENDPOINTS.admin.orders.updateStatus(id), { status });
     return this.getById(id);

@@ -116,6 +116,14 @@ class GRAssignStaffRequest(BaseModel):
     staffId: UUID
 
 
+class GRBulkDeleteRequest(BaseModel):
+    """Ids of the GRs the user ticked in the list for bulk deletion. Unknown /
+    already-deleted / out-of-tenant ids are skipped server-side, not rejected
+    — the response reports what was actually deleted vs skipped."""
+
+    ids: list[UUID] = Field(min_length=1, max_length=500)
+
+
 class OrderAttachmentOut(BaseModel):
     id: UUID
     orderId: UUID

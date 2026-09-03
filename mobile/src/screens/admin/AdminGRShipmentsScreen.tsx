@@ -149,6 +149,25 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
   const [deleting, setDeleting] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
 
+  // Checkbox multi-select for bulk delete (Admin-tier only — same gate as the
+  // single/all delete). Holds the REAL database GR ids; independent of the
+  // current page/filter so a selection survives search/status/shop/location
+  // changes (a hidden-but-selected GR still deletes). `canDeleteGR` from
+  // `constants/roles` — Staff never sees the checkboxes or the action bar,
+  // and the backend `POST /bulk-delete` enforces the same admin-only rule.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
   // "Delete All GRs" — Admin-only, gated by the same role check as the
   // per-card delete action. A second explicit step (typing DELETE) is
   // required before the destructive request fires, since this removes
@@ -378,6 +397,35 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
     }
   };
 
+  const confirmBulkDelete = async () => {
+    if (bulkDeleting || selectedIds.size === 0) return;
+    setBulkDeleting(true);
+    const ids = [...selectedIds];
+    try {
+      const res = await orderRepository.bulkDelete(ids);
+      setBulkConfirmOpen(false);
+      setSelectedIds(new Set());
+      if (res.skipped.length > 0) {
+        setActionMessage({
+          kind: 'error',
+          text: `${res.deletedCount} GR${res.deletedCount === 1 ? '' : 's'} deleted, ${res.skipped.length} could not be deleted.`,
+        });
+      } else {
+        setActionMessage({
+          kind: 'success',
+          text: `${res.deletedCount} GR${res.deletedCount === 1 ? '' : 's'} deleted.`,
+        });
+      }
+      // Refetch from the authoritative aggregate so the list, all five status
+      // counts and the money totals land on the real post-delete numbers.
+      await fetchGRs(1, 'reload');
+    } catch {
+      setActionMessage({ kind: 'error', text: t('gr.unableToDelete') });
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   const onAddPress = () => {
     if (canImportExcel) setAddMenuOpen(true);
     else navigate('CreateGR');
@@ -426,7 +474,7 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
 
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#635BFF']} progressBackgroundColor={colors.surface} />}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, canDeleteGR && selectedIds.size > 0 && { paddingBottom: 110 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         onScroll={({ nativeEvent }) => {
@@ -595,7 +643,25 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
                 activeOpacity={0.85}
               >
                 <View style={styles.cardHeader}>
-                  <Text style={[styles.grNo, { color: colors.textPrimary }]}>{gr.orderNumber}</Text>
+                  <View style={styles.cardHeaderLeft}>
+                    {canDeleteGR && (
+                      <TouchableOpacity
+                        onPress={() => toggleSelect(gr.id)}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        style={styles.checkbox}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: selectedIds.has(gr.id) }}
+                        accessibilityLabel={`Select GR ${gr.orderNumber}`}
+                      >
+                        <Ionicons
+                          name={selectedIds.has(gr.id) ? 'checkbox' : 'square-outline'}
+                          size={20}
+                          color={selectedIds.has(gr.id) ? colors.primary : colors.textMuted}
+                        />
+                      </TouchableOpacity>
+                    )}
+                    <Text style={[styles.grNo, { color: colors.textPrimary }]}>{gr.orderNumber}</Text>
+                  </View>
                   <View style={styles.cardHeaderRight}>
                     <StatusBadge status={gr.status} size="sm" />
                     {canDeleteGR && (
@@ -909,6 +975,40 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
         onConfirm={confirmDeleteGR}
         onCancel={() => { if (!deleting) setDeleteTarget(null); }}
       />
+
+      {/* Bulk-selection action bar — only while at least one GR is ticked.
+          Sits above the tab bar, doesn't disturb the card list layout. */}
+      {canDeleteGR && selectedIds.size > 0 && (
+        <View style={[styles.selectionBar, { backgroundColor: colors.surface, borderTopColor: colors.border, ...shadows.lg }]}>
+          <TouchableOpacity onPress={clearSelection} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} disabled={bulkDeleting} accessibilityLabel={t('gr.cancel')}>
+            <Ionicons name="close" size={22} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <Text style={[styles.selectionCount, { color: colors.textPrimary }]}>
+            {selectedIds.size} {selectedIds.size === 1 ? 'GR selected' : 'GRs selected'}
+          </Text>
+          <TouchableOpacity
+            style={[styles.selectionDeleteBtn, { backgroundColor: colors.error }, bulkDeleting && { opacity: 0.6 }]}
+            onPress={() => setBulkConfirmOpen(true)}
+            disabled={bulkDeleting}
+            accessibilityRole="button"
+          >
+            <Ionicons name="trash-outline" size={16} color="#fff" />
+            <Text style={styles.selectionDeleteText}>{bulkDeleting ? t('gr.deleting') : 'Delete Selected'}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <ConfirmDialog
+        visible={bulkConfirmOpen}
+        title={selectedIds.size === 1 ? 'Delete this GR?' : `Delete ${selectedIds.size} GRs?`}
+        message="This will permanently delete the selected GR shipment(s). This cannot be undone."
+        confirmLabel={bulkDeleting ? t('gr.deleting') : t('gr.delete')}
+        cancelLabel={t('gr.cancel')}
+        destructive
+        confirmDisabled={bulkDeleting}
+        onConfirm={confirmBulkDelete}
+        onCancel={() => { if (!bulkDeleting) setBulkConfirmOpen(false); }}
+      />
     </SafeAreaView>
   );
 };
@@ -951,8 +1051,22 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     list: { gap: theme.spacing.md },
     card: { padding: 16, gap: 6 },
     cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    cardHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
     cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    checkbox: { padding: 2 },
     menuButton: { padding: 2 },
+    selectionBar: {
+      position: 'absolute', left: 0, right: 0, bottom: 0,
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      paddingHorizontal: theme.spacing.lg, paddingTop: 14, paddingBottom: 28,
+      borderTopWidth: StyleSheet.hairlineWidth,
+    },
+    selectionCount: { flex: 1, fontSize: theme.fonts.size.md, fontWeight: '800' },
+    selectionDeleteBtn: {
+      flexDirection: 'row', alignItems: 'center', gap: 6,
+      paddingHorizontal: 16, paddingVertical: 10, borderRadius: theme.radii.lg,
+    },
+    selectionDeleteText: { color: '#fff', fontSize: theme.fonts.size.sm, fontWeight: '800' },
     grNo: { fontSize: theme.fonts.size.md, fontWeight: '800' },
     consignorLine: { fontSize: theme.fonts.size.sm, fontWeight: '600' },
     routeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },

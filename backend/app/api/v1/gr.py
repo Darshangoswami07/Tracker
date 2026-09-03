@@ -25,6 +25,7 @@ from app.repositories.shop_repository import ShopRepository
 from app.schemas.order import (
     GRAssignDriverRequest,
     GRAssignStaffRequest,
+    GRBulkDeleteRequest,
     GRCreateRequest,
     GRListOut,
     GROut,
@@ -429,6 +430,36 @@ async def delete_gr(order_id: UUID, admin: AdminUser) -> dict:
     await assert_same_company(admin, existing.companyId)
     await order_repo.soft_delete_order(order_id)
     return success(None, message="GR deleted successfully.")
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_grs(payload: GRBulkDeleteRequest, admin: AdminUser) -> dict:
+    """Soft-deletes the GRs the user ticked in the list (checkbox multi-
+    select). Admin-tier only — same `AdminUser` gate as `delete_gr` /
+    `delete_all_grs`, so Company Admin / Staff / Driver get a 403. Tenant-
+    scoped by `effective_company_id` exactly like `delete_all_grs`: a
+    company-scoped caller can only ever delete their own company's GRs, so
+    ids outside their tenant are simply skipped, not an error. One
+    `UPDATE ... WHERE id IN (...)` statement (`soft_delete_orders`) — the
+    same reversible `deletedAt`/`isActive=False` pattern the single delete
+    uses; never a physical DELETE, so Shop (consignee master data), Payment,
+    `order_status_history`, staff assignments and every other related row
+    stay exactly as they were. Reports what was actually deleted vs skipped
+    (unknown / already-deleted / other tenant) so the client can surface a
+    partial result instead of falsely claiming success for all."""
+    company_id = await effective_company_id(admin)
+    deleted = await order_repo.soft_delete_orders(payload.ids, company_id)
+    deleted_set = {str(i) for i in deleted}
+    skipped = [str(i) for i in payload.ids if str(i) not in deleted_set]
+    return success(
+        {
+            "requested": len(payload.ids),
+            "deletedCount": len(deleted),
+            "deleted": [str(i) for i in deleted],
+            "skipped": skipped,
+        },
+        message=f"{len(deleted)} GR(s) deleted.",
+    )
 
 
 @router.post("/{order_id}/assign-driver")

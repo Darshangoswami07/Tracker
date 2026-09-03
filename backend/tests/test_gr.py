@@ -189,6 +189,75 @@ async def test_attachments_require_authentication(client):
     assert resp.status_code == 401, resp.text
 
 
+async def test_bulk_delete_grs(client):
+    """Checkbox multi-select bulk delete: admin soft-deletes a specific id
+    set in one call; unknown ids are skipped (not an error); already-deleted
+    ids are skipped on a re-run; status/shop/history rows are untouched."""
+    token = await create_active_admin(client, "gr-bulk-admin@example.com", "+15552000050")
+    company_id = await create_company()
+    ids = []
+    for n in ("BLK001", "BLK002", "BLK003"):
+        r = await client.post(GR_BASE, json=gr_payload(n, company_id), headers=auth_headers(token))
+        ids.append(r.json()["data"]["id"])
+
+    bogus = str(uuid.uuid4())
+    resp = await client.post(
+        f"{GR_BASE}/bulk-delete",
+        json={"ids": [ids[0], ids[1], bogus]},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["deletedCount"] == 2
+    assert set(data["deleted"]) == {ids[0], ids[1]}
+    assert data["skipped"] == [bogus]
+
+    # The two are gone from the list, the third remains.
+    listed = await client.get(GR_BASE, headers=auth_headers(token))
+    remaining = {i["orderNumber"] for i in listed.json()["data"]["items"]}
+    assert "BLK003" in remaining and "BLK001" not in remaining and "BLK002" not in remaining
+
+    # Re-running with the same ids deletes nothing more (idempotent).
+    resp2 = await client.post(
+        f"{GR_BASE}/bulk-delete", json={"ids": [ids[0], ids[1]]}, headers=auth_headers(token)
+    )
+    assert resp2.json()["data"]["deletedCount"] == 0
+
+    # Soft-delete only: rows + status/history still there, just flagged.
+    from app.models.order import Order
+    async with session_scope() as session:
+        from sqlalchemy import select
+        o = (await session.execute(select(Order).where(Order.id == uuid.UUID(ids[0])))).scalar_one()
+        assert o.deletedAt is not None and o.isActive is False
+        assert (o.status.value if hasattr(o.status, "value") else o.status) == "pending"
+
+    # Empty id list is rejected by the schema.
+    empty = await client.post(f"{GR_BASE}/bulk-delete", json={"ids": []}, headers=auth_headers(token))
+    assert empty.status_code == 422
+
+
+async def test_bulk_delete_forbidden_for_non_admin(client):
+    """Staff must not get bulk-delete just because the UI exists."""
+    repo = UserRepository()
+    user = await repo.create(
+        full_name="Bulk Staff", email="gr-bulk-staff@example.com", phone="+15552000051",
+        password_hash=hash_password("Password123!"), role=UserRole.STAFF,
+    )
+    company_id = await create_company()
+    async with session_scope() as session:
+        du = await session.get(type(user), user.id)
+        du.status = RegistrationStatus.ACTIVE
+        du.isActive = du.isApproved = du.isVerified = du.otpVerified = True
+        du.companyId = uuid.UUID(company_id)
+        await session.flush()
+    token = (await client.post(f"{AUTH_BASE}/login", json={"email": "gr-bulk-staff@example.com", "password": "Password123!"})).json()["data"]["tokens"]["accessToken"]
+
+    resp = await client.post(
+        f"{GR_BASE}/bulk-delete", json={"ids": [str(uuid.uuid4())]}, headers=auth_headers(token)
+    )
+    assert resp.status_code == 403, resp.text
+
+
 async def test_non_admin_cannot_create_gr(client):
     repo = UserRepository()
     user = await repo.create(
