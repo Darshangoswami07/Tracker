@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,10 +26,39 @@ router = APIRouter(prefix="/payments", tags=["Payments"])
 _STAFF_ROLES = (UserRole.STAFF, UserRole.EMPLOYEE)
 
 
+async def _publish_gr_after_payment(order_id: UUID) -> None:
+    """Runs as a FastAPI BackgroundTask — i.e. AFTER the payment transaction
+    has committed. Re-reads the (now durable) order and fans its current
+    reporting status out to connected GR dashboards, so a payment that
+    settles the balance flips the admin list ``delivered → cleared`` (or
+    ``uncleared → cleared``) live, with no polling."""
+    try:
+        from app.api.v1.gr import _publish_gr_change
+        from app.database.db import session_scope
+
+        async with session_scope() as s:
+            order = await s.get(Order, order_id)
+            ledger = float(
+                (await s.execute(
+                    select(func.coalesce(func.sum(Payment.amount), 0.0)).where(Payment.orderId == order_id)
+                )).scalar() or 0.0
+            )
+        if order is not None:
+            legacy = float(order.paymentAmount) if order.paymentAmount is not None else 0.0
+            await _publish_gr_change(
+                order, previous_status=None, event="gr.status", total_paid=max(ledger, legacy)
+            )
+    except Exception:  # noqa: BLE001 — realtime is advisory
+        import logging
+
+        logging.getLogger(__name__).warning("payment realtime publish failed", exc_info=True)
+
+
 @router.post("", response_model=PaymentOut, status_code=status.HTTP_201_CREATED)
 async def create_payment(
     body: PaymentCreateRequest,
     admin: GRAccessUser,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_db_session),
 ):
     """Record a new payment against an order.
@@ -84,6 +113,11 @@ async def create_payment(
     if to_pay > 0 and total_paid >= to_pay - 0.005 and order.status != OrderStatus.DELIVERED:
         order.status = OrderStatus.DELIVERED
         session.add(order)
+
+    # After the response is sent (transaction committed) tell the GR
+    # dashboards the reporting status may have moved (uncleared/delivered →
+    # cleared once nothing is outstanding). Never before the commit.
+    background_tasks.add_task(_publish_gr_after_payment, body.orderId)
 
     return payment
 

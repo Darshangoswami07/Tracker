@@ -62,6 +62,10 @@ export const ENDPOINTS = {
        * this "delete all", not a distinct `/all` segment (which would
        * otherwise collide with the `/{id}` detail route). */
       removeAll: '/admin/orders',
+      /** Admin-only soft-delete of a specific set of GRs by id (checkbox
+       * multi-select on the GR / Shipments list). POST (not DELETE) so the
+       * id list travels in a body reliably across clients. */
+      bulkDelete: '/admin/orders/bulk-delete',
       track: (grNumber: string) => `/admin/orders/track/${encodeURIComponent(grNumber)}`,
       attachments: (id: string) => `/admin/orders/${id}/attachments`,
       attachmentFile: (id: string, attachmentId: string) => `/admin/orders/${id}/attachments/${attachmentId}/file`,

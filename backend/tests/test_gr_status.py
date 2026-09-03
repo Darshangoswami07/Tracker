@@ -30,6 +30,12 @@ def test_classify_spec_cases():
         (True, 500, 500, "cleared"),     # case 5
         (True, 600, 500, "cleared"),     # case 6
         (False, 200, 500, "pending"),    # case 7 — undelivered + partial stays PENDING
+        # Nothing owed on a delivered GR is settled -> CLEARED, whether or not
+        # any payment was recorded (a GR with no bill, or toPay lowered to 0).
+        (True, 0, 0, "cleared"),
+        (True, 0, None, "cleared"),
+        (True, 50, 0, "cleared"),
+        (False, 0, 0, "pending"),         # undelivered + nothing owed stays PENDING
     ]
     for delivered, paid, bill, expected in cases:
         assert classify(delivered, paid, bill) == expected, (delivered, paid, bill)

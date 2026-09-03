@@ -201,6 +201,13 @@ export const AdminExcelImportScreen = ({ route }: any) => {
     // confirm dialog). Never let the same file be POSTed twice — that would
     // race the backend's own duplicate detection.
     if (importInFlight.current) return;
+    // The Select-Staff step is mandatory; guard here so a stale navigation
+    // state can never POST an import with no assignee.
+    if (!selectedStaffId) {
+      setFileError('Selected staff member is no longer available. Please go back and select a valid staff member.');
+      setStage('preview');
+      return;
+    }
     importInFlight.current = true;
     setFallbackConfirmOpen(false);
     setStage('importing');
@@ -208,6 +215,10 @@ export const AdminExcelImportScreen = ({ route }: any) => {
       const rowsToImport = challanNo.trim()
         ? parsed.validRows.map((r) => ({ ...r, chalaanNo: challanNo.trim() }))
         : parsed.validRows;
+      // The real database identifier of the picked staff — the User id from
+      // `GET /admin/users?role=staff` (`AdminSelectStaffScreen` stores
+      // `member.id`). Never a name/index/temp id.
+      console.log('[GR IMPORT] staff assignment', { selectedStaffId, selectedStaffName, rows: rowsToImport.length });
       const result = await importRepository.bulkImportGRs(
         rowsToImport,
         file.name,

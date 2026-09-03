@@ -147,3 +147,60 @@ async def test_import_gr_over_soft_deleted_order_does_not_null_status_history(cl
             ).scalars().all()
             assert leftover_soft_deleted == []
 
+
+async def _active_staff(email: str, phone: str, company_id: str, area: str | None = None):
+    repo = UserRepository()
+    user = await repo.create(
+        full_name="Import Staff", email=email, phone=phone,
+        password_hash=hash_password("Password123!"), role=UserRole.STAFF,
+    )
+    async with session_scope() as session:
+        du = await session.get(type(user), user.id)
+        du.status = RegistrationStatus.ACTIVE
+        du.isActive = du.isApproved = du.isVerified = du.otpVerified = True
+        du.companyId = uuid.UUID(company_id)
+        du.area = area
+        await session.flush()
+    return str(user.id)
+
+
+async def test_import_assigns_batch_to_selected_staff_by_user_id(client):
+    """The mandatory Select-Staff step: `staffId` is the staff member's USER
+    id (what `GET /admin/users?role=staff` returns). Every imported GR must
+    land assigned to that staff's `employees` row, and start `pending`."""
+    company_id = await create_company("Import Co A")
+    token = await create_active_admin(client, "import-staff-admin@example.com", "+15552000200", company_id)
+    staff_user_id = await _active_staff("import-staff-a@example.com", "+15552000201", company_id, area=None)
+
+    grs = ["IMP-9001", "IMP-9002", "IMP-9003"]
+    resp = await client.post(
+        f"{GR_BASE}/import",
+        json={"fileName": "s.xlsx", "area": None, "staffId": staff_user_id,
+              "rows": [import_row(i + 1, g) for i, g in enumerate(grs)]},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["data"]["importedRows"] == 3
+
+    from app.models.employee import Employee
+    async with session_scope() as session:
+        emp_id = await session.scalar(select(Employee.id).where(Employee.userId == staff_user_id))
+        assert emp_id is not None
+        for g in grs:
+            o = (await session.execute(select(Order).where(Order.orderNumber == g))).scalar_one()
+            assert o.assignedStaffId == emp_id
+            assert (o.status.value if hasattr(o.status, "value") else o.status) == "pending"
+
+
+async def test_import_rejects_unknown_staff_id(client):
+    company_id = await create_company("Import Co B")
+    token = await create_active_admin(client, "import-staff-admin2@example.com", "+15552000202", company_id)
+    resp = await client.post(
+        f"{GR_BASE}/import",
+        json={"fileName": "s.xlsx", "area": None, "staffId": str(uuid.uuid4()),
+              "rows": [import_row(1, "IMP-9100")]},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 422
+    assert "not be found" in resp.text or "not found" in resp.text
+

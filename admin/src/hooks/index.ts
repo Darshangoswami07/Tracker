@@ -19,6 +19,8 @@ export {
   useCompanies,
 } from './useGR';
 
+export { useGREvents } from './useGREvents';
+
 export {
   useUsers,
   useUpdateUserStatus,

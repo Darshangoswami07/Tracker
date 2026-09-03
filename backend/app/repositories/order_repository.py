@@ -378,9 +378,22 @@ class OrderRepository(BaseRepository[Order]):
         area: Optional[str] = None,
         consignor: Optional[str] = None,
         staff_scope: Optional[Tuple[Optional[UUID], Optional[str]]] = None,
+        columns_only: bool = False,
     ) -> Tuple[List[Order], int]:
+        """``columns_only=True`` suppresses every relationship load for the
+        returned Orders. The ``Order`` model marks 8 relationships
+        ``lazy="selectin"`` (company, customer, driver, vehicle, assignedStaff,
+        shop, statusHistory, attachments) — several of which chain further
+        (``company.orders`` etc.) — so a plain ``select(Order)`` for a 20-row
+        page fires a cascade of extra round trips even when the caller only
+        needs column values. ``GET /admin/orders`` (the GR list) reads columns
+        only + two of its own grouped queries, so it passes ``True``."""
+        from sqlalchemy.orm import noload
+
         async with session_scope(self._session) as session:
             query = select(Order).where(Order.isActive == True)
+            if columns_only:
+                query = query.options(noload("*"))
 
             if status:
                 # Filter by the *canonical reporting status* (pending / cleared /
@@ -457,17 +470,38 @@ class OrderRepository(BaseRepository[Order]):
                     conditions.append(and_(Order.assignedStaffId.is_(None), Order.area == staff_area))
                 query = query.where(or_(*conditions)) if conditions else query.where(literal_column("false"))
 
+            page_query = (
+                # `id` as a tiebreak keeps pagination stable when many rows
+                # share a `createdAt` (e.g. a bulk Excel import).
+                query.order_by(desc(Order.createdAt), desc(Order.id))
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+
+            if columns_only:
+                # Fold the total into the page query with a window function so
+                # the list costs ONE database round trip instead of a separate
+                # COUNT(*) over a subquery + the page SELECT (that extra round
+                # trip is ~250-400ms against a remote Postgres).
+                windowed = page_query.add_columns(
+                    func.count().over().label("_total")
+                )
+                rows = (await session.execute(windowed)).all()
+                orders = [r[0] for r in rows]
+                total = int(rows[0]._total) if rows else 0
+                # Empty page N>1 of a non-empty set: fall back to a real count.
+                if not rows and page > 1:
+                    total = (
+                        await session.execute(
+                            select(func.count()).select_from(query.subquery())
+                        )
+                    ).scalar() or 0
+                return orders, total
+
             count_query = select(func.count()).select_from(query.subquery())
-            total_result = await session.execute(count_query)
-            total = total_result.scalar() or 0
-
-            query = query.order_by(desc(Order.createdAt))
-            query = query.offset((page - 1) * page_size).limit(page_size)
-
-            result = await session.execute(query)
-            orders = result.scalars().all()
-
-            return list(orders), total
+            total = (await session.execute(count_query)).scalar() or 0
+            result = await session.execute(page_query)
+            return list(result.scalars().all()), total
 
     async def get_by_tracking_code(self, tracking_code: str) -> Optional[Order]:
         async with session_scope(self._session) as session:
@@ -584,6 +618,34 @@ class OrderRepository(BaseRepository[Order]):
             await session.flush()
             await session.refresh(order)
             return order
+
+    async def soft_delete_orders(
+        self, order_ids: list[UUID], company_id: UUID | None
+    ) -> list[UUID]:
+        """Bulk soft-deletes a specific set of GRs by id in ONE
+        ``UPDATE ... WHERE id IN (...)`` statement — same two columns as
+        ``soft_delete_order`` (``deletedAt``, ``isActive``), never a physical
+        DELETE, so ``shopId`` / ``order_status_history`` / payments / staff
+        assignments are all left intact. Only rows still active
+        (``deletedAt IS NULL``) and — for a company-scoped caller — inside
+        ``company_id`` are touched; ids that are unknown, already deleted, or
+        another tenant's are silently skipped. Returns the ids actually
+        soft-deleted, so the caller can report partial results."""
+        if not order_ids:
+            return []
+        async with session_scope(self._session) as session:
+            now = datetime.now(timezone.utc)
+            stmt = (
+                update(Order)
+                .where(Order.id.in_(order_ids), Order.deletedAt.is_(None))
+                .values(deletedAt=now, isActive=False, updatedAt=now)
+                .returning(Order.id)
+                .execution_options(synchronize_session=False)
+            )
+            if company_id is not None:
+                stmt = stmt.where(Order.companyId == company_id)
+            result = await session.execute(stmt)
+            return [row[0] for row in result.all()]
 
     async def soft_delete_all_orders(self, company_id: UUID | None) -> int:
         """Bulk soft-deletes every not-yet-deleted GR in scope: one UPDATE

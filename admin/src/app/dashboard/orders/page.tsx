@@ -29,6 +29,7 @@ import {
   useUpdateGRStatus,
   useUploadSlip,
   useCompanies,
+  useGREvents,
 } from '@/hooks';
 import {
   Card,
@@ -117,6 +118,10 @@ export default function GRShipmentsPage() {
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+
+  // Live GR changes (staff/other admins) → the filtered list below refetches
+  // itself, no manual refresh.
+  useGREvents();
 
   const { data, isLoading, error, refetch, isFetching } = useGRList({
     page,
@@ -246,7 +251,7 @@ export default function GRShipmentsPage() {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        <StatusBadge status={gr.status} />
+                        <StatusBadge status={gr.reportingStatus ?? gr.status} />
                       </td>
                       <td className="px-6 py-4 text-xs text-secondary-500">{formatDate(gr.createdAt)}</td>
                       <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
@@ -502,7 +507,7 @@ function GRDetailDrawer({ id, onClose }: { id: string | null; onClose: () => voi
                 ) : (
                   <>
                     <div className="flex items-center gap-3">
-                      <StatusBadge status={gr.status} />
+                      <StatusBadge status={gr.reportingStatus ?? gr.status} />
                       {gr.trackingCode && (
                         <span className="text-xs text-secondary-500 font-mono">Tracking: {gr.trackingCode}</span>
                       )}
@@ -549,7 +554,7 @@ function GRDetailDrawer({ id, onClose }: { id: string | null; onClose: () => voi
                     <div className="space-y-2">
                       <h4 className="text-xs font-bold text-secondary-400 uppercase tracking-wider">Update Status</h4>
                       <Select
-                        value={gr.status}
+                        value={gr.reportingStatus ?? gr.status}
                         onChange={(e) => handleStatusChange(e.target.value as GRStatus)}
                         options={STATUS_OPTIONS}
                       />

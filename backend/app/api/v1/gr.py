@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, File, Form, Query, UploadFile
+from fastapi import APIRouter, File, Form, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse
 
 from app.api.deps import AdminUser, GRAccessUser
@@ -25,6 +25,7 @@ from app.repositories.shop_repository import ShopRepository
 from app.schemas.order import (
     GRAssignDriverRequest,
     GRAssignStaffRequest,
+    GRBulkDeleteRequest,
     GRCreateRequest,
     GRListOut,
     GROut,
@@ -99,9 +100,28 @@ async def _timeline_out(order) -> list:
 async def _gr_out(order) -> GROut:
     attachments = await _attachments_out(order.id)
     extended = {f: getattr(order, f, None) for f in _EXTENDED_FIELDS}
+    # Canonical 4-bucket status for this single GR, from the ONE definition in
+    # gr_status_service — so the detail screen's badge always agrees with the
+    # GR list. A delivered GR with nothing left to pay reads as `cleared`.
+    from app.database.db import session_scope as _sc
+    from app.models.payment import Payment as _Pay
+    from app.services.gr_status_service import classify
+    from sqlalchemy import func as _f, select as _s
+
+    async with _sc() as _sess:
+        _ledger = float(
+            (await _sess.execute(
+                _s(_f.coalesce(_f.sum(_Pay.amount), 0)).where(_Pay.orderId == order.id)
+            )).scalar() or 0
+        )
+    _legacy = float(order.paymentAmount) if order.paymentAmount is not None else 0.0
+    _raw = order.status.value if hasattr(order.status, "value") else order.status
+    reporting_status = classify(_raw != "pending", max(_ledger, _legacy), float(order.toPay or 0))
+
     return GROut(
         id=order.id,
         orderNumber=order.orderNumber,
+        reportingStatus=reporting_status,
         source=getattr(order, "source", None) or "manual",
         slipData=getattr(order, "slipData", None),
         paymentAmount=float(order.paymentAmount) if order.paymentAmount is not None else None,
@@ -129,6 +149,91 @@ async def _gr_out(order) -> GROut:
         attachments=attachments,
         **extended,
     )
+
+
+async def _publish_gr_change(
+    order, *, previous_status: str | None, event: str = "gr.status", actor=None,
+    total_paid: float | None = None,
+) -> None:
+    """Fan a committed GR change out to connected dashboards. Best-effort — a
+    realtime hiccup must never fail the status write that triggered it. Adds
+    NO database round trip on the status path (the client recomputes the
+    reporting bucket from the payment figures it already has cached);
+    ``total_paid`` is only passed on the payment path, where a round trip has
+    already happened anyway, so a payment that settles the balance flips the
+    card straight to ``cleared`` with no flicker."""
+    try:
+        from app.realtime import publish_gr_event
+
+        raw = order.status.value if hasattr(order.status, "value") else order.status
+        payload = {
+            "type": event,
+            "id": str(order.id),
+            "orderNumber": order.orderNumber,
+            "status": raw,
+            "previousStatus": previous_status,
+            "toPay": float(order.toPay) if order.toPay is not None else 0.0,
+            "paymentAmount": float(order.paymentAmount) if order.paymentAmount is not None else 0.0,
+            "totalPaid": total_paid,
+            "area": getattr(order, "area", None),
+            "companyId": str(order.companyId),
+            "updatedAt": (order.updatedAt or order.createdAt).isoformat(),
+            "actorRole": getattr(getattr(actor, "role", None), "value", None) or getattr(actor, "role", None),
+        }
+        await publish_gr_event(order.companyId, payload)
+    except Exception:  # noqa: BLE001 — realtime is advisory, never load-bearing
+        import logging
+
+        logging.getLogger(__name__).warning("realtime publish failed", exc_info=True)
+
+
+@router.websocket("/ws")
+async def gr_events_ws(websocket: WebSocket, token: Annotated[str | None, Query()] = None) -> None:
+    """Push channel for GR changes. The admin/staff app opens this once and
+    patches its GR list/counters from the events instead of polling. Auth is
+    the same access token as every REST call (passed as ``?token=`` since a
+    browser/RN WebSocket can't set an Authorization header); the same
+    ``_require_gr_access`` roles may connect, and events are scoped to the
+    caller's ``effective_company_id`` (platform admins see every company)."""
+    from app.core.security import decode_token
+    from app.core.tenancy import effective_company_id
+    from app.database.db import session_scope
+    from app.models.enums import RegistrationStatus
+    from app.realtime import subscribe
+    from app.repositories.user_repository import UserRepository
+
+    await websocket.accept()
+    try:
+        payload = decode_token(token or "", expected_type="access")
+        async with session_scope() as sess:
+            user = await UserRepository(session=sess).find_by_id(payload.subject)
+        if user is None or user.status != RegistrationStatus.ACTIVE:
+            await websocket.close(code=4401)
+            return
+        from app.api.deps import _require_gr_access
+
+        try:
+            _require_gr_access(user)
+        except Exception:
+            await websocket.close(code=4403)
+            return
+        company_id = await effective_company_id(user)
+    except Exception:
+        await websocket.close(code=4401)
+        return
+
+    import asyncio
+
+    async with subscribe(company_id) as queue:
+        try:
+            while True:
+                try:
+                    evt = await asyncio.wait_for(queue.get(), timeout=25)
+                    await websocket.send_json(evt)
+                except asyncio.TimeoutError:
+                    await websocket.send_json({"type": "ping"})
+        except (WebSocketDisconnect, RuntimeError):
+            return
 
 
 @router.get("")
@@ -159,29 +264,41 @@ async def list_grs(
         area=effective_area,
         consignor=consignor,
         staff_scope=staff_scope,
+        # The list serializer below reads Order columns only (+ its own two
+        # grouped payment/attachment queries) — skip the 8 selectin
+        # relationship loads a plain select(Order) would otherwise trigger.
+        columns_only=True,
     )
-    # One grouped query for the whole page's payment totals (no N+1).
+    # Two grouped lookups for the whole page (never per-GR): payment totals and
+    # attachments. They are independent, so run them CONCURRENTLY (each on its
+    # own connection) — one round trip instead of two against a remote DB.
     paid_by_order: dict = {}
     attachments_by_order: dict = {}
     if orders:
+        import asyncio as _asyncio
+
         from sqlalchemy import func as _func, select as _select
 
         from app.database.db import session_scope
         from app.models.payment import Payment
 
         order_ids = [o.id for o in orders]
-        async with session_scope() as _s:
-            rows = (
-                await _s.execute(
-                    _select(Payment.orderId, _func.coalesce(_func.sum(Payment.amount), 0))
-                    .where(Payment.orderId.in_(order_ids))
-                    .group_by(Payment.orderId)
-                )
-            ).all()
-        paid_by_order = {oid: float(total or 0) for oid, total in rows}
-        # One grouped query for the whole page's attachments (avoids an
-        # N+1 per-order round trip that dominates latency on a remote DB).
-        attachments_by_order = await attachment_repo.find_by_orders(order_ids)
+
+        async def _load_paid() -> dict:
+            async with session_scope() as _s:
+                rows = (
+                    await _s.execute(
+                        _select(Payment.orderId, _func.coalesce(_func.sum(Payment.amount), 0))
+                        .where(Payment.orderId.in_(order_ids))
+                        .group_by(Payment.orderId)
+                    )
+                ).all()
+            return {oid: float(total or 0) for oid, total in rows}
+
+        paid_by_order, attachments_by_order = await _asyncio.gather(
+            _load_paid(),
+            attachment_repo.find_by_orders(order_ids),
+        )
 
     from app.services.gr_status_service import classify
 
@@ -383,6 +500,9 @@ async def update_gr(order_id: UUID, payload: GRUpdateRequest, admin: GRAccessUse
     if "toPay" in updates or "paymentAmount" in updates:
         await order_repo.reconcile_delivered_status(order_id)
     fresh = await order_repo.get_order_with_details(order_id)
+    # Push the edit to any open GR-details / list screen (fields, financials,
+    # consignee/shop, …). `gr.updated` — the client just re-pulls the record.
+    await _publish_gr_change(fresh or order, previous_status=None, event="gr.updated", actor=admin)
     return success((await _gr_out(fresh or order)).model_dump(mode="json"), message="GR updated successfully.")
 
 
@@ -407,8 +527,12 @@ async def update_gr_status(order_id: UUID, payload: GRStatusUpdateRequest, admin
     # Role-gated transition: Staff = pending→delivered only; Admin = unchanged.
     from app.services.gr_status_service import assert_status_transition_allowed
 
+    previous_status = order.status.value if hasattr(order.status, "value") else order.status
     assert_status_transition_allowed(admin, order.status, payload.status)
     updated = await order_repo.update_status(order_id, payload.status.value, user_id=admin.id)
+    # DB write is committed by now (update_status uses its own session_scope) —
+    # safe to fan the change out to connected dashboards.
+    await _publish_gr_change(updated, previous_status=previous_status, actor=admin)
     return success((await _gr_out(updated)).model_dump(mode="json"), message="GR status updated.")
 
 
@@ -428,7 +552,51 @@ async def delete_gr(order_id: UUID, admin: AdminUser) -> dict:
         raise NotFoundError("GR not found.")
     await assert_same_company(admin, existing.companyId)
     await order_repo.soft_delete_order(order_id)
+    from app.realtime import publish_gr_event
+
+    await publish_gr_event(
+        existing.companyId,
+        {"type": "gr.deleted", "id": str(order_id), "orderNumber": existing.orderNumber,
+         "companyId": str(existing.companyId)},
+    )
     return success(None, message="GR deleted successfully.")
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_grs(payload: GRBulkDeleteRequest, admin: AdminUser) -> dict:
+    """Soft-deletes the GRs the user ticked in the list (checkbox multi-
+    select). Admin-tier only — same `AdminUser` gate as `delete_gr` /
+    `delete_all_grs`, so Company Admin / Staff / Driver get a 403. Tenant-
+    scoped by `effective_company_id` exactly like `delete_all_grs`: a
+    company-scoped caller can only ever delete their own company's GRs, so
+    ids outside their tenant are simply skipped, not an error. One
+    `UPDATE ... WHERE id IN (...)` statement (`soft_delete_orders`) — the
+    same reversible `deletedAt`/`isActive=False` pattern the single delete
+    uses; never a physical DELETE, so Shop (consignee master data), Payment,
+    `order_status_history`, staff assignments and every other related row
+    stay exactly as they were. Reports what was actually deleted vs skipped
+    (unknown / already-deleted / other tenant) so the client can surface a
+    partial result instead of falsely claiming success for all."""
+    company_id = await effective_company_id(admin)
+    deleted = await order_repo.soft_delete_orders(payload.ids, company_id)
+    deleted_set = {str(i) for i in deleted}
+    skipped = [str(i) for i in payload.ids if str(i) not in deleted_set]
+    if deleted:
+        from app.realtime import publish_gr_event
+
+        await publish_gr_event(
+            company_id,
+            {"type": "gr.deleted", "ids": [str(i) for i in deleted], "companyId": str(company_id) if company_id else None},
+        )
+    return success(
+        {
+            "requested": len(payload.ids),
+            "deletedCount": len(deleted),
+            "deleted": [str(i) for i in deleted],
+            "skipped": skipped,
+        },
+        message=f"{len(deleted)} GR(s) deleted.",
+    )
 
 
 @router.post("/{order_id}/assign-driver")
@@ -440,6 +608,7 @@ async def assign_driver(order_id: UUID, payload: GRAssignDriverRequest, admin: G
     order = await order_repo.assign_driver(order_id, payload.driverId)
     if order is None:
         raise NotFoundError("GR not found.")
+    await _publish_gr_change(order, previous_status=None, event="gr.updated", actor=admin)
     return success((await _gr_out(order)).model_dump(mode="json"), message="Driver assigned successfully.")
 
 
@@ -478,6 +647,7 @@ async def assign_staff(order_id: UUID, payload: GRAssignStaffRequest, admin: GRA
     order = await order_repo.assign_staff(order_id, employee_id)
     if order is None:
         raise NotFoundError("GR not found.")
+    await _publish_gr_change(order, previous_status=None, event="gr.updated", actor=admin)
     return success((await _gr_out(order)).model_dump(mode="json"), message="Staff assigned successfully.")
 
 
@@ -506,6 +676,8 @@ async def upload_attachment(
         file_size_bytes=size,
         uploaded_by=admin.id,
     )
+    # Slip/photo count + "has slip" indicator changed — nudge open screens.
+    await _publish_gr_change(order, previous_status=None, event="gr.updated", actor=admin)
     return success(
         OrderAttachmentOut(
             id=attachment.id,

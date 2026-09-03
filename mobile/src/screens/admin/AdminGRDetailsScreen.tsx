@@ -16,6 +16,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { AttachmentViewerModal, type ViewableAttachment } from '../../components/AttachmentViewerModal';
 import { persistSlipImage } from '../../services/slipStorage';
+import { grRealtime, type GrEvent } from '../../services/grRealtime';
 import { useAppNav } from '../../hooks/useAppNav';
 import { useTranslation } from 'react-i18next';
 import { PAYMENT_MODES, formatPaymentMode } from '../../constants/paymentModes';
@@ -193,6 +194,34 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
     return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
+
+  // Live updates for THIS GR: staff marking it delivered, a payment settling
+  // the balance (→ cleared), an edit to its fields — all arrive over the
+  // shared WebSocket (see `services/grRealtime`). One debounced re-pull of
+  // the detail + payment summary, so status / Total Bill / Paid / Remaining /
+  // consignee / shop / everything stays current with no manual refresh and
+  // no polling. Reconnect / app-foreground emit `resync` → same catch-up.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const bump = () => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        fetchDetail();
+        fetchPayments();
+      }, 300);
+    };
+    const onEvent = (evt: GrEvent) => {
+      if (evt.type === 'resync') return bump();
+      const ids = evt.ids ?? (evt.id ? [evt.id] : []);
+      if (ids.includes(orderId)) bump();
+    };
+    const unsub = grRealtime.subscribe(onEvent);
+    return () => {
+      unsub();
+      if (timer) clearTimeout(timer);
+    };
+  }, [orderId, fetchDetail, fetchPayments]);
 
   // Approved self-service Staff, for the Admin's "Collected By" picker.
   // Staff users never see this list — they always collect as themselves.

@@ -17,6 +17,7 @@ import { useUserStore } from '../../store/userStore';
 import { useTranslation } from 'react-i18next';
 import { canDeleteGR as roleCanDeleteGR, canImportExcel as roleCanImportExcel } from '../../constants/roles';
 import { AREAS } from '../../constants/areas';
+import { grRealtime, type GrEvent } from '../../services/grRealtime';
 import type { AppTheme } from '../../theme/types';
 
 const PAGE_SIZE = 20;
@@ -149,6 +150,25 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
   const [deleting, setDeleting] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
 
+  // Checkbox multi-select for bulk delete (Admin-tier only — same gate as the
+  // single/all delete). Holds the REAL database GR ids; independent of the
+  // current page/filter so a selection survives search/status/shop/location
+  // changes (a hidden-but-selected GR still deletes). `canDeleteGR` from
+  // `constants/roles` — Staff never sees the checkboxes or the action bar,
+  // and the backend `POST /bulk-delete` enforces the same admin-only rule.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
   // "Delete All GRs" — Admin-only, gated by the same role check as the
   // per-card delete action. A second explicit step (typing DELETE) is
   // required before the destructive request fires, since this removes
@@ -203,17 +223,30 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
   };
 
   const inFlightRef = useRef(false);
+  // Monotonic id of the most recent list fetch — a response whose id no
+  // longer matches is stale (a newer filter/search fetch superseded it).
+  const reqIdRef = useRef(0);
 
   const fetchGRs = useCallback(
     async (pageNum: number, mode: 'initial' | 'refresh' | 'more' | 'reload' = 'initial') => {
-      if (inFlightRef.current && mode !== 'more') return;
+      // Stale-response guard: a filter/search change fires a fresh fetch; if
+      // the older (slower) one lands after it, its results must be discarded,
+      // not painted over the newer ones. `mode === 'more'` keeps its own lane.
+      const reqId = ++reqIdRef.current;
+      const isStale = () => mode !== 'more' && reqId !== reqIdRef.current;
+
+      if (inFlightRef.current && mode === 'more') return;
       inFlightRef.current = true;
       if (mode === 'initial') setStatus('loading');
       if (mode === 'refresh') setRefreshing(true);
       if (mode === 'more') setLoadingMore(true);
       try {
         const dateFrom = dateFilterToIso(dateFilter);
-        const result = await orderRepository.list({
+        // Fire the list AND the summary aggregates together (they are
+        // independent) so the ~2s list request overlaps the counts request
+        // instead of running after it. The list is awaited first and rendered
+        // immediately; the counts settle a moment later without blocking it.
+        const listPromise = orderRepository.list({
           page: pageNum,
           pageSize: PAGE_SIZE,
           status: FILTER_TO_STATUS[statusTab],
@@ -222,26 +255,37 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
           consignor: consignorFilter || undefined,
           dateFrom,
         });
+        const summaryPromise =
+          mode === 'more'
+            ? null
+            : Promise.all([
+                orderRepository.getStatusCounts({
+                  search: search || undefined,
+                  area: effectiveArea || undefined,
+                  consignor: consignorFilter || undefined,
+                  dateFrom,
+                }),
+                orderRepository.getTodayCollection(),
+              ]);
+
+        const result = await listPromise;
+        if (isStale()) return;
         const rawItems: LocalGRListItem[] = result.items;
 
-        // Fetch payment data for current page items
-        const enrichedItems: GRCardItem[] = await Promise.all(
-          rawItems.map(async (item) => {
-            try {
-              const summary = await orderRepository.getPaymentSummary(item.id);
-              return {
-                ...item,
-                toPay: summary?.toPay ?? 0,
-                totalPaid: summary?.totalPaid ?? 0,
-                outstanding: (summary?.toPay ?? 0) - (summary?.totalPaid ?? 0),
-                paymentCount: summary?.paymentCount ?? 0,
-                paymentStatus: summary?.paymentStatus ?? 'unpaid',
-              };
-            } catch {
-              return { ...item, toPay: 0, totalPaid: 0, outstanding: 0, paymentCount: 0, paymentStatus: 'unpaid' };
-            }
-          })
-        );
+        // `GET /admin/orders` already returns `toPay` + `totalPaid` per row
+        // (one grouped payment query server-side — see `list_grs`), so the
+        // card's money blocks need NO per-GR request. This map is pure and
+        // synchronous: it was the ~1-request-per-card N+1 that made the page
+        // fire hundreds of XHRs. `paymentCount` / `paymentStatus` aren't shown
+        // on the list card (the GR detail screen fetches its own).
+        const enrichedItems: GRCardItem[] = rawItems.map((item) => ({
+          ...item,
+          toPay: item.toPay ?? 0,
+          totalPaid: item.totalPaid ?? 0,
+          outstanding: (item.toPay ?? 0) - (item.totalPaid ?? 0),
+          paymentCount: 0,
+          paymentStatus: 'unpaid',
+        }));
 
         setItems((prev) => (mode === 'more' ? [...prev, ...enrichedItems] : enrichedItems));
         setHasMore(enrichedItems.length === PAGE_SIZE);
@@ -249,39 +293,39 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
         setError(null);
         setStatus('success');
 
-        // Summary counts + money totals come from ONE server-side aggregate
-        // query over the full filtered dataset (Neon) — the same canonical
-        // classification the Admin Dashboard uses. No per-GR requests, no
-        // client-side status maths.
-        if (mode !== 'more') {
-          const [sc, todayCollection] = await Promise.all([
-            orderRepository.getStatusCounts({
-              search: search || undefined,
-              area: effectiveArea || undefined,
-              consignor: consignorFilter || undefined,
-              dateFrom,
-            }),
-            orderRepository.getTodayCollection(),
-          ]);
-          setSummary({
-            total: sc.total,
-            pending: sc.pending,
-            cleared: sc.cleared,
-            uncleared: sc.uncleared,
-            delivered: sc.delivered,
-            totalToPay: sc.totalToPay,
-            totalReceived: sc.totalReceived,
-            totalOutstanding: sc.totalOutstanding,
-            todayCollection,
-          });
+        // Summary counts + money totals — ONE server-side aggregate over the
+        // full filtered dataset. Already in flight (see `summaryPromise`); a
+        // failure here must NOT wipe the list that just rendered.
+        if (summaryPromise) {
+          try {
+            const [sc, todayCollection] = await summaryPromise;
+            if (isStale()) return;
+            setSummary({
+              total: sc.total,
+              pending: sc.pending,
+              cleared: sc.cleared,
+              uncleared: sc.uncleared,
+              delivered: sc.delivered,
+              totalToPay: sc.totalToPay,
+              totalReceived: sc.totalReceived,
+              totalOutstanding: sc.totalOutstanding,
+              todayCollection,
+            });
+          } catch {
+            /* leave the previous counts in place */
+          }
         }
     } catch {
-        setError(t('gr.couldNotLoadEntries'));
-        setStatus('error');
+        if (!isStale()) {
+          setError(t('gr.couldNotLoadEntries'));
+          setStatus('error');
+        }
       } finally {
-        inFlightRef.current = false;
-        setRefreshing(false);
-        setLoadingMore(false);
+        if (!isStale()) {
+          inFlightRef.current = false;
+          setRefreshing(false);
+          setLoadingMore(false);
+        }
       }
     },
     [search, statusTab, consignorFilter, effectiveArea, dateFilter]
@@ -347,14 +391,128 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusTab, consignorFilter, effectiveArea, dateFilter]);
 
-  // Load distinct shop names (consignees) for the shop-owner filter dropdown.
+  // ── Live GR updates ──────────────────────────────────────────────────────
+  // One shared WebSocket (see `services/grRealtime`). When staff/another
+  // admin changes a GR's status (or deletes one), we (a) patch the affected
+  // card + the five counters IMMEDIATELY from the event so the badge flips
+  // and "Pending -1 / Delivered +1" happen with no round trip, then (b)
+  // schedule ONE debounced refetch so the list + counters land on the
+  // authoritative server numbers and any filter add/remove is handled. Never
+  // reloads the app, never loops (the refetch is coalesced).
+  const rtReloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleRtReload = useCallback(() => {
+    if (rtReloadTimer.current) return;
+    rtReloadTimer.current = setTimeout(() => {
+      rtReloadTimer.current = null;
+      fetchGRs(1, 'reload');
+    }, 350);
+  }, [fetchGRs]);
+
   useEffect(() => {
+    // Mirror of backend `gr_status_service.classify` — a delivered GR with
+    // nothing left to pay is `cleared` (incl. toPay <= 0: nothing owed).
+    const reportBucket = (rawStatus: string, toPay: number, totalPaid: number): string => {
+      const EPS = 0.005;
+      if (rawStatus === 'pending') return 'pending';
+      if (toPay > 0) {
+        if (totalPaid >= toPay - EPS) return 'cleared';
+        if (totalPaid > 0) return 'uncleared';
+        return 'delivered';
+      }
+      return 'cleared';
+    };
+
+    const onEvent = (evt: GrEvent) => {
+      if (evt.type === 'resync') {
+        scheduleRtReload();
+        return;
+      }
+      if (evt.type === 'gr.deleted') {
+        const ids = new Set(evt.ids ?? (evt.id ? [evt.id] : []));
+        setItems((prev) => {
+          const removed = prev.filter((g) => ids.has(g.id));
+          if (removed.length === 0) return prev;
+          setSummary((s) => {
+            const next = { ...s, total: Math.max(0, s.total - removed.length) };
+            removed.forEach((g) => {
+              const b = g.status as 'pending' | 'cleared' | 'uncleared' | 'delivered';
+              if (b in next) (next as any)[b] = Math.max(0, (next as any)[b] - 1);
+            });
+            return next;
+          });
+          return prev.filter((g) => !ids.has(g.id));
+        });
+        setSelectedIds((prev) => {
+          if (![...ids].some((i) => prev.has(i))) return prev;
+          const n = new Set(prev);
+          ids.forEach((i) => n.delete(i));
+          return n;
+        });
+        scheduleRtReload();
+        return;
+      }
+      if (evt.type === 'gr.status' && evt.id && evt.status) {
+        setItems((prev) => {
+          const idx = prev.findIndex((g) => g.id === evt.id);
+          if (idx < 0) return prev; // card not on screen — the refetch handles it
+          const card = prev[idx];
+          const newBucket = reportBucket(
+            evt.status!,
+            evt.toPay ?? card.toPay,
+            // payment events carry the fresh ledger total; status events don't
+            // (the card's cached value is still current for those).
+            evt.totalPaid ?? card.totalPaid,
+          );
+          if (newBucket === card.status) return prev;
+          const oldBucket = card.status;
+          setSummary((s) => {
+            const next = { ...s } as any;
+            if (oldBucket in next) next[oldBucket] = Math.max(0, next[oldBucket] - 1);
+            if (newBucket in next) next[newBucket] = next[newBucket] + 1;
+            return next;
+          });
+          const activeFilter = FILTER_TO_STATUS[statusTab];
+          const copy = prev.slice();
+          if (activeFilter && activeFilter !== newBucket) {
+            copy.splice(idx, 1); // no longer matches the active tab — drop it
+          } else {
+            copy[idx] = { ...card, status: newBucket };
+          }
+          return copy;
+        });
+        scheduleRtReload();
+        return;
+      }
+      // gr.created
+      scheduleRtReload();
+    };
+
+    const unsub = grRealtime.subscribe(onEvent);
+    return () => {
+      unsub();
+      if (rtReloadTimer.current) clearTimeout(rtReloadTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusTab, scheduleRtReload]);
+
+  // Shop-owner (consignee) dropdown options — LAZY: this list is only needed
+  // when the user actually opens the "Shop Owner" filter sheet, so it no
+  // longer costs a request on every initial page load. Re-fetched when the
+  // sheet is (re)opened for a different area; cached otherwise.
+  const consignorOptsAreaRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!consignorSheetOpen) return;
+    if (consignorOptsAreaRef.current === (effectiveArea || null) && consignorOptions.length > 0) return;
     let cancelled = false;
     orderRepository.getDistinctConsignors(effectiveArea || undefined).then((names) => {
-      if (!cancelled) setConsignorOptions(names);
+      if (!cancelled) {
+        setConsignorOptions(names);
+        consignorOptsAreaRef.current = effectiveArea || null;
+      }
     });
     return () => { cancelled = true; };
-  }, [effectiveArea]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [consignorSheetOpen, effectiveArea]);
 
   const onRefresh = () => fetchGRs(1, 'refresh');
 
@@ -375,6 +533,35 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
       setActionMessage({ kind: 'error', text: t('gr.deleteAllError') });
     } finally {
       setDeletingAll(false);
+    }
+  };
+
+  const confirmBulkDelete = async () => {
+    if (bulkDeleting || selectedIds.size === 0) return;
+    setBulkDeleting(true);
+    const ids = [...selectedIds];
+    try {
+      const res = await orderRepository.bulkDelete(ids);
+      setBulkConfirmOpen(false);
+      setSelectedIds(new Set());
+      if (res.skipped.length > 0) {
+        setActionMessage({
+          kind: 'error',
+          text: `${res.deletedCount} GR${res.deletedCount === 1 ? '' : 's'} deleted, ${res.skipped.length} could not be deleted.`,
+        });
+      } else {
+        setActionMessage({
+          kind: 'success',
+          text: `${res.deletedCount} GR${res.deletedCount === 1 ? '' : 's'} deleted.`,
+        });
+      }
+      // Refetch from the authoritative aggregate so the list, all five status
+      // counts and the money totals land on the real post-delete numbers.
+      await fetchGRs(1, 'reload');
+    } catch {
+      setActionMessage({ kind: 'error', text: t('gr.unableToDelete') });
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -426,7 +613,7 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
 
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#635BFF']} progressBackgroundColor={colors.surface} />}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, canDeleteGR && selectedIds.size > 0 && { paddingBottom: 110 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         onScroll={({ nativeEvent }) => {
@@ -595,7 +782,25 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
                 activeOpacity={0.85}
               >
                 <View style={styles.cardHeader}>
-                  <Text style={[styles.grNo, { color: colors.textPrimary }]}>{gr.orderNumber}</Text>
+                  <View style={styles.cardHeaderLeft}>
+                    {canDeleteGR && (
+                      <TouchableOpacity
+                        onPress={() => toggleSelect(gr.id)}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        style={styles.checkbox}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: selectedIds.has(gr.id) }}
+                        accessibilityLabel={`Select GR ${gr.orderNumber}`}
+                      >
+                        <Ionicons
+                          name={selectedIds.has(gr.id) ? 'checkbox' : 'square-outline'}
+                          size={20}
+                          color={selectedIds.has(gr.id) ? colors.primary : colors.textMuted}
+                        />
+                      </TouchableOpacity>
+                    )}
+                    <Text style={[styles.grNo, { color: colors.textPrimary }]}>{gr.orderNumber}</Text>
+                  </View>
                   <View style={styles.cardHeaderRight}>
                     <StatusBadge status={gr.status} size="sm" />
                     {canDeleteGR && (
@@ -909,6 +1114,40 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
         onConfirm={confirmDeleteGR}
         onCancel={() => { if (!deleting) setDeleteTarget(null); }}
       />
+
+      {/* Bulk-selection action bar — only while at least one GR is ticked.
+          Sits above the tab bar, doesn't disturb the card list layout. */}
+      {canDeleteGR && selectedIds.size > 0 && (
+        <View style={[styles.selectionBar, { backgroundColor: colors.surface, borderTopColor: colors.border, ...shadows.lg }]}>
+          <TouchableOpacity onPress={clearSelection} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} disabled={bulkDeleting} accessibilityLabel={t('gr.cancel')}>
+            <Ionicons name="close" size={22} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <Text style={[styles.selectionCount, { color: colors.textPrimary }]}>
+            {selectedIds.size} {selectedIds.size === 1 ? 'GR selected' : 'GRs selected'}
+          </Text>
+          <TouchableOpacity
+            style={[styles.selectionDeleteBtn, { backgroundColor: colors.error }, bulkDeleting && { opacity: 0.6 }]}
+            onPress={() => setBulkConfirmOpen(true)}
+            disabled={bulkDeleting}
+            accessibilityRole="button"
+          >
+            <Ionicons name="trash-outline" size={16} color="#fff" />
+            <Text style={styles.selectionDeleteText}>{bulkDeleting ? t('gr.deleting') : 'Delete Selected'}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <ConfirmDialog
+        visible={bulkConfirmOpen}
+        title={selectedIds.size === 1 ? 'Delete this GR?' : `Delete ${selectedIds.size} GRs?`}
+        message="This will permanently delete the selected GR shipment(s). This cannot be undone."
+        confirmLabel={bulkDeleting ? t('gr.deleting') : t('gr.delete')}
+        cancelLabel={t('gr.cancel')}
+        destructive
+        confirmDisabled={bulkDeleting}
+        onConfirm={confirmBulkDelete}
+        onCancel={() => { if (!bulkDeleting) setBulkConfirmOpen(false); }}
+      />
     </SafeAreaView>
   );
 };
@@ -951,8 +1190,22 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     list: { gap: theme.spacing.md },
     card: { padding: 16, gap: 6 },
     cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    cardHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
     cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    checkbox: { padding: 2 },
     menuButton: { padding: 2 },
+    selectionBar: {
+      position: 'absolute', left: 0, right: 0, bottom: 0,
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      paddingHorizontal: theme.spacing.lg, paddingTop: 14, paddingBottom: 28,
+      borderTopWidth: StyleSheet.hairlineWidth,
+    },
+    selectionCount: { flex: 1, fontSize: theme.fonts.size.md, fontWeight: '800' },
+    selectionDeleteBtn: {
+      flexDirection: 'row', alignItems: 'center', gap: 6,
+      paddingHorizontal: 16, paddingVertical: 10, borderRadius: theme.radii.lg,
+    },
+    selectionDeleteText: { color: '#fff', fontSize: theme.fonts.size.sm, fontWeight: '800' },
     grNo: { fontSize: theme.fonts.size.md, fontWeight: '800' },
     consignorLine: { fontSize: theme.fonts.size.sm, fontWeight: '600' },
     routeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
