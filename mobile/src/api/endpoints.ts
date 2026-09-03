@@ -112,6 +112,10 @@ export const ENDPOINTS = {
   notifications: '/notifications',
   payments: {
     create: '/payments',
+    /** Paginated payment history across every GR the caller can see — one
+     * request, each row already carries the GR number + consignee (no
+     * per-payment follow-up). */
+    history: '/payments',
     listByOrder: (orderId: string) => `/payments/order/${orderId}`,
     summary: (orderId: string) => `/payments/summary/${orderId}`,
   },
@@ -122,6 +126,9 @@ export const ENDPOINTS = {
     dailyCollection: '/staff/daily-collection',
     dailyWork: '/staff/daily-work',
     dailySummary: '/staff/daily-summary',
+    /** Every staff member's daily totals in one grouped query (Payment
+     * History "Staff Daily Work" section) — replaces a per-staff N+1. */
+    dailySummaryAll: '/staff/daily-summary/all',
     dailyGRs: '/staff/daily-grs',
     settlements: '/staff/settlements',
   },

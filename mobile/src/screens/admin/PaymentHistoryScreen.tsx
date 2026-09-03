@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -8,7 +8,8 @@ import { useAuthStore } from '../../store/authStore';
 import { api } from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
 import { orderRepository } from '../../database/repositories/orderRepository';
-import type { LocalPayment } from '../../database/repositories/orderRepository';
+import type { PaymentHistoryItem } from '../../database/repositories/orderRepository';
+import { grRealtime } from '../../services/grRealtime';
 import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
 import { EmptyState } from '../../components/EmptyState';
@@ -66,9 +67,12 @@ export const PaymentHistoryScreen = () => {
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
-  const [allPayments, setAllPayments] = useState<(LocalPayment & { orderNumber?: string })[]>([]);
-  const [filteredPayments, setFilteredPayments] = useState<(LocalPayment & { orderNumber?: string })[]>([]);
+  const PAGE_SIZE = 30;
+  const [payments, setPayments] = useState<PaymentHistoryItem[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -76,33 +80,34 @@ export const PaymentHistoryScreen = () => {
   const [staffCards, setStaffCards] = useState<StaffDailyCard[]>([]);
   const [staffLoading, setStaffLoading] = useState(true);
 
-  // Staff Daily Work — today's collection/GR totals per approved Staff
-  // member, kept separate from the overall totals above (which always cover
-  // every payment regardless of who recorded it — see `getStaffDailySummary`
-  // for the per-staff, per-day isolation this relies on).
+  // Discards a slow response once a newer fetch (filter/refresh) has started.
+  const reqIdRef = useRef(0);
+  const inFlightRef = useRef(false);
+
+  // Staff Daily Work — every approved Staff member's today totals in ONE
+  // grouped request (`/staff/daily-summary/all`) + the staff roster; was a
+  // per-staff N+1.
   const fetchStaffDailyWork = useCallback(async () => {
     if (!accessToken) return;
     setStaffLoading(true);
     try {
-      const res = await api.get(ENDPOINTS.admin.users, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        params: { page: 1, pageSize: 100, role: 'staff', status: 'active' },
-      });
-      const items = (res.data?.data?.items ?? []) as { id: string; firstName: string; lastName: string; area: string | null }[];
-      const todayIso = new Date().toISOString();
-      const cards = await Promise.all(
-        items.map(async (u) => {
-          const daily = await orderRepository.getStaffDailySummary(u.id, todayIso);
-          return {
-            id: u.id,
-            fullName: `${u.firstName} ${u.lastName}`.trim(),
-            area: u.area ?? null,
-            totalCollection: daily.totalCollection,
-            totalGRs: daily.totalGRs,
-          };
-        })
-      );
-      cards.sort((a, b) => a.fullName.localeCompare(b.fullName));
+      const [rosterRes, totals] = await Promise.all([
+        api.get(ENDPOINTS.admin.users, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          params: { page: 1, pageSize: 100, role: 'staff', status: 'active' },
+        }),
+        orderRepository.getStaffDailySummaryAll(),
+      ]);
+      const items = (rosterRes.data?.data?.items ?? []) as { id: string; firstName: string; lastName: string; area: string | null }[];
+      const cards = items
+        .map((u) => ({
+          id: u.id,
+          fullName: `${u.firstName} ${u.lastName}`.trim(),
+          area: u.area ?? null,
+          totalCollection: totals[u.id]?.totalCollection ?? 0,
+          totalGRs: totals[u.id]?.totalGRs ?? 0,
+        }))
+        .sort((a, b) => a.fullName.localeCompare(b.fullName));
       setStaffCards(cards);
     } catch {
       setStaffCards([]);
@@ -111,80 +116,127 @@ export const PaymentHistoryScreen = () => {
     }
   }, [accessToken]);
 
-  const fetchPayments = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
-    if (mode === 'initial') setLoading(true);
-    if (mode === 'refresh') setRefreshing(true);
-    try {
-      // Fetch all orders and aggregate payment data
-      const allOrders = await orderRepository.listAll();
-      const payments: (LocalPayment & { orderNumber?: string })[] = [];
-      let totalCollected = 0;
-      let totalBalance = 0;
-      let totalGRs = 0;
-      let paymentCount = 0;
+  // ONE payment-history request per page + ONE totals request for the summary
+  // cards (the same `receiving/overview` GR Details / the dashboards use).
+  // No per-payment / per-order calls.
+  const fetchPayments = useCallback(
+    async (mode: 'initial' | 'refresh' | 'more' = 'initial', pageNum = 1) => {
+      if (!accessToken) return; // never fire protected requests before auth is ready
+      if (inFlightRef.current && mode === 'more') return;
+      const reqId = ++reqIdRef.current;
+      inFlightRef.current = true;
+      if (mode === 'initial') setLoading(true);
+      if (mode === 'refresh') setRefreshing(true);
+      if (mode === 'more') setLoadingMore(true);
+      try {
+        const historyP = orderRepository.listPaymentHistory({
+          page: pageNum,
+          pageSize: PAGE_SIZE,
+          search: search.trim() || undefined,
+        });
+        const overviewP = mode === 'more' ? null : orderRepository.getReceivingOverview();
 
-      for (const order of allOrders.items) {
-        const summary = await orderRepository.getPaymentSummary(order.id);
-        if (summary) {
-          totalCollected += summary.totalPaid;
-          totalBalance += summary.balance;
-          totalGRs++;
+        const history = await historyP;
+        if (reqId !== reqIdRef.current) return; // superseded
+        setPayments((prev) => (mode === 'more' ? [...prev, ...history.items] : history.items));
+        setHasMore(history.items.length === PAGE_SIZE);
+        setPage(pageNum);
+        setError(null);
+
+        if (overviewP) {
+          try {
+            const o = await overviewP;
+            if (reqId === reqIdRef.current) {
+              setSummary({
+                totalCollected: o.totalPaid,
+                totalBalance: o.outstanding,
+                totalGRs: o.grCount,
+                paymentCount: o.totalTransactions,
+              });
+            }
+          } catch {
+            /* keep last-good summary */
+          }
         }
-        const orderPayments = await orderRepository.listPayments(order.id);
-        for (const p of orderPayments) {
-          payments.push({ ...p, orderNumber: order.orderNumber });
-          paymentCount++;
+      } catch (err: any) {
+        if (reqId === reqIdRef.current && mode !== 'more') {
+          setError(err?.message ?? 'Could not load payment history');
+        }
+      } finally {
+        if (reqId === reqIdRef.current) {
+          inFlightRef.current = false;
+          setLoading(false);
+          setRefreshing(false);
+          setLoadingMore(false);
         }
       }
+    },
+    [search, accessToken]
+  );
 
-      // Sort by newest first
-      payments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const loadMore = useCallback(() => {
+    if (!inFlightRef.current && !loadingMore && hasMore) fetchPayments('more', page + 1);
+  }, [fetchPayments, hasMore, loadingMore, page]);
 
-      setAllPayments(payments);
-      setFilteredPayments(payments);
-      setSummary({ totalCollected, totalBalance, totalGRs, paymentCount });
-      setError(null);
-    } catch (err: any) {
-      setError(err?.message ?? 'Could not load payment data');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
+  // Initial load — payment list + summary + (separately) staff daily work.
+  // Gated on a restored session: firing protected requests before auth is
+  // ready just produces 401 → refresh churn.
+  const didInitialLoad = useRef(false);
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchPayments('initial');
+    if (!accessToken || didInitialLoad.current) return;
+    didInitialLoad.current = true;
+    fetchPayments('initial', 1);
     fetchStaffDailyWork();
-  }, [fetchPayments, fetchStaffDailyWork]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken]);
 
+  // Debounced search → one page-1 fetch per settled query. Skips the first
+  // render (the mount effect already loaded page 1).
+  const didMountSearch = useRef(false);
+  useEffect(() => {
+    if (!didMountSearch.current) {
+      didMountSearch.current = true;
+      return;
+    }
+    const timer = setTimeout(() => fetchPayments('refresh', 1), 350);
+    return () => clearTimeout(timer);
+  }, [search, fetchPayments]);
+
+  // Re-pull page 1 on screen focus (returning from GR Details, etc.). Skips
+  // the mount-time 'focus' React Navigation fires so it doesn't double the
+  // initial load.
+  const didFirstFocus = useRef(false);
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
-      fetchPayments('refresh');
+      if (!didFirstFocus.current) {
+        didFirstFocus.current = true;
+        return;
+      }
+      fetchPayments('refresh', 1);
       fetchStaffDailyWork();
     });
     return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
 
+  // Live: a recorded payment (or a GR status/delete) → one debounced refresh
+  // of page 1 + the summary. Reuses the shared WebSocket; cleaned up on
+  // unmount so listeners never accumulate across visits.
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!search.trim()) {
-        setFilteredPayments(allPayments);
-      } else {
-        const q = search.toLowerCase();
-        setFilteredPayments(
-          allPayments.filter(
-            (p) =>
-              p.orderNumber?.toLowerCase().includes(q) ||
-              p.notes?.toLowerCase().includes(q) ||
-              p.amount.toString().includes(q)
-          )
-        );
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [search, allPayments]);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsub = grRealtime.subscribe(() => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        fetchPayments('refresh', 1);
+        fetchStaffDailyWork();
+      }, 400);
+    });
+    return () => {
+      unsub();
+      if (timer) clearTimeout(timer);
+    };
+  }, [fetchPayments, fetchStaffDailyWork]);
 
   if (loading) {
     return (
@@ -206,9 +258,14 @@ export const PaymentHistoryScreen = () => {
       <Header title={t('payment.paymentHistory')} leftAction={{ icon: 'chevron-back', onPress: handleBack }} />
 
       <ScrollView
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => fetchPayments('refresh')} colors={['#635BFF']} progressBackgroundColor={colors.surface} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => fetchPayments('refresh', 1)} colors={['#635BFF']} progressBackgroundColor={colors.surface} />}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        onScroll={({ nativeEvent }) => {
+          const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+          if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 200) loadMore();
+        }}
+        scrollEventThrottle={200}
       >
         {error && (
           <EmptyState
@@ -216,7 +273,7 @@ export const PaymentHistoryScreen = () => {
             title="Could not load payments"
             subtitle={error}
             actionLabel={t('common.retry')}
-            onActionPress={() => fetchPayments('initial')}
+            onActionPress={() => fetchPayments('initial', 1)}
             iconColor={colors.error}
           />
         )}
@@ -300,16 +357,16 @@ export const PaymentHistoryScreen = () => {
               />
             </View>
 
-            {filteredPayments.length === 0 ? (
+            {payments.length === 0 ? (
               <EmptyState
                 icon="wallet-outline"
-                title="No payments yet"
-                subtitle="Payments will appear here as they are recorded."
+                title={search.trim() ? 'No matching payments' : 'No payments yet'}
+                subtitle={search.trim() ? 'Try a different GR number or note.' : 'Payments will appear here as they are recorded.'}
                 iconColor={colors.textMuted}
               />
             ) : (
               <View style={styles.list}>
-                {filteredPayments.map((p) => (
+                {payments.map((p) => (
                   <View key={p.id} style={[styles.paymentCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
                     <View style={styles.paymentCardHeader}>
                       <View style={styles.paymentCardLeft}>
@@ -334,6 +391,7 @@ export const PaymentHistoryScreen = () => {
                     </View>
                   </View>
                 ))}
+                {loadingMore && <ShimmerCard style={styles.shimmerBlock} height={80} />}
               </View>
             )}
           </>

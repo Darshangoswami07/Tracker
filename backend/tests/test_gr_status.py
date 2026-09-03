@@ -131,3 +131,42 @@ async def test_undelivered_partial_payment_stays_pending(client):
     assert any(i["id"] == gr_id for i in r.json()["data"]["items"])
     r = await client.get(GR_BASE, headers=h, params={"status": "uncleared", "page_size": 100})
     assert not any(i["id"] == gr_id for i in r.json()["data"]["items"])
+
+
+async def test_payment_history_endpoint_one_request_paginated(client):
+    """`GET /payments` returns paginated payment history with each row's GR
+    number + consignee already joined in — so the Payment History screen
+    needs NO per-payment / per-order follow-up request. Newest first."""
+    token = await create_active_admin(client, "phist@example.com", "+15559000789")
+    company_id = await create_company("Payment History Co")
+    h = auth_headers(token)
+
+    gr_ids = []
+    for n in ("PH-1", "PH-2", "PH-3"):
+        p = gr_payload(n, company_id)
+        p["toPay"] = 300
+        p["consigneeName"] = f"Shop {n}"
+        r = await client.post(GR_BASE, json=p, headers=h)
+        gr_ids.append(r.json()["data"]["id"])
+    # 4 payments total (one GR gets two).
+    for gid, amt in [(gr_ids[0], 100), (gr_ids[0], 50), (gr_ids[1], 200), (gr_ids[2], 300)]:
+        r = await client.post(PAYMENTS, json={"orderId": gid, "amount": amt, "recordedBy": None}, headers=h)
+        assert r.status_code == 201, r.text
+
+    hist = (await client.get(PAYMENTS, headers=h, params={"page": 1, "page_size": 2})).json()
+    assert hist["total"] == 4
+    assert len(hist["items"]) == 2
+    row = hist["items"][0]
+    # GR identity is embedded — no follow-up call needed to render the card.
+    assert set(row) >= {"id", "orderId", "orderNumber", "consigneeName", "amount", "paymentMethod", "createdAt"}
+    assert row["orderNumber"] in {"PH-1", "PH-2", "PH-3"}
+    # Newest first, page 2 continues.
+    ts = [i["createdAt"] for i in hist["items"]]
+    assert ts == sorted(ts, reverse=True)
+    page2 = (await client.get(PAYMENTS, headers=h, params={"page": 2, "page_size": 2})).json()
+    assert len(page2["items"]) == 2
+    assert {i["id"] for i in hist["items"]}.isdisjoint({i["id"] for i in page2["items"]})
+
+    # Search narrows to one GR's payments.
+    ph1 = (await client.get(PAYMENTS, headers=h, params={"search": "PH-1"})).json()
+    assert ph1["total"] == 2 and all(i["orderNumber"] == "PH-1" for i in ph1["items"])

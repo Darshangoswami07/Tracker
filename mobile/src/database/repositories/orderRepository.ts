@@ -349,6 +349,14 @@ export interface LocalPayment {
   createdAt: string;
 }
 
+/** A row from `GET /payments` — a payment plus its GR's identifying fields,
+ *  so the Payment History list renders with no per-payment request. */
+export interface PaymentHistoryItem extends LocalPayment {
+  orderNumber: string | null;
+  consigneeName: string | null;
+  consignorName: string | null;
+}
+
 export interface ReceivingListItem {
   id: string;
   orderNumber: string;
@@ -784,6 +792,47 @@ export const orderRepository = {
         createdAt: p.createdAt,
       };
     });
+  },
+
+  /**
+   * Paginated payment history for the Payment History screen. ONE request per
+   * page — the backend joins each payment to its GR, so there are no
+   * per-payment / per-order follow-up calls. Newest first.
+   */
+  async listPaymentHistory(params: { page?: number; pageSize?: number; search?: string } = {}): Promise<{
+    items: PaymentHistoryItem[];
+    total: number;
+  }> {
+    const query: Record<string, unknown> = { page: params.page ?? 1, page_size: params.pageSize ?? 30 };
+    if (params.search) query.search = params.search;
+    const res = await api.get(ENDPOINTS.payments.history, { params: query });
+    const d = body<{ items: any[]; total: number }>(res);
+    return {
+      total: Number(d.total ?? 0),
+      items: (d.items ?? []).map((p) => ({
+        id: p.id,
+        orderId: p.orderId,
+        orderNumber: p.orderNumber ?? null,
+        consigneeName: p.consigneeName ?? null,
+        consignorName: p.consignorName ?? null,
+        amount: Number(p.amount ?? 0),
+        paymentMethod: p.paymentMethod ?? null,
+        notes: p.notes ?? null,
+        recordedBy: p.recordedBy ?? null,
+        createdAt: p.createdAt,
+      })),
+    };
+  },
+
+  /** `{ staffUserId: { totalCollection, totalGRs } }` for today, one request. */
+  async getStaffDailySummaryAll(): Promise<Record<string, { totalCollection: number; totalGRs: number }>> {
+    const res = await api.get(ENDPOINTS.staffWork.dailySummaryAll);
+    const d = body<Record<string, { totalCollection?: number; totalGRs?: number }>>(res) ?? {};
+    const out: Record<string, { totalCollection: number; totalGRs: number }> = {};
+    for (const [k, v] of Object.entries(d)) {
+      out[k] = { totalCollection: Number(v?.totalCollection ?? 0), totalGRs: Number(v?.totalGRs ?? 0) };
+    }
+    return out;
   },
 
   async listPayments(orderId: string): Promise<LocalPayment[]> {

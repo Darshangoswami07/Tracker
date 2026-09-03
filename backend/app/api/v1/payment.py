@@ -11,9 +11,13 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from typing import Annotated, Optional
+
+from fastapi import Query
+
 from app.api.deps import GRAccessUser
 from app.core.rbac import is_admin
-from app.core.tenancy import assert_same_company
+from app.core.tenancy import assert_same_company, effective_company_id
 from app.database.db import get_db_session
 from app.models.enums import OrderStatus, UserRole
 from app.models.order import Order
@@ -120,6 +124,79 @@ async def create_payment(
     background_tasks.add_task(_publish_gr_after_payment, body.orderId)
 
     return payment
+
+
+@router.get("")
+async def list_payment_history(
+    admin: GRAccessUser,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 30,
+    search: Annotated[Optional[str], Query(max_length=200)] = None,
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Paginated payment history across every GR the caller can see — ONE
+    query (Payment ⨝ Order), tenant-scoped by ``effective_company_id``
+    exactly like the GR list, newest first. Each row already carries the GR
+    number + consignor/consignee so the Payment History screen needs NO
+    per-payment / per-order follow-up request. Money totals for the summary
+    cards come from the existing ``GET /admin/orders/receiving/overview``."""
+    company_id = await effective_company_id(admin)
+    conds = [Order.deletedAt.is_(None)]
+    if company_id is not None:
+        conds.append(Order.companyId == company_id)
+    if search and search.strip():
+        like = f"%{search.strip()}%"
+        conds.append(
+            Order.orderNumber.ilike(like)
+            | Order.consigneeName.ilike(like)
+            | Order.consignorName.ilike(like)
+            | Payment.notes.ilike(like)
+        )
+
+    base = (
+        select(
+            Payment.id,
+            Payment.orderId,
+            Payment.amount,
+            Payment.paymentMethod,
+            Payment.notes,
+            Payment.recordedBy,
+            Payment.createdAt,
+            Order.orderNumber,
+            Order.consigneeName,
+            Order.consignorName,
+            func.count().over().label("_total"),
+        )
+        .join(Order, Order.id == Payment.orderId)
+        .where(*conds)
+        .order_by(Payment.createdAt.desc(), Payment.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    rows = (await session.execute(base)).all()
+    total = int(rows[0]._total) if rows else 0
+    items = [
+        {
+            "id": str(r.id),
+            "orderId": str(r.orderId),
+            "orderNumber": r.orderNumber,
+            "consigneeName": r.consigneeName,
+            "consignorName": r.consignorName,
+            "amount": float(r.amount),
+            "paymentMethod": r.paymentMethod,
+            "notes": r.notes,
+            "recordedBy": r.recordedBy,
+            "createdAt": r.createdAt.isoformat(),
+        }
+        for r in rows
+    ]
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "pageSize": page_size,
+        "pages": (total + page_size - 1) // page_size if page_size else 1,
+    }
 
 
 @router.get("/order/{order_id}", response_model=list[PaymentOut])

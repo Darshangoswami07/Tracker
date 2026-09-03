@@ -150,6 +150,39 @@ async def daily_summary(
     return {"totalCollection": float(row[0] or 0), "totalGRs": int(row[1] or 0)}
 
 
+async def daily_summary_all(
+    session: AsyncSession, day: date, company_id: uuid.UUID | None = None
+) -> dict[str, dict]:
+    """``{recordedBy(users.id) -> {totalCollection, totalGRs}}`` for a single
+    day, in ONE grouped query — replaces N per-staff ``daily_summary`` round
+    trips on the Payment History screen's Staff Daily Work section."""
+    start, end = _day_bounds(day)
+    conds = [
+        Payment.createdAt >= start,
+        Payment.createdAt <= end,
+        Order.deletedAt.is_(None),
+        Payment.recordedBy.isnot(None),
+    ]
+    if company_id is not None:
+        conds.append(Order.companyId == company_id)
+    rows = (
+        await session.execute(
+            select(
+                Payment.recordedBy,
+                func.coalesce(func.sum(Payment.amount), 0),
+                func.count(func.distinct(Payment.orderId)),
+            )
+            .join(Order, Order.id == Payment.orderId)
+            .where(*conds)
+            .group_by(Payment.recordedBy)
+        )
+    ).all()
+    return {
+        str(r[0]): {"totalCollection": float(r[1] or 0), "totalGRs": int(r[2] or 0)}
+        for r in rows
+    }
+
+
 async def daily_grs(
     session: AsyncSession, staff_user_id: uuid.UUID, day: date
 ) -> list[dict]:

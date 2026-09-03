@@ -61,14 +61,24 @@ const STATUS_LABELS: Record<string, string> = {
 interface StaffGRPanelParams {
   statusFilter?: string;
   title?: string;
+  /** Bumped by the caller (Staff Dashboard status cards) on every tap so the
+   * status re-sync effect below fires even when the same card is tapped
+   * twice — the Deliveries tab stays mounted, so `statusFilter` alone
+   * wouldn't change. */
+  filterNonce?: number;
 }
+
+/** `'all'` (from the Dashboard's "Assigned" card) means "no status filter" —
+ * every active assigned GR, All Statuses. Any other value is a real bucket. */
+const normalizeStatusParam = (v?: string): string | null =>
+  v && v !== 'all' ? v : null;
 
 export const StaffGRPanelScreen = () => {
   const theme = useAppTheme();
   const { colors, radii, shadows } = theme;
   const { navigate, goBack, goToNotifications } = useAppNav();
   const route = useRoute();
-  const { statusFilter: statusFilterParam, title } = (route.params as StaffGRPanelParams | undefined) ?? {};
+  const { statusFilter: statusFilterParam, title, filterNonce } = (route.params as StaffGRPanelParams | undefined) ?? {};
 
   const styles = createStyles(theme);
 
@@ -84,7 +94,7 @@ export const StaffGRPanelScreen = () => {
   const [consignorFilter, setConsignorFilter] = useState<string | null>(null);
   const [consignorOptions, setConsignorOptions] = useState<string[]>([]);
   const [consignorSheetOpen, setConsignorSheetOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string | null>(statusFilterParam ?? null);
+  const [statusFilter, setStatusFilter] = useState<string | null>(normalizeStatusParam(statusFilterParam));
   const [statusSheetOpen, setStatusSheetOpen] = useState(false);
 
   const role = useUserStore((state) => state.user?.role);
@@ -190,13 +200,16 @@ export const StaffGRPanelScreen = () => {
   // a different filter. Re-sync the local filter (and clear any shop-owner
   // filter) whenever the incoming param actually changes, so the correct
   // status is always applied — even on a re-navigation that doesn't remount.
+  // Re-apply ONLY the status filter from the incoming params (a dashboard
+  // card tap). Other user-selected filters (search / location / shop owner)
+  // are deliberately left untouched. `filterNonce` is in the deps so tapping
+  // the same card twice still re-syncs.
   useEffect(() => {
     const timer = setTimeout(() => {
-      setStatusFilter(statusFilterParam ?? null);
-      setConsignorFilter(null);
+      setStatusFilter(normalizeStatusParam(statusFilterParam));
     }, 0);
     return () => clearTimeout(timer);
-  }, [statusFilterParam]);
+  }, [statusFilterParam, filterNonce]);
 
   const refreshUser = useAuthStore((state) => state.refreshUser);
 

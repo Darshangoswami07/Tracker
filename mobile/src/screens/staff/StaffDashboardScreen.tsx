@@ -9,16 +9,29 @@ import { useAppNav } from '../../hooks/useAppNav';
 import { useUserStore } from '../../store/userStore';
 import { useAuthStore } from '../../store/authStore';
 import { orderRepository } from '../../database/repositories/orderRepository';
+import { grRealtime } from '../../services/grRealtime';
 import { Header } from '../../components/Header';
 import type { AppTheme } from '../../theme/types';
 
 interface Overview {
   assigned: number;
   pending: number;
-  completed: number;
+  delivered: number;
+  cleared: number;
+  uncleared: number;
   outstanding: number;
   todayCollection: number;
 }
+
+/** The five clickable status cards. `status` is the value handed to My Slips
+ * (`'all'` = All Statuses); order matches the canonical reporting buckets. */
+const STAT_CARDS = [
+  { key: 'assigned', status: 'all', color: '#635BFF' },
+  { key: 'pending', status: 'pending', color: '#F59E0B' },
+  { key: 'delivered', status: 'delivered', color: '#10B981' },
+  { key: 'cleared', status: 'cleared', color: '#0EA5E9' },
+  { key: 'uncleared', status: 'uncleared', color: '#EF4444' },
+] as const;
 
 const formatCurrency = (amount: number): string =>
   `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -36,7 +49,7 @@ export const StaffDashboardScreen = () => {
   const refreshUser = useAuthStore((state) => state.refreshUser);
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
-  const [overview, setOverview] = useState<Overview>({ assigned: 0, pending: 0, completed: 0, outstanding: 0, todayCollection: 0 });
+  const [overview, setOverview] = useState<Overview>({ assigned: 0, pending: 0, delivered: 0, cleared: 0, uncleared: 0, outstanding: 0, todayCollection: 0 });
   const [refreshing, setRefreshing] = useState(false);
 
   // Counts come from ONE server-side aggregate (`GET
@@ -44,9 +57,9 @@ export const StaffDashboardScreen = () => {
   // Staff member's own GRs — assignment (`Order.assignedStaffId`) OR area
   // routing, matching "My Slips" exactly (backend `resolve_gr_staff_scope`).
   // `assigned` is the unfiltered total of the staff's GRs; `pending` /
-  // `completed` are the canonical `pending` / `delivered` reporting buckets
+  // `delivered` / `cleared` / `uncleared` are the canonical reporting buckets
   // (backend `gr_status_service`). Independent of any list search/filter/
-  // pagination — never `slips.length`.
+  // pagination and of today's date — never `slips.length`.
   const loadOverview = useCallback(async () => {
     if (!user?.id) return;
     try {
@@ -58,7 +71,9 @@ export const StaffDashboardScreen = () => {
       setOverview({
         assigned: counts.total,
         pending: counts.pending,
-        completed: counts.delivered,
+        delivered: counts.delivered,
+        cleared: counts.cleared,
+        uncleared: counts.uncleared,
         outstanding: receiving.outstanding,
         todayCollection: dailyCollection.totalCollection,
       });
@@ -117,11 +132,35 @@ export const StaffDashboardScreen = () => {
     return () => subscription.remove();
   }, [refreshUser, loadOverview]);
 
+  // Live counts: a GR assignment/deletion (`gr.deleted`), a status change, or
+  // a payment that flips Delivered → Cleared arrives on the shared realtime
+  // feed → one debounced re-pull of the same aggregate. No polling.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsub = grRealtime.subscribe(() => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void loadOverview();
+      }, 400);
+    });
+    return () => {
+      unsub();
+      if (timer) clearTimeout(timer);
+    };
+  }, [loadOverview]);
+
   const onRefresh = async () => {
     setRefreshing(true);
     await loadOverview();
     setRefreshing(false);
   };
+
+  // Open "My Slips" with a status pre-selected. `filterNonce` forces the
+  // target screen (kept mounted by the tab navigator) to re-apply the filter
+  // even on a repeat tap of the same card.
+  const openMySlips = (status: string, label: string) =>
+    navigate('StaffDeliveries', { statusFilter: status, title: label, filterNonce: Date.now() });
 
   const firstName = user?.fullName?.split(' ')[0] || t('staff.there');
 
@@ -136,19 +175,27 @@ export const StaffDashboardScreen = () => {
         <Text style={[styles.welcome, { color: colors.textPrimary }]}>{t('staff.welcome', { name: firstName })}</Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{t('staff.todaysOverview')}</Text>
 
-        <View style={styles.statsRow}>
-          <View style={[styles.statCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
-            <Text style={[styles.statValue, { color: colors.primary }]}>{overview.assigned}</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{t('staff.assigned')}</Text>
-          </View>
-          <View style={[styles.statCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
-            <Text style={[styles.statValue, { color: '#F59E0B' }]}>{overview.pending}</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{t('staff.pending')}</Text>
-          </View>
-          <View style={[styles.statCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
-            <Text style={[styles.statValue, { color: '#10B981' }]}>{overview.completed}</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{t('staff.completed')}</Text>
-          </View>
+        <View style={styles.statsGrid}>
+          {STAT_CARDS.map((card) => {
+            const label = t(`staff.${card.key}`);
+            const title = card.key === 'assigned' ? t('staff.mySlips') : `${label} Slips`;
+            return (
+              <TouchableOpacity
+                key={card.key}
+                style={[styles.statCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
+                onPress={() => openMySlips(card.status, title)}
+                accessibilityRole="button"
+                accessibilityLabel={`${overview[card.key]} ${label}. Open in My Slips.`}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.statValue, { color: card.color }]}>{overview[card.key]}</Text>
+                <View style={styles.statLabelRow}>
+                  <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{label}</Text>
+                  <Ionicons name="chevron-forward" size={12} color={colors.textMuted} />
+                </View>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {user?.area && (
@@ -179,7 +226,7 @@ export const StaffDashboardScreen = () => {
 
           <TouchableOpacity
             style={[styles.actionCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
-            onPress={() => navigate('StaffDeliveries', { title: t('staff.mySlips') })}
+            onPress={() => openMySlips('all', t('staff.mySlips'))}
             accessibilityRole="button"
           >
             <View style={[styles.actionIcon, { backgroundColor: '#06B6D418' }]}>
@@ -190,7 +237,7 @@ export const StaffDashboardScreen = () => {
 
           <TouchableOpacity
             style={[styles.actionCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
-            onPress={() => navigate('StaffDeliveries', { statusFilter: 'pending', title: t('staff.pendingSlip') })}
+            onPress={() => openMySlips('pending', t('staff.pendingSlip'))}
             accessibilityRole="button"
           >
             <View style={[styles.actionIcon, { backgroundColor: '#F59E0B18' }]}>
@@ -201,7 +248,7 @@ export const StaffDashboardScreen = () => {
 
           <TouchableOpacity
             style={[styles.actionCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
-            onPress={() => navigate('StaffDeliveries', { statusFilter: 'delivered', title: t('staff.deliveredSlip') })}
+            onPress={() => openMySlips('delivered', t('staff.deliveredSlip'))}
             accessibilityRole="button"
           >
             <View style={[styles.actionIcon, { backgroundColor: '#10B98118' }]}>
@@ -233,9 +280,13 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     scrollContent: { padding: theme.spacing.lg, paddingBottom: theme.spacing.huge, gap: theme.spacing.lg },
     welcome: { fontSize: theme.fonts.size.xl, fontWeight: '800', letterSpacing: -0.3 },
     subtitle: { fontSize: theme.fonts.size.sm, marginTop: -theme.spacing.sm },
-    statsRow: { flexDirection: 'row', gap: theme.spacing.md },
-    statCard: { flex: 1, alignItems: 'center', paddingVertical: theme.spacing.lg, gap: 4 },
+    statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.md },
+    statCard: {
+      flexGrow: 1, flexBasis: '46%', minWidth: 150,
+      alignItems: 'center', paddingVertical: theme.spacing.lg, gap: 4,
+    },
     statValue: { fontSize: theme.fonts.size.xxl, fontWeight: '900' },
+    statLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
     statLabel: { fontSize: theme.fonts.size.xs, fontWeight: '600' },
     outstandingCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: theme.spacing.lg, paddingVertical: theme.spacing.md },
     outstandingLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },

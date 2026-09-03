@@ -90,6 +90,24 @@ async def get_daily_summary(
     )
 
 
+@router.get("/daily-summary/all")
+async def get_daily_summary_all(
+    user: CurrentUser,
+    date_str: DateQuery = None,
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Every staff member's own daily collection/GR totals for a day, in one
+    grouped query — Admin-tier only (the Payment History "Staff Daily Work"
+    section). Keyed by the staff member's ``users.id``."""
+    if not is_admin(user.role):
+        raise ForbiddenError()
+    from app.core.tenancy import effective_company_id
+
+    company_id = await effective_company_id(user)
+    data = await staff_work_service.daily_summary_all(session, _parse_day(date_str), company_id)
+    return success(data, message="Daily summary retrieved successfully.")
+
+
 @router.get("/daily-work")
 async def get_daily_work(
     user: CurrentUser,
