@@ -156,11 +156,14 @@ export const StaffDashboardScreen = () => {
     setRefreshing(false);
   };
 
-  // Open "My Slips" with a status pre-selected. `filterNonce` forces the
-  // target screen (kept mounted by the tab navigator) to re-apply the filter
-  // even on a repeat tap of the same card.
-  const openMySlips = (status: string, label: string) =>
-    navigate('StaffDeliveries', { statusFilter: status, title: label, filterNonce: Date.now() });
+  // Open "My Slips" with a status pre-selected. `filterNonce` (a monotonic
+  // counter) forces the target screen — kept mounted by the tab navigator —
+  // to re-apply the filter even on a repeat tap of the same card.
+  const nonceRef = useRef(0);
+  const openMySlips = (status: string, label: string) => {
+    nonceRef.current += 1;
+    navigate('StaffDeliveries', { statusFilter: status, title: label, filterNonce: nonceRef.current });
+  };
 
   const firstName = user?.fullName?.split(' ')[0] || t('staff.there');
 
