@@ -30,6 +30,7 @@ export interface GrEvent {
   previousStatus?: string | null;
   toPay?: number;
   paymentAmount?: number;
+  totalPaid?: number | null;
   area?: string | null;
   companyId?: string | null;
   updatedAt?: string;

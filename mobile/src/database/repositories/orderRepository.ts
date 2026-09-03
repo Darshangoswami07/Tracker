@@ -158,7 +158,11 @@ const EXTENDED_FIELD_KEYS: (keyof GRExtendedFields)[] = [
 export interface LocalGRDetail extends GRExtendedFields {
   id: string;
   orderNumber: string;
+  /** Canonical reporting bucket (pending/cleared/uncleared/delivered). */
   status: string;
+  /** Raw workflow flag (pending|delivered) — used only where a screen needs
+   *  to reason about the underlying lifecycle rather than the reporting view. */
+  rawStatus?: string;
   trackingCode: string | null;
   pickupAddress: string;
   deliveryAddress: string;
@@ -447,7 +451,11 @@ const mapTimeline = (t: any): LocalTimelineEvent => ({
 const mapDetail = (g: any): LocalGRDetail => ({
   id: g.id,
   orderNumber: g.orderNumber,
-  status: g.status,
+  // Canonical 4-bucket status, matching the GR list — a delivered GR with
+  // nothing left to pay reads as `cleared`. Falls back to the raw workflow
+  // value for any older response shape.
+  status: g.reportingStatus ?? g.status,
+  rawStatus: g.status,
   trackingCode: g.trackingCode ?? null,
   pickupAddress: g.pickupAddress,
   deliveryAddress: g.deliveryAddress,

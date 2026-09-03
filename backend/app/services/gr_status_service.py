@@ -5,9 +5,14 @@ dashboard / list surface (Admin Dashboard, GR / Shipments, Staff-visible GR
 data). Never re-implement this logic anywhere else.
 
     PENDING    - not delivered (workflow), regardless of money received
-    DELIVERED  - delivered, nothing received
+    DELIVERED  - delivered, a balance is still outstanding & nothing paid
     UNCLEARED  - delivered, part paid            (0 < totalPaid < totalBill)
-    CLEARED    - delivered, fully paid            (totalPaid >= totalBill)
+    CLEARED    - delivered, nothing outstanding  (totalPaid >= totalBill,
+                 OR toPay <= 0 so there is nothing left to collect)
+
+A delivered GR whose remaining-to-pay is ₹0 is CLEARED — that includes a GR
+with no bill at all (``toPay <= 0``): nothing is owed, so it is settled. It
+is never left showing DELIVERED just because no payment row exists.
 
 "delivered (workflow)" == the GR has left the ``pending`` order status, i.e.
 someone explicitly marked it delivered (or the fully-paid auto-reconcile in
@@ -80,8 +85,9 @@ def classify(delivered: bool, total_paid: float | None, total_bill: float | None
         if tp > 0:
             return "uncleared"
         return "delivered"
-    # No bill recorded: "fully paid" only makes sense if something was paid.
-    return "cleared" if tp > 0 else "delivered"
+    # Nothing owed (toPay <= 0): a delivered GR has nothing left to collect,
+    # so it is settled — CLEARED, whether or not a payment was ever recorded.
+    return "cleared"
 
 
 def paid_subquery():
@@ -112,7 +118,9 @@ def reporting_status_expr(paid_col):
         (Order.status == "pending", "pending"),
         (and_(tb > 0, tp >= tb - _EPS), "cleared"),
         (and_(tb > 0, tp > 0), "uncleared"),
-        (and_(tb <= 0, tp > 0), "cleared"),
+        # Nothing owed (toPay <= 0) on a delivered GR → settled → cleared,
+        # regardless of whether a payment row exists. Mirrors classify().
+        (tb <= 0, "cleared"),
         else_="delivered",
     )
 

@@ -174,6 +174,10 @@ class GROut(GRExtendedFields):
     packageCount: Optional[int] = None
     weight: Optional[float] = None
     status: OrderStatus
+    # Canonical reporting bucket (pending / cleared / uncleared / delivered),
+    # derived from delivery state + the payments ledger — the same value the
+    # GR list shows. `status` above stays the raw workflow flag.
+    reportingStatus: Optional[str] = None
     notes: Optional[str] = None
     trackingCode: Optional[str] = None
     createdAt: datetime

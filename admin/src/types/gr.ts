@@ -34,6 +34,10 @@ export interface GR {
   packageCount: number | null;
   weight: number | null;
   status: GRStatus;
+  /** Canonical reporting bucket (pending/cleared/uncleared/delivered) — a
+   *  delivered GR with nothing left to pay reads as `cleared`. `status` above
+   *  stays the raw workflow flag. */
+  reportingStatus?: GRStatus | null;
   notes: string | null;
   trackingCode: string | null;
   createdAt: string;
@@ -51,6 +55,7 @@ export interface GRListItem {
   driverId: string | null;
   assignedStaffId: string | null;
   status: GRStatus;
+  reportingStatus?: GRStatus | null;
   createdAt: string;
   hasSlip: boolean;
 }

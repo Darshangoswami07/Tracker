@@ -409,6 +409,8 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
   }, [fetchGRs]);
 
   useEffect(() => {
+    // Mirror of backend `gr_status_service.classify` — a delivered GR with
+    // nothing left to pay is `cleared` (incl. toPay <= 0: nothing owed).
     const reportBucket = (rawStatus: string, toPay: number, totalPaid: number): string => {
       const EPS = 0.005;
       if (rawStatus === 'pending') return 'pending';
@@ -417,7 +419,7 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
         if (totalPaid > 0) return 'uncleared';
         return 'delivered';
       }
-      return totalPaid > 0 ? 'cleared' : 'delivered';
+      return 'cleared';
     };
 
     const onEvent = (evt: GrEvent) => {
@@ -454,7 +456,13 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
           const idx = prev.findIndex((g) => g.id === evt.id);
           if (idx < 0) return prev; // card not on screen — the refetch handles it
           const card = prev[idx];
-          const newBucket = reportBucket(evt.status!, evt.toPay ?? card.toPay, card.totalPaid);
+          const newBucket = reportBucket(
+            evt.status!,
+            evt.toPay ?? card.toPay,
+            // payment events carry the fresh ledger total; status events don't
+            // (the card's cached value is still current for those).
+            evt.totalPaid ?? card.totalPaid,
+          );
           if (newBucket === card.status) return prev;
           const oldBucket = card.status;
           setSummary((s) => {

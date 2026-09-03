@@ -100,9 +100,28 @@ async def _timeline_out(order) -> list:
 async def _gr_out(order) -> GROut:
     attachments = await _attachments_out(order.id)
     extended = {f: getattr(order, f, None) for f in _EXTENDED_FIELDS}
+    # Canonical 4-bucket status for this single GR, from the ONE definition in
+    # gr_status_service — so the detail screen's badge always agrees with the
+    # GR list. A delivered GR with nothing left to pay reads as `cleared`.
+    from app.database.db import session_scope as _sc
+    from app.models.payment import Payment as _Pay
+    from app.services.gr_status_service import classify
+    from sqlalchemy import func as _f, select as _s
+
+    async with _sc() as _sess:
+        _ledger = float(
+            (await _sess.execute(
+                _s(_f.coalesce(_f.sum(_Pay.amount), 0)).where(_Pay.orderId == order.id)
+            )).scalar() or 0
+        )
+    _legacy = float(order.paymentAmount) if order.paymentAmount is not None else 0.0
+    _raw = order.status.value if hasattr(order.status, "value") else order.status
+    reporting_status = classify(_raw != "pending", max(_ledger, _legacy), float(order.toPay or 0))
+
     return GROut(
         id=order.id,
         orderNumber=order.orderNumber,
+        reportingStatus=reporting_status,
         source=getattr(order, "source", None) or "manual",
         slipData=getattr(order, "slipData", None),
         paymentAmount=float(order.paymentAmount) if order.paymentAmount is not None else None,
@@ -132,11 +151,17 @@ async def _gr_out(order) -> GROut:
     )
 
 
-async def _publish_gr_change(order, *, previous_status: str | None, event: str = "gr.status", actor=None) -> None:
+async def _publish_gr_change(
+    order, *, previous_status: str | None, event: str = "gr.status", actor=None,
+    total_paid: float | None = None,
+) -> None:
     """Fan a committed GR change out to connected dashboards. Best-effort — a
-    realtime hiccup must never fail the status write that triggered it, and it
-    adds NO database round trip (the client recomputes the reporting bucket
-    from the payment figures it already has cached for that card)."""
+    realtime hiccup must never fail the status write that triggered it. Adds
+    NO database round trip on the status path (the client recomputes the
+    reporting bucket from the payment figures it already has cached);
+    ``total_paid`` is only passed on the payment path, where a round trip has
+    already happened anyway, so a payment that settles the balance flips the
+    card straight to ``cleared`` with no flicker."""
     try:
         from app.realtime import publish_gr_event
 
@@ -149,6 +174,7 @@ async def _publish_gr_change(order, *, previous_status: str | None, event: str =
             "previousStatus": previous_status,
             "toPay": float(order.toPay) if order.toPay is not None else 0.0,
             "paymentAmount": float(order.paymentAmount) if order.paymentAmount is not None else 0.0,
+            "totalPaid": total_paid,
             "area": getattr(order, "area", None),
             "companyId": str(order.companyId),
             "updatedAt": (order.updatedAt or order.createdAt).isoformat(),

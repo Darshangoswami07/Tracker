@@ -294,7 +294,7 @@ export default function DashboardPage() {
   const revenueCards = revenue
     ? [
         {
-          label: "Today's Revenue",
+          label: 'Collected Today',
           amount: revenue.today,
           icon: CalendarDays,
           color: 'text-blue-600 bg-blue-50',
@@ -331,7 +331,7 @@ export default function DashboardPage() {
           comparison: null,
         },
         {
-          label: 'Outstanding',
+          label: 'Amount to Collect',
           amount: revenue.outstandingAmount,
           icon: TrendingUp,
           color: 'text-amber-600 bg-amber-50',
