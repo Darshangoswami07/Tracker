@@ -1,11 +1,11 @@
-"""Shop (consignor) master data must survive GR deletion.
+"""Shop (consignee) master data must survive GR deletion.
 
 Regression coverage for the bug where "Shops" were a purely derived
-grouping over active `orders.consignorName` rows — deleting a shop's last
-active GR made the shop silently vanish from Admin -> All Shops even though
-nothing about the shop itself was ever deleted. A persisted `Shop` master
-row now backs every consignor, and `GET /shops/counts` is Shop-driven with
-a LEFT OUTER JOIN to Order so a Shop with zero active GRs still appears.
+grouping that also silently vanished when a shop's last active GR was
+deleted. A persisted `Shop` master row now backs every shop, keyed on the
+GR's **consignee** (the destination customer shop — never the consignor),
+and `GET /shops/counts` is Shop-driven with a LEFT OUTER JOIN to Order so a
+Shop with zero active GRs still appears.
 """
 from __future__ import annotations
 
@@ -60,24 +60,27 @@ async def create_company(name: str = "Acme Transport") -> str:
         return str(company.id)
 
 
-def gr_payload(gr_number: str, consignor_name: str, company_id: str) -> dict:
+def gr_payload(gr_number: str, consignee_name: str, company_id: str) -> dict:
+    # The Shop identity is the CONSIGNEE. Consignor is held constant here so
+    # every test's varying name is the one that actually drives shop
+    # creation/lookup.
     return {
         "grNumber": gr_number,
         "companyId": company_id,
         "pickupAddress": "Haldwani Depot",
         "deliveryAddress": "Bageshwar Depot",
         "pickupTime": "2026-08-11T10:00:00Z",
-        "consignorName": consignor_name,
-        "consigneeName": "Suresh & Co",
+        "consignorName": "Jai Kailash Forwarding Agency",
+        "consigneeName": consignee_name,
         "particulars": "3 boxes of textiles",
         "packageCount": 3,
         "weight": 45.5,
     }
 
 
-async def create_gr(client, token, gr_number: str, consignor_name: str, company_id: str) -> str:
+async def create_gr(client, token, gr_number: str, consignee_name: str, company_id: str) -> str:
     resp = await client.post(
-        GR_BASE, json=gr_payload(gr_number, consignor_name, company_id), headers=auth_headers(token)
+        GR_BASE, json=gr_payload(gr_number, consignee_name, company_id), headers=auth_headers(token)
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["data"]["id"]
@@ -154,7 +157,9 @@ async def test_delete_one_gr_leaves_other_gr_and_shop_intact(client):
 
     resp = await client.get(f"{GR_BASE}/{order_2}", headers=auth_headers(token))
     assert resp.status_code == 200, resp.text
-    assert resp.json()["data"]["consignorName"] == "Ramesh Traders"
+    # consignor stays on the GR as metadata; consignee is the shop identity.
+    assert resp.json()["data"]["consigneeName"] == "Ramesh Traders"
+    assert resp.json()["data"]["consignorName"] == "Jai Kailash Forwarding Agency"
 
     resp_deleted = await client.get(f"{GR_BASE}/{order_1}", headers=auth_headers(token))
     assert resp_deleted.status_code == 404
@@ -201,3 +206,51 @@ async def test_shop_gr_delete_flow_matches_real_world_scenario(client):
 
     names = await shop_names(client, token)
     assert "ABC Traders" in names
+
+
+async def test_shop_is_the_consignee_never_the_consignor(client):
+    """GR 7544: consignor 'Jai Kailash Enterprises', consignee 'New Rawal
+    Video' -> the shop is 'New Rawal Video'. The consignor never appears as a
+    shop."""
+    company_id = await create_company()
+    token = await create_active_admin(client, "shop7@example.com", "+15553000007", company_id)
+
+    resp = await client.post(
+        GR_BASE,
+        json={
+            "grNumber": "7544",
+            "companyId": company_id,
+            "pickupAddress": "A",
+            "deliveryAddress": "B",
+            "pickupTime": "2026-08-11T10:00:00Z",
+            "consignorName": "Jai Kailash Enterprises",
+            "consigneeName": "New Rawal Video",
+        },
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 201, resp.text
+
+    names = await shop_names(client, token)
+    assert "New Rawal Video" in names
+    assert "Jai Kailash Enterprises" not in names
+
+
+async def test_consignee_shop_dedupes_on_spacing_and_case(client):
+    """'Shree Bagnath Paper Products', '  shree   bagnath  paper products '
+    and 'SHREE BAGNATH PAPER PRODUCTS' are ONE shop with GR count 3."""
+    company_id = await create_company()
+    token = await create_active_admin(client, "shop8@example.com", "+15553000008", company_id)
+
+    for i, variant in enumerate(
+        [
+            "Shree Bagnath Paper Products",
+            "  shree   bagnath  paper products ",
+            "SHREE BAGNATH PAPER PRODUCTS",
+        ]
+    ):
+        await create_gr(client, token, f"GR75{46 + i}", variant, company_id)
+
+    names = await shop_names(client, token)
+    matches = [n for n in names if n.lower().strip() == "shree bagnath paper products"]
+    assert len(matches) == 1, names
+    assert await shop_gr_count(client, token, matches[0]) == 3

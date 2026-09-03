@@ -91,6 +91,9 @@ export const StaffShopHistoryScreen = ({ route }: { route: { params: { shopName:
           pageSize: PAGE_SIZE,
           status: statusFilter === 'all' ? undefined : statusFilter,
           search: search || undefined,
+          // Historical param name for the shop-identity filter — the backend
+          // matches it against the GR's consignee (the shop). `shopName` is a
+          // normalized consignee name from the All Shops list.
           consignor: shopName,
         });
         setTotal(result.total);

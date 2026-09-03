@@ -583,7 +583,18 @@
     "grShipmentsSingular": "GR shipment",
     "grShipmentsPlural": "GR shipments",
     "allLocations": "Sabhi jagah",
-    "filterByLocation": "Jagah se filter karein"
+    "filterByLocation": "Jagah se filter karein",
+    "deleteAllGRs": "Saare GRs hataein",
+    "deleteAllTitle": "Saare GRs delete karein?",
+    "deleteAllMessage": "Ye sabhi GR/Shipment records hata dega. Ye action undo nahi ho sakta.",
+    "deleteAllTypePrompt": "Confirm karne ke liye DELETE type karein.",
+    "deleteAllTypePlaceholder": "DELETE type karein",
+    "deleteAllConfirm": "Sab Delete Karein",
+    "deleteAllDeleting": "Delete ho raha hai…",
+    "deleteAllSuccess": "Saare {{count}} GRs successfully delete ho gaye.",
+    "deleteAllError": "Saare GRs delete nahi ho paye. Dobara try karein.",
+    "adminActions": "Admin Actions",
+    "deleteAllTitleCount": "Saare {{count}} GRs delete karein?"
   },
   "tracking": {
     "title": "Tracking",

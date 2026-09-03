@@ -583,7 +583,18 @@
     "grShipmentsSingular": "GR shipment",
     "grShipmentsPlural": "GR shipments",
     "allLocations": "All Locations",
-    "filterByLocation": "Filter by Location"
+    "filterByLocation": "Filter by Location",
+    "deleteAllGRs": "Delete All GRs",
+    "deleteAllTitle": "Delete All GRs?",
+    "deleteAllMessage": "This will delete all GR/Shipment records. This action cannot be undone.",
+    "deleteAllTypePrompt": "Type DELETE to confirm.",
+    "deleteAllTypePlaceholder": "Type DELETE",
+    "deleteAllConfirm": "Delete All",
+    "deleteAllDeleting": "Deleting…",
+    "deleteAllSuccess": "All {{count}} GRs deleted successfully.",
+    "deleteAllError": "Unable to delete all GRs. Please try again.",
+    "adminActions": "Admin Actions",
+    "deleteAllTitleCount": "Delete all {{count}} GRs?"
   },
   "tracking": {
     "title": "Tracking",

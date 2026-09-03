@@ -15,7 +15,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { useUserStore } from '../../store/userStore';
 import { useAuthStore } from '../../store/authStore';
-import { canDeleteGR as roleCanDeleteGR } from '../../constants/roles';
+import { canDeleteGR as roleCanDeleteGR, allowedGrStatusTargets } from '../../constants/roles';
 import { AREAS } from '../../constants/areas';
 import type { AppTheme } from '../../theme/types';
 
@@ -570,21 +570,39 @@ export const StaffGRPanelScreen = () => {
               </TouchableOpacity>
             </View>
             <ScrollView style={{ maxHeight: 420 }}>
-              {ALL_STATUSES.map((status) => (
-                <TouchableOpacity
-                  key={status}
-                  style={[styles.optionRow, { borderBottomColor: colors.border }]}
-                  onPress={() => statusPickerFor && updateStatus(statusPickerFor.id, status)}
-                  disabled={!!updatingId}
-                >
-                  <Text style={styles.optionName}>{STATUS_LABELS[status] || status}</Text>
-                  {status === statusPickerFor?.status ? (
-                    <Ionicons name="checkmark" size={18} color={colors.primary} />
-                  ) : (
+              {/* Current status — context only, never an action. */}
+              <View style={[styles.optionRow, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.optionName, { color: colors.textMuted }]}>
+                  Current: {STATUS_LABELS[statusPickerFor?.status ?? ''] || statusPickerFor?.status}
+                </Text>
+                <Ionicons name="checkmark" size={18} color={colors.primary} />
+              </View>
+              {(() => {
+                // Only the transitions THIS role may perform from the GR's
+                // current status (backend enforces the same rule). For Staff
+                // that's Pending → Delivered and nothing else; a non-pending
+                // GR is effectively read-only.
+                const targets = allowedGrStatusTargets(role, statusPickerFor?.status ?? '')
+                  .filter((s) => s !== statusPickerFor?.status);
+                if (targets.length === 0) {
+                  return (
+                    <Text style={[styles.optionName, { color: colors.textMuted, padding: 16 }]}>
+                      No status changes available for this GR.
+                    </Text>
+                  );
+                }
+                return targets.map((status) => (
+                  <TouchableOpacity
+                    key={status}
+                    style={[styles.optionRow, { borderBottomColor: colors.border }]}
+                    onPress={() => statusPickerFor && updateStatus(statusPickerFor.id, status)}
+                    disabled={!!updatingId}
+                  >
+                    <Text style={styles.optionName}>{STATUS_LABELS[status] || status}</Text>
                     <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-                  )}
-                </TouchableOpacity>
-              ))}
+                  </TouchableOpacity>
+                ));
+              })()}
             </ScrollView>
           </View>
         </View>

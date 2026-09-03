@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 
 from app.api.deps import AdminUser, GRAccessUser
 from app.core.config import settings
-from app.core.exceptions import NotFoundError, ValidationBusinessError
+from app.core.exceptions import ForbiddenError, NotFoundError, ValidationBusinessError
 from app.core.tenancy import assert_same_company, effective_company_id, resolve_gr_staff_scope
 from app.models.enums import FileKind, OrderStatus
 from app.repositories.order_attachment_repository import OrderAttachmentRepository
@@ -263,10 +263,11 @@ async def create_gr(payload: GRCreateRequest, admin: GRAccessUser) -> dict:
         if payload.assignedStaffId is not None
         else None
     )
-    # Master-data upsert: the Shop (consignor) must exist independently of
-    # this GR, so it's resolved/created before the Order — deleting the GR
-    # later must never be able to take the Shop down with it.
-    shop = await shop_repo.get_or_create(company_id=company_id, area=creator_area, name=payload.consignorName)
+    # Master-data upsert: the Shop is the GR's **consignee** (the destination
+    # shop) — NEVER the consignor. It must exist independently of this GR, so
+    # it's resolved/created before the Order — deleting the GR later must
+    # never be able to take the Shop down with it.
+    shop = await shop_repo.get_or_create(company_id=company_id, area=creator_area, name=payload.consigneeName)
     order = await order_repo.create_order(
         orderNumber=payload.grNumber,
         companyId=company_id,
@@ -293,6 +294,29 @@ async def create_gr(payload: GRCreateRequest, admin: GRAccessUser) -> dict:
     await order_repo.reconcile_delivered_status(order.id)
     fresh = await order_repo.get_order_with_details(order.id)
     return success((await _gr_out(fresh or order)).model_dump(mode="json"), message="GR created successfully.")
+
+
+@router.delete("")
+async def delete_all_grs(admin: AdminUser) -> dict:
+    """Admin-only bulk delete of every GR/Shipment. Soft-deletes in ONE
+    `UPDATE ... WHERE` statement (`OrderRepository.soft_delete_all_orders`)
+    — the same reversible `deletedAt`/`isActive=False` pattern `delete_gr`
+    already uses for a single GR, just applied to every matching row at
+    once instead of looping N individual deletes. `AdminUser`-gated like
+    `delete_gr` (ADMIN/SUPER_ADMIN only — Company Admin/Staff/Driver get a
+    403), and scoped via the same `effective_company_id` every other GR
+    route uses: unscoped (every company) only for platform ADMIN/SUPER_ADMIN,
+    scoped to the caller's own company for everyone else who could reach
+    this dependency. Ignores all list filters (search/status/area/shop/
+    pagination) by design — "delete all" always means every GR in scope,
+    not merely what happens to be on screen. Never touches Shop (master
+    data — consignee identity), Payment, User, Employee, Driver, Vehicle,
+    or Company rows; `order_status_history` rows are left in place (no
+    physical delete happens), so its NOT NULL `orderId` FK is never at
+    risk."""
+    company_id = await effective_company_id(admin)
+    deleted_count = await order_repo.soft_delete_all_orders(company_id)
+    return success({"deletedCount": deleted_count}, message="All GRs deleted successfully.")
 
 
 @router.post("/ocr-extract")
@@ -337,12 +361,14 @@ async def update_gr(order_id: UUID, payload: GRUpdateRequest, admin: GRAccessUse
     # that would let a company-scoped caller move a GR out of their own
     # tenant (or a stray payload field move it into another one).
     updates.pop("companyId", None)
-    if "consignorName" in updates:
-        # Re-point at the (possibly new) Shop master record for the edited
-        # name; the old Shop, if now unused, is left in place untouched —
-        # Shops are never deleted as a side effect of editing/removing GRs.
+    if "consigneeName" in updates:
+        # The Shop identity follows the **consignee**. Re-point at the
+        # (possibly new) Shop master record for the edited consignee name; the
+        # old Shop, if now unused, is left in place untouched — Shops are
+        # never deleted as a side effect of editing/removing GRs. Editing the
+        # consignor never touches the Shop link.
         shop = await shop_repo.get_or_create(
-            company_id=existing.companyId, area=existing.area, name=updates["consignorName"]
+            company_id=existing.companyId, area=existing.area, name=updates["consigneeName"]
         )
         updates["shopId"] = shop.id if shop else None
     order = await order_repo.update_fields(order_id, **updates)
@@ -362,6 +388,22 @@ async def update_gr_status(order_id: UUID, payload: GRStatusUpdateRequest, admin
     if order is None:
         raise NotFoundError("GR not found.")
     await assert_same_company(admin, order.companyId)
+    # Staff may only act on a GR that is actually theirs: assigned to them
+    # (`assignedStaffId`), or — for a GR nobody is assigned to — routed to
+    # their area. A GR assigned to a *different* staff member is off-limits.
+    staff_scope = await resolve_gr_staff_scope(admin)
+    if staff_scope is not None:
+        employee_id, staff_area = staff_scope
+        owns = (
+            (employee_id is not None and order.assignedStaffId == employee_id)
+            or (order.assignedStaffId is None and staff_area and order.area == staff_area)
+        )
+        if not owns:
+            raise ForbiddenError("You can only update GRs assigned to you.")
+    # Role-gated transition: Staff = pending→delivered only; Admin = unchanged.
+    from app.services.gr_status_service import assert_status_transition_allowed
+
+    assert_status_transition_allowed(admin, order.status, payload.status)
     updated = await order_repo.update_status(order_id, payload.status.value, user_id=admin.id)
     return success((await _gr_out(updated)).model_dump(mode="json"), message="GR status updated.")
 

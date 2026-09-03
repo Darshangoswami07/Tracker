@@ -1,10 +1,14 @@
-"""Shop (consignor) master entity.
+"""Shop (consignee) master entity.
 
-A Shop represents a consignor business — master data, independent of any
-individual GR/shipment. GRs (``Order`` rows) reference a Shop via
-``Order.shopId``; deleting a GR (soft-delete) never touches this table, and
-a Shop with zero GRs is still a valid, listable record (see
-``GET /admin/orders/shops/counts``).
+A Shop represents a **consignee** — the actual customer/destination shop a
+GR is delivered to. It is master data, independent of any individual
+GR/shipment. The shop identity ALWAYS comes from ``Order.consigneeName``,
+never ``Order.consignorName`` (the consignor is the forwarding/source agent
+and stays on the GR as metadata only).
+
+GRs (``Order`` rows) reference a Shop via ``Order.shopId``; deleting a GR
+(soft-delete) never touches this table, and a Shop with zero GRs is still a
+valid, listable record (see ``GET /admin/orders/shops/counts``).
 """
 from __future__ import annotations
 
@@ -27,7 +31,8 @@ class Shop(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # Mirrors Order.area — the fixed region name ("Bageshwar", "Almora",
     # "Garur Someshwar") or None for area-less (Admin-created) GRs.
     area: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
-    # Mirrors Order.consignorName — the shop/consignor's display name.
+    # Mirrors Order.consigneeName — the consignee/destination shop's display
+    # name (whitespace-normalized; matched case-insensitively on write).
     name: Mapped[str] = mapped_column(String(160), index=True)
 
     orders: Mapped[list["Order"]] = relationship(back_populates="shop", lazy="noload")

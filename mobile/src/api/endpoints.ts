@@ -57,6 +57,11 @@ export const ENDPOINTS = {
       assignDriver: (id: string) => `/admin/orders/${id}/assign-driver`,
       assignStaff: (id: string) => `/admin/orders/${id}/assign-staff`,
       remove: (id: string) => `/admin/orders/${id}`,
+      /** Admin-only bulk soft-delete of every GR in scope. Same collection
+       * path as `list`/`create` — the HTTP method (`DELETE`) is what makes
+       * this "delete all", not a distinct `/all` segment (which would
+       * otherwise collide with the `/{id}` detail route). */
+      removeAll: '/admin/orders',
       track: (grNumber: string) => `/admin/orders/track/${encodeURIComponent(grNumber)}`,
       attachments: (id: string) => `/admin/orders/${id}/attachments`,
       attachmentFile: (id: string, attachmentId: string) => `/admin/orders/${id}/attachments/${attachmentId}/file`,

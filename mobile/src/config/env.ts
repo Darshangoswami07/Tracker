@@ -27,6 +27,13 @@ export const ENV = {
   // Timeouts in milliseconds.
   requestTimeoutMs: 15000,
   refreshTimeoutMs: 10000,
+  // Excel GR imports are a single synchronous request that creates every row
+  // in Neon (see backend `bulk_import`). A large sheet legitimately takes
+  // minutes, so this ONE request opts out of `requestTimeoutMs` and uses a
+  // generous 10-minute ceiling instead (finite, so a truly hung socket still
+  // fails eventually). Applied per-request in `importRepository` — every
+  // other endpoint keeps `requestTimeoutMs`.
+  excelImportTimeoutMs: 10 * 60_000,
   tokenRefreshGraceMs: 60_000,
   isDev: __DEV__,
 } as const;

@@ -29,3 +29,28 @@ export const canDeleteGR = (role?: string | null): boolean =>
  * navigator (`AdminTabs.tsx`), not the Staff shell. */
 export const canImportExcel = (role?: string | null): boolean =>
   role === ROLES.ADMIN || role === ROLES.SUPER_ADMIN;
+
+/** All four canonical GR reporting statuses (backend `OrderStatus` /
+ * `gr_status_service.REPORTING_STATUSES`). */
+export const GR_STATUSES = ['pending', 'cleared', 'uncleared', 'delivered'] as const;
+
+/**
+ * Workflow statuses `role` is allowed to move a GR *to*, given its current
+ * status. Mirrors the backend rule in
+ * `gr_status_service.assert_status_transition_allowed` — the backend is the
+ * real gate; this only keeps the UI from offering an option the API rejects.
+ *
+ *  - Staff / Employee: their ONLY workflow step is Pending → Delivered.
+ *    A GR that is not Pending is read-only for them.
+ *  - Every other GR-access role (Admin / Owner / Dispatcher …): unchanged —
+ *    any status, matching the existing admin workflow.
+ */
+export const allowedGrStatusTargets = (
+  role: string | null | undefined,
+  currentStatus: string,
+): string[] => {
+  if (role === ROLES.STAFF || role === ROLES.EMPLOYEE) {
+    return currentStatus === 'pending' ? ['delivered'] : [];
+  }
+  return [...GR_STATUSES];
+};

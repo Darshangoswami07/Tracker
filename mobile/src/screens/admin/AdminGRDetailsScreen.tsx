@@ -19,6 +19,7 @@ import { persistSlipImage } from '../../services/slipStorage';
 import { useAppNav } from '../../hooks/useAppNav';
 import { useTranslation } from 'react-i18next';
 import { PAYMENT_MODES, formatPaymentMode } from '../../constants/paymentModes';
+import { allowedGrStatusTargets } from '../../constants/roles';
 import type { AppTheme } from '../../theme/types';
 
 interface GRAttachment {
@@ -89,8 +90,6 @@ const SOURCE_LABELS: Record<string, string> = {
   slip: 'Slip Upload',
   excel: 'Excel Import',
 };
-
-const ALL_STATUSES = ['pending', 'cleared', 'uncleared', 'delivered'];
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
@@ -758,12 +757,32 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
               </TouchableOpacity>
             </View>
             <ScrollView style={{ maxHeight: 420 }}>
-              {ALL_STATUSES.map((status) => (
-                <TouchableOpacity key={status} style={[styles.optionRow, { borderBottomColor: colors.border }]} onPress={() => updateStatus(status)} disabled={updating}>
-                  <Text style={[styles.optionName, { color: colors.textPrimary }]}>{STATUS_LABELS[status] || status}</Text>
-                  {status === gr?.status ? <Ionicons name="checkmark" size={18} color={colors.primary} /> : updating ? null : <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />}
-                </TouchableOpacity>
-              ))}
+              <View style={[styles.optionRow, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.optionName, { color: colors.textMuted }]}>
+                  Current: {STATUS_LABELS[gr?.status ?? ''] || gr?.status}
+                </Text>
+                <Ionicons name="checkmark" size={18} color={colors.primary} />
+              </View>
+              {(() => {
+                // Transitions THIS role may perform from the GR's current
+                // status — Staff = Pending → Delivered only (backend enforces
+                // the same). Admin keeps every option.
+                const targets = allowedGrStatusTargets(currentUser?.role, gr?.status ?? '')
+                  .filter((s) => s !== gr?.status);
+                if (targets.length === 0) {
+                  return (
+                    <Text style={[styles.optionName, { color: colors.textMuted, padding: 16 }]}>
+                      No status changes available for this GR.
+                    </Text>
+                  );
+                }
+                return targets.map((status) => (
+                  <TouchableOpacity key={status} style={[styles.optionRow, { borderBottomColor: colors.border }]} onPress={() => updateStatus(status)} disabled={updating}>
+                    <Text style={[styles.optionName, { color: colors.textPrimary }]}>{STATUS_LABELS[status] || status}</Text>
+                    {updating ? null : <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />}
+                  </TouchableOpacity>
+                ));
+              })()}
             </ScrollView>
           </View>
         </View>

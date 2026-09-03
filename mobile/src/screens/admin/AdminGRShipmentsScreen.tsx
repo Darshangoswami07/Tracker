@@ -149,6 +149,23 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
   const [deleting, setDeleting] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
 
+  // "Delete All GRs" — Admin-only, gated by the same role check as the
+  // per-card delete action. A second explicit step (typing DELETE) is
+  // required before the destructive request fires, since this removes
+  // every GR in scope rather than one.
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  const [deleteAllConfirmText, setDeleteAllConfirmText] = useState('');
+  const [deletingAll, setDeletingAll] = useState(false);
+  // Admin-only header entry point (⋮) — separate from the "+" add menu so
+  // Delete All is directly visible/reachable from this page's header
+  // instead of buried inside Create-GR/Import-Excel options.
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
+  // The TRUE unfiltered GR total in scope — independent of whatever
+  // search/status/shop-owner/location filter is currently applied on this
+  // screen, since Delete All always deletes every authorized GR regardless
+  // of what's on screen. `null` while it's being fetched.
+  const [deleteAllTotalCount, setDeleteAllTotalCount] = useState<number | null>(null);
+
   useEffect(() => {
     if (!actionMessage) return;
     const timer = setTimeout(() => setActionMessage(null), 4000);
@@ -330,7 +347,7 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusTab, consignorFilter, effectiveArea, dateFilter]);
 
-  // Load distinct consignor names for the shop-owner filter dropdown.
+  // Load distinct shop names (consignees) for the shop-owner filter dropdown.
   useEffect(() => {
     let cancelled = false;
     orderRepository.getDistinctConsignors(effectiveArea || undefined).then((names) => {
@@ -341,10 +358,32 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
 
   const onRefresh = () => fetchGRs(1, 'refresh');
 
+  const confirmDeleteAllGRs = async () => {
+    if (deletingAll || deleteAllConfirmText.trim().toUpperCase() !== 'DELETE') return;
+    setDeletingAll(true);
+    try {
+      const deletedCount = await orderRepository.deleteAll();
+      setDeleteAllOpen(false);
+      setDeleteAllConfirmText('');
+      setActionMessage({ kind: 'success', text: t('gr.deleteAllSuccess', { count: deletedCount }) });
+      // Re-fetch from the server rather than zeroing state locally — this
+      // is the same authoritative aggregate query the initial load uses, so
+      // every card (counts, financial totals, today's collection) and the
+      // list itself land on the real post-delete numbers in one shot.
+      await fetchGRs(1, 'initial');
+    } catch {
+      setActionMessage({ kind: 'error', text: t('gr.deleteAllError') });
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
   const onAddPress = () => {
     if (canImportExcel) setAddMenuOpen(true);
     else navigate('CreateGR');
   };
+
+  const onAdminMenuPress = () => setAdminMenuOpen(true);
 
   const loadMore = () => {
     if (!inFlightRef.current && !loadingMore && hasMore) fetchGRs(page + 1, 'more');
@@ -378,6 +417,11 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
         title={fixedArea ?? t('gr.grShipments')}
         leftAction={{ icon: 'chevron-back', onPress: handleBack }}
         rightAction={{ icon: 'add', onPress: onAddPress, accessibilityLabel: 'Create GR' }}
+        secondaryRightAction={
+          canDeleteGR
+            ? { icon: 'ellipsis-vertical', onPress: onAdminMenuPress, accessibilityLabel: t('gr.deleteAllGRs') }
+            : undefined
+        }
       />
 
       <ScrollView
@@ -775,6 +819,85 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
         </Pressable>
       </Modal>
 
+      {/* Admin actions menu — opened from the header's "⋮" icon (always
+          visible on this page for Admin/Super Admin, separate from the "+"
+          Create/Import menu above so this destructive action isn't buried
+          behind an unrelated affordance). */}
+      {canDeleteGR && (
+        <Modal visible={adminMenuOpen} transparent animationType="fade" onRequestClose={() => setAdminMenuOpen(false)}>
+          <Pressable style={[styles.menuBackdrop, { backgroundColor: colors.overlay }]} onPress={() => setAdminMenuOpen(false)}>
+            <View style={[styles.menuCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.lg }]}>
+              <Text style={[styles.menuTitle, { color: colors.textMuted }]}>{t('gr.adminActions')}</Text>
+              <TouchableOpacity
+                style={styles.menuRow}
+                onPress={() => {
+                  setAdminMenuOpen(false);
+                  setDeleteAllConfirmText('');
+                  setDeleteAllTotalCount(null);
+                  setDeleteAllOpen(true);
+                  // Always the true, unfiltered total — never the current
+                  // search/status/shop-owner/location-filtered `summary.total`.
+                  orderRepository.getStatusCounts().then((sc) => setDeleteAllTotalCount(sc.total)).catch(() => setDeleteAllTotalCount(null));
+                }}
+              >
+                <Ionicons name="trash-bin-outline" size={18} color={colors.error} />
+                <Text style={[styles.menuRowText, { color: colors.error }]}>{t('gr.deleteAllGRs')}</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Modal>
+      )}
+
+      {/* Delete All GRs — Admin-only, requires typing DELETE before the
+          confirm button is enabled (extra safeguard on top of the plain
+          Cancel/Confirm dialog, since this affects every GR in scope). */}
+      <Modal visible={deleteAllOpen} transparent animationType="fade" onRequestClose={() => { if (!deletingAll) { setDeleteAllOpen(false); setDeleteAllConfirmText(''); } }}>
+        <Pressable
+          style={[styles.menuBackdrop, { backgroundColor: colors.overlay }]}
+          onPress={() => { if (!deletingAll) { setDeleteAllOpen(false); setDeleteAllConfirmText(''); } }}
+        >
+          <Pressable style={[styles.deleteAllCard, { backgroundColor: colors.surface, borderRadius: radii.xl, ...shadows.lg }]} onPress={() => {}}>
+            <Text style={[styles.deleteAllTitle, { color: colors.textPrimary, fontFamily: fonts.family }]}>
+              {deleteAllTotalCount ? t('gr.deleteAllTitleCount', { count: deleteAllTotalCount }) : t('gr.deleteAllTitle')}
+            </Text>
+            <Text style={[styles.deleteAllMessage, { color: colors.textSecondary, fontFamily: fonts.family }]}>{t('gr.deleteAllMessage')}</Text>
+            <Text style={[styles.deleteAllPrompt, { color: colors.textMuted, fontFamily: fonts.family }]}>{t('gr.deleteAllTypePrompt')}</Text>
+            <TextInput
+              value={deleteAllConfirmText}
+              onChangeText={setDeleteAllConfirmText}
+              placeholder={t('gr.deleteAllTypePlaceholder')}
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              editable={!deletingAll}
+              style={[styles.deleteAllInput, { color: colors.textPrimary, borderColor: colors.borderStrong, backgroundColor: colors.background }]}
+            />
+            <View style={styles.deleteAllActions}>
+              <TouchableOpacity
+                style={[styles.deleteAllBtn, styles.deleteAllCancelBtn, { borderColor: colors.borderStrong }]}
+                onPress={() => { if (!deletingAll) { setDeleteAllOpen(false); setDeleteAllConfirmText(''); } }}
+                disabled={deletingAll}
+              >
+                <Text style={[styles.deleteAllBtnText, { color: colors.textPrimary }]}>{t('gr.cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.deleteAllBtn,
+                  { backgroundColor: colors.error },
+                  (deletingAll || deleteAllConfirmText.trim().toUpperCase() !== 'DELETE') && styles.deleteAllBtnDisabled,
+                ]}
+                onPress={confirmDeleteAllGRs}
+                disabled={deletingAll || deleteAllConfirmText.trim().toUpperCase() !== 'DELETE'}
+              >
+                <Text style={[styles.deleteAllBtnText, { color: '#fff' }]}>
+                  {deletingAll ? t('gr.deleteAllDeleting') : t('gr.deleteAllConfirm')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <ConfirmDialog
         visible={!!deleteTarget}
         title={t('gr.deleteTitle', { number: deleteTarget?.orderNumber ?? '' })}
@@ -855,6 +978,19 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     menuTitle: { fontSize: theme.fonts.size.xs, fontWeight: '700', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4 },
     menuRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
     menuRowText: { fontSize: theme.fonts.size.md, fontWeight: '600' },
+    deleteAllCard: { width: '100%', maxWidth: 400, padding: 24 },
+    deleteAllTitle: { fontSize: theme.fonts.size.xl, fontWeight: '800' },
+    deleteAllMessage: { fontSize: theme.fonts.size.md, fontWeight: '500', lineHeight: 22, marginTop: 12 },
+    deleteAllPrompt: { fontSize: theme.fonts.size.sm, fontWeight: '600', marginTop: 16, marginBottom: 8 },
+    deleteAllInput: {
+      borderWidth: 1, borderRadius: theme.radii.md, paddingHorizontal: 14, paddingVertical: 12,
+      fontSize: theme.fonts.size.md, fontWeight: '700',
+    },
+    deleteAllActions: { flexDirection: 'row', gap: 12, marginTop: 24 },
+    deleteAllBtn: { flex: 1, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+    deleteAllCancelBtn: { borderWidth: 1 },
+    deleteAllBtnDisabled: { opacity: 0.5 },
+    deleteAllBtnText: { fontSize: theme.fonts.size.md, fontWeight: '700' },
     bottomSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 24, paddingBottom: 40, paddingTop: 8 },
     sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: theme.colors.border, alignSelf: 'center', marginBottom: 16 },
     sheetTitle: { fontSize: theme.fonts.size.lg, fontWeight: '800', marginBottom: 16 },
