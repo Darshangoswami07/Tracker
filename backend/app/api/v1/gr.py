@@ -160,29 +160,41 @@ async def list_grs(
         area=effective_area,
         consignor=consignor,
         staff_scope=staff_scope,
+        # The list serializer below reads Order columns only (+ its own two
+        # grouped payment/attachment queries) — skip the 8 selectin
+        # relationship loads a plain select(Order) would otherwise trigger.
+        columns_only=True,
     )
-    # One grouped query for the whole page's payment totals (no N+1).
+    # Two grouped lookups for the whole page (never per-GR): payment totals and
+    # attachments. They are independent, so run them CONCURRENTLY (each on its
+    # own connection) — one round trip instead of two against a remote DB.
     paid_by_order: dict = {}
     attachments_by_order: dict = {}
     if orders:
+        import asyncio as _asyncio
+
         from sqlalchemy import func as _func, select as _select
 
         from app.database.db import session_scope
         from app.models.payment import Payment
 
         order_ids = [o.id for o in orders]
-        async with session_scope() as _s:
-            rows = (
-                await _s.execute(
-                    _select(Payment.orderId, _func.coalesce(_func.sum(Payment.amount), 0))
-                    .where(Payment.orderId.in_(order_ids))
-                    .group_by(Payment.orderId)
-                )
-            ).all()
-        paid_by_order = {oid: float(total or 0) for oid, total in rows}
-        # One grouped query for the whole page's attachments (avoids an
-        # N+1 per-order round trip that dominates latency on a remote DB).
-        attachments_by_order = await attachment_repo.find_by_orders(order_ids)
+
+        async def _load_paid() -> dict:
+            async with session_scope() as _s:
+                rows = (
+                    await _s.execute(
+                        _select(Payment.orderId, _func.coalesce(_func.sum(Payment.amount), 0))
+                        .where(Payment.orderId.in_(order_ids))
+                        .group_by(Payment.orderId)
+                    )
+                ).all()
+            return {oid: float(total or 0) for oid, total in rows}
+
+        paid_by_order, attachments_by_order = await _asyncio.gather(
+            _load_paid(),
+            attachment_repo.find_by_orders(order_ids),
+        )
 
     from app.services.gr_status_service import classify
 

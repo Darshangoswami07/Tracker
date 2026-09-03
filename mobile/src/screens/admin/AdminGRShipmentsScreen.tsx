@@ -222,17 +222,30 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
   };
 
   const inFlightRef = useRef(false);
+  // Monotonic id of the most recent list fetch — a response whose id no
+  // longer matches is stale (a newer filter/search fetch superseded it).
+  const reqIdRef = useRef(0);
 
   const fetchGRs = useCallback(
     async (pageNum: number, mode: 'initial' | 'refresh' | 'more' | 'reload' = 'initial') => {
-      if (inFlightRef.current && mode !== 'more') return;
+      // Stale-response guard: a filter/search change fires a fresh fetch; if
+      // the older (slower) one lands after it, its results must be discarded,
+      // not painted over the newer ones. `mode === 'more'` keeps its own lane.
+      const reqId = ++reqIdRef.current;
+      const isStale = () => mode !== 'more' && reqId !== reqIdRef.current;
+
+      if (inFlightRef.current && mode === 'more') return;
       inFlightRef.current = true;
       if (mode === 'initial') setStatus('loading');
       if (mode === 'refresh') setRefreshing(true);
       if (mode === 'more') setLoadingMore(true);
       try {
         const dateFrom = dateFilterToIso(dateFilter);
-        const result = await orderRepository.list({
+        // Fire the list AND the summary aggregates together (they are
+        // independent) so the ~2s list request overlaps the counts request
+        // instead of running after it. The list is awaited first and rendered
+        // immediately; the counts settle a moment later without blocking it.
+        const listPromise = orderRepository.list({
           page: pageNum,
           pageSize: PAGE_SIZE,
           status: FILTER_TO_STATUS[statusTab],
@@ -241,26 +254,37 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
           consignor: consignorFilter || undefined,
           dateFrom,
         });
+        const summaryPromise =
+          mode === 'more'
+            ? null
+            : Promise.all([
+                orderRepository.getStatusCounts({
+                  search: search || undefined,
+                  area: effectiveArea || undefined,
+                  consignor: consignorFilter || undefined,
+                  dateFrom,
+                }),
+                orderRepository.getTodayCollection(),
+              ]);
+
+        const result = await listPromise;
+        if (isStale()) return;
         const rawItems: LocalGRListItem[] = result.items;
 
-        // Fetch payment data for current page items
-        const enrichedItems: GRCardItem[] = await Promise.all(
-          rawItems.map(async (item) => {
-            try {
-              const summary = await orderRepository.getPaymentSummary(item.id);
-              return {
-                ...item,
-                toPay: summary?.toPay ?? 0,
-                totalPaid: summary?.totalPaid ?? 0,
-                outstanding: (summary?.toPay ?? 0) - (summary?.totalPaid ?? 0),
-                paymentCount: summary?.paymentCount ?? 0,
-                paymentStatus: summary?.paymentStatus ?? 'unpaid',
-              };
-            } catch {
-              return { ...item, toPay: 0, totalPaid: 0, outstanding: 0, paymentCount: 0, paymentStatus: 'unpaid' };
-            }
-          })
-        );
+        // `GET /admin/orders` already returns `toPay` + `totalPaid` per row
+        // (one grouped payment query server-side — see `list_grs`), so the
+        // card's money blocks need NO per-GR request. This map is pure and
+        // synchronous: it was the ~1-request-per-card N+1 that made the page
+        // fire hundreds of XHRs. `paymentCount` / `paymentStatus` aren't shown
+        // on the list card (the GR detail screen fetches its own).
+        const enrichedItems: GRCardItem[] = rawItems.map((item) => ({
+          ...item,
+          toPay: item.toPay ?? 0,
+          totalPaid: item.totalPaid ?? 0,
+          outstanding: (item.toPay ?? 0) - (item.totalPaid ?? 0),
+          paymentCount: 0,
+          paymentStatus: 'unpaid',
+        }));
 
         setItems((prev) => (mode === 'more' ? [...prev, ...enrichedItems] : enrichedItems));
         setHasMore(enrichedItems.length === PAGE_SIZE);
@@ -268,39 +292,39 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
         setError(null);
         setStatus('success');
 
-        // Summary counts + money totals come from ONE server-side aggregate
-        // query over the full filtered dataset (Neon) — the same canonical
-        // classification the Admin Dashboard uses. No per-GR requests, no
-        // client-side status maths.
-        if (mode !== 'more') {
-          const [sc, todayCollection] = await Promise.all([
-            orderRepository.getStatusCounts({
-              search: search || undefined,
-              area: effectiveArea || undefined,
-              consignor: consignorFilter || undefined,
-              dateFrom,
-            }),
-            orderRepository.getTodayCollection(),
-          ]);
-          setSummary({
-            total: sc.total,
-            pending: sc.pending,
-            cleared: sc.cleared,
-            uncleared: sc.uncleared,
-            delivered: sc.delivered,
-            totalToPay: sc.totalToPay,
-            totalReceived: sc.totalReceived,
-            totalOutstanding: sc.totalOutstanding,
-            todayCollection,
-          });
+        // Summary counts + money totals — ONE server-side aggregate over the
+        // full filtered dataset. Already in flight (see `summaryPromise`); a
+        // failure here must NOT wipe the list that just rendered.
+        if (summaryPromise) {
+          try {
+            const [sc, todayCollection] = await summaryPromise;
+            if (isStale()) return;
+            setSummary({
+              total: sc.total,
+              pending: sc.pending,
+              cleared: sc.cleared,
+              uncleared: sc.uncleared,
+              delivered: sc.delivered,
+              totalToPay: sc.totalToPay,
+              totalReceived: sc.totalReceived,
+              totalOutstanding: sc.totalOutstanding,
+              todayCollection,
+            });
+          } catch {
+            /* leave the previous counts in place */
+          }
         }
     } catch {
-        setError(t('gr.couldNotLoadEntries'));
-        setStatus('error');
+        if (!isStale()) {
+          setError(t('gr.couldNotLoadEntries'));
+          setStatus('error');
+        }
       } finally {
-        inFlightRef.current = false;
-        setRefreshing(false);
-        setLoadingMore(false);
+        if (!isStale()) {
+          inFlightRef.current = false;
+          setRefreshing(false);
+          setLoadingMore(false);
+        }
       }
     },
     [search, statusTab, consignorFilter, effectiveArea, dateFilter]
@@ -366,14 +390,24 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusTab, consignorFilter, effectiveArea, dateFilter]);
 
-  // Load distinct shop names (consignees) for the shop-owner filter dropdown.
+  // Shop-owner (consignee) dropdown options — LAZY: this list is only needed
+  // when the user actually opens the "Shop Owner" filter sheet, so it no
+  // longer costs a request on every initial page load. Re-fetched when the
+  // sheet is (re)opened for a different area; cached otherwise.
+  const consignorOptsAreaRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
+    if (!consignorSheetOpen) return;
+    if (consignorOptsAreaRef.current === (effectiveArea || null) && consignorOptions.length > 0) return;
     let cancelled = false;
     orderRepository.getDistinctConsignors(effectiveArea || undefined).then((names) => {
-      if (!cancelled) setConsignorOptions(names);
+      if (!cancelled) {
+        setConsignorOptions(names);
+        consignorOptsAreaRef.current = effectiveArea || null;
+      }
     });
     return () => { cancelled = true; };
-  }, [effectiveArea]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [consignorSheetOpen, effectiveArea]);
 
   const onRefresh = () => fetchGRs(1, 'refresh');
 
