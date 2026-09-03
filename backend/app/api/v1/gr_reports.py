@@ -553,30 +553,34 @@ async def bulk_import(
     already exist (active), physically replaces soft-deleted ones, records one
     ``import_history`` row for the batch. Ported from the mobile
     ``importRepository.bulkImportGRs``."""
+    # `None` for platform ADMIN/SUPER_ADMIN (they may act across companies);
+    # a concrete id for a company-scoped admin/owner.
     company_id = await effective_company_id(admin)
-    if company_id is None:  # platform ADMIN/SUPER_ADMIN — use their own company
-        company_id = getattr(admin, "companyId", None)
-    if company_id is None:
-        raise ValidationBusinessError(
-            "Your account is not linked to a company. Ask an administrator to "
-            "assign one before importing GRs."
-        )
     staff_area = _effective_area(admin)
     is_staff = staff_area is not None
 
     # Resolve + validate the batch-level staff assignment (the mandatory
     # "Select Staff" step). The backend never trusts the frontend's choice:
-    # the target user must exist, belong to this company, actually be a
-    # staff-tier role, be active, and — when a location was also picked —
-    # actually belong to that location. `assignedStaffId` on every row this
-    # batch creates comes from here (same resolution `assign-staff` uses).
+    # the target user must EXIST, be a staff-tier role, be active, and — when a
+    # location was also picked — belong to that location. `assignedStaffId` on
+    # every row this batch creates comes from here (same resolution
+    # `assign-staff` uses). The frontend sends the staff member's **User id**
+    # (`AdminUserOut.id`, exactly what `GET /admin/users?role=staff` returns).
     staff_employee_id = None
+    target_staff = None
     if payload.staffId is not None:
         from app.models.enums import RegistrationStatus, UserRole
         from app.services.user_service import user_service
 
         target_staff = await user_service.get_by_id(str(payload.staffId))
-        if target_staff is None or target_staff.companyId != company_id:
+        logger.info(
+            "GR import: staffId=%s -> resolved user=%s company=%s role=%s",
+            payload.staffId,
+            getattr(target_staff, "id", None),
+            getattr(target_staff, "companyId", None),
+            getattr(target_staff, "role", None),
+        )
+        if target_staff is None:
             raise ValidationBusinessError("Selected staff member was not found.")
         if target_staff.role not in (UserRole.EMPLOYEE, UserRole.STAFF):
             raise ValidationBusinessError("Selected user is not a staff member.")
@@ -584,6 +588,28 @@ async def bulk_import(
             raise ValidationBusinessError(
                 f"{target_staff.firstName} {target_staff.lastName} is not an active staff member."
             )
+        if company_id is None:
+            # Platform ADMIN/SUPER_ADMIN: the batch belongs to the selected
+            # staff member's OWN company (the company whose GRs this staff
+            # works). This is what makes the "Select Staff" list — which for a
+            # platform admin spans every company — actually usable.
+            company_id = target_staff.companyId
+        elif target_staff.companyId != company_id:
+            # A company-scoped admin/owner picked someone outside their tenant.
+            raise ValidationBusinessError(
+                f"{target_staff.firstName} {target_staff.lastName} belongs to a "
+                "different company and cannot be assigned GRs in this import."
+            )
+
+    if company_id is None:  # platform admin, no staff picked, no own company
+        company_id = getattr(admin, "companyId", None)
+    if company_id is None:
+        raise ValidationBusinessError(
+            "Your account is not linked to a company. Ask an administrator to "
+            "assign one before importing GRs."
+        )
+
+    if target_staff is not None:
         if payload.area and target_staff.area and target_staff.area != payload.area:
             raise ValidationBusinessError(
                 f"{target_staff.firstName} {target_staff.lastName} is not assigned to {payload.area}."
