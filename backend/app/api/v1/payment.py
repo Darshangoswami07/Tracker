@@ -141,7 +141,11 @@ async def list_payment_history(
     per-payment / per-order follow-up request. Money totals for the summary
     cards come from the existing ``GET /admin/orders/receiving/overview``."""
     company_id = await effective_company_id(admin)
-    conds = [Order.deletedAt.is_(None)]
+    # Payment History is a historical financial record: a payment stays
+    # visible even after its GR is soft-deleted by an Admin (the Order row
+    # and its number/consignee survive the soft delete). Current operational
+    # GR screens keep their own deletedAt filter.
+    conds: list = []
     if company_id is not None:
         conds.append(Order.companyId == company_id)
     if search and search.strip():

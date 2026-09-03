@@ -133,6 +133,49 @@ async def test_undelivered_partial_payment_stays_pending(client):
     assert not any(i["id"] == gr_id for i in r.json()["data"]["items"])
 
 
+async def test_status_filter_returns_only_that_bucket(client):
+    """`GET /admin/orders?status=<bucket>` must return ONLY GRs whose canonical
+    reporting status is that bucket — and every returned item's
+    ``reportingStatus`` must equal the requested filter. Regression for the
+    Staff "Uncleared" filter showing a Cleared GR."""
+    token = await create_active_admin(client, "sfilter@example.com", "+15559000222")
+    company_id = await create_company("Status Filter Co")
+    h = auth_headers(token)
+
+    async def make(num: str, bill: int, deliver: bool, pay: int) -> str:
+        p = gr_payload(num, company_id)
+        p["toPay"] = bill
+        gid = (await client.post(GR_BASE, json=p, headers=h)).json()["data"]["id"]
+        if deliver:
+            assert (await client.patch(f"{GR_BASE}/{gid}/status",
+                    json={"status": "delivered"}, headers=h)).status_code == 200
+        if pay:
+            assert (await client.post(PAYMENTS, json={"orderId": gid, "amount": pay,
+                    "recordedBy": None}, headers=h)).status_code == 201
+        return gid
+
+    ids = {
+        "pending": await make("SF-PEND", 500, deliver=False, pay=0),
+        "delivered": await make("SF-DELV", 500, deliver=True, pay=0),
+        "uncleared": await make("SF-UNCL", 500, deliver=True, pay=200),
+        "cleared": await make("SF-CLRD", 500, deliver=True, pay=500),
+    }
+
+    for bucket, expected_id in ids.items():
+        r = await client.get(GR_BASE, headers=h, params={"status": bucket, "page_size": 100})
+        assert r.status_code == 200, r.text
+        items = r.json()["data"]["items"]
+        got = {i["id"] for i in items}
+        assert got == {expected_id}, f"{bucket}: {[(i['orderNumber'], i['reportingStatus']) for i in items]}"
+        # Every returned row genuinely IS that bucket.
+        assert all(i["reportingStatus"] == bucket for i in items), bucket
+        assert all(i["id"] != ids["cleared"] or bucket == "cleared" for i in items)
+
+    # And the counts endpoint agrees with the filtered lists.
+    c = (await client.get(COUNTS, headers=h)).json()["data"]
+    assert (c["pending"], c["delivered"], c["uncleared"], c["cleared"]) == (1, 1, 1, 1)
+
+
 async def test_payment_history_endpoint_one_request_paginated(client):
     """`GET /payments` returns paginated payment history with each row's GR
     number + consignee already joined in — so the Payment History screen

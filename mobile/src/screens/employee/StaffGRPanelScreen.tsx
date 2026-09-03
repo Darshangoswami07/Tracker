@@ -147,7 +147,7 @@ export const StaffGRPanelScreen = () => {
   const [listBusy, setListBusy] = useState(false);
 
   const fetchEntries = useCallback(
-    async (opts: { force?: boolean; paintCached?: boolean } = {}) => {
+    async (opts: { force?: boolean; paintCached?: boolean; filterChanged?: boolean } = {}) => {
       const key = queryKey;
       const cached = slipsCache.get(key);
       if (cached && opts.paintCached) setEntries(cached.entries);
@@ -155,6 +155,16 @@ export const StaffGRPanelScreen = () => {
       if (cached && !opts.force && Date.now() - cached.ts < CACHE_TTL_MS) {
         setLoading(false);
         return;
+      }
+
+      // Switching to a filter (e.g. Cleared → Uncleared) we have NO cached
+      // rows for: clear the list and show the skeleton. Never leave the
+      // previous bucket's GRs on screen under the new filter's header —
+      // that was the "Uncleared shows a Cleared GR" bug. Background
+      // refreshes (realtime / pull-to-refresh) keep the current rows.
+      if (opts.filterChanged && !cached) {
+        setEntries([]);
+        setLoading(true);
       }
 
       const reqId = ++reqIdRef.current;
@@ -210,7 +220,7 @@ export const StaffGRPanelScreen = () => {
   // fetch only if the cache is missing/stale. Status/area/shop-owner feel
   // instant; NOT debounced.
   useEffect(() => {
-    void fetchRef.current({ paintCached: true });
+    void fetchRef.current({ paintCached: true, filterChanged: true });
   }, [statusFilter, effectiveArea, consignorFilter]);
 
   // Search is the ONLY debounced input (300ms). Skips the initial mount.

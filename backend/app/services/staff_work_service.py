@@ -89,10 +89,11 @@ async def daily_collection(
             select(Payment, Order.orderNumber, Order.consignorName)
             .join(Order, Order.id == Payment.orderId)
             .where(
+                # Historical report — count payments even if the GR was later
+                # soft-deleted by an Admin. See ``daily_activity`` docstring.
                 Payment.recordedBy == str(staff_user_id),
                 Payment.createdAt >= start,
                 Payment.createdAt <= end,
-                Order.deletedAt.is_(None),
             )
             .order_by(Payment.createdAt.asc())
         )
@@ -143,7 +144,6 @@ async def daily_summary(
                 Payment.recordedBy == str(staff_user_id),
                 Payment.createdAt >= start,
                 Payment.createdAt <= end,
-                Order.deletedAt.is_(None),
             )
         )
     ).one()
@@ -160,7 +160,6 @@ async def daily_summary_all(
     conds = [
         Payment.createdAt >= start,
         Payment.createdAt <= end,
-        Order.deletedAt.is_(None),
         Payment.recordedBy.isnot(None),
     ]
     if company_id is not None:
@@ -203,7 +202,6 @@ async def daily_grs(
                 Payment.recordedBy == str(staff_user_id),
                 Payment.createdAt >= start,
                 Payment.createdAt <= end,
-                Order.deletedAt.is_(None),
             )
             .group_by(Order.id, Order.orderNumber, Order.consignorName, Order.consigneeName, Order.status)
             .order_by(func.max(Payment.createdAt).desc())
@@ -235,114 +233,227 @@ async def _total_paid_map(session: AsyncSession, order_ids: list[uuid.UUID]) -> 
     return {oid: float(total) for oid, total in rows}
 
 
+_ORDER_COLS = (
+    Order.id,
+    Order.orderNumber,
+    Order.consignorName,
+    Order.consigneeName,
+    Order.status,
+    Order.createdAt,
+    Order.toPay,
+)
+
+
 async def daily_activity(
     session: AsyncSession, staff_user_id: uuid.UUID, day: date
 ) -> dict:
+    """Full Staff Work payload for one day.
+
+    Performance: every query below selects **scalar columns only** — never a
+    ``select(Order)`` entity, which would trigger ``Order``'s 8 ``lazy=
+    "selectin"`` relationship loads (company/customer/driver/vehicle/staff/
+    shop/history/attachments) and turn one logical query into ~9 remote round
+    trips. The independent lookups also run **concurrently**, so the endpoint
+    costs ~3 sequential round trips instead of ~30.
+
+    History vs. current state: this is a *historical* report — "what did this
+    staff member do on <day>". A GR that was worked/paid on <day> and later
+    soft-deleted by an Admin (``deletedAt`` set, ``isActive = False``) MUST
+    still be counted here — its row, payments and status-history all survive
+    the soft delete. So NONE of the queries below filter on ``deletedAt``.
+    Current operational screens (My Slips, Admin GR list) keep their
+    ``isActive``/``deletedAt`` filters and are unaffected.
+    """
     start, end = _day_bounds(day)
-    employee_id = await _employee_id_for_user(session, staff_user_id)
+    import asyncio as _asyncio
 
-    collected = []
-    if employee_id is not None:
-        collected = (
-            await session.execute(
-                select(Order)
-                .where(
-                    Order.assignedStaffId == employee_id,
-                    Order.deletedAt.is_(None),
-                    Order.createdAt >= start,
-                    Order.createdAt <= end,
+    from app.database.db import session_scope
+
+    # --- round-trip 1: three independent lookups in parallel ------------- #
+    async def _emp() -> uuid.UUID | None:
+        async with session_scope() as s:
+            return await _employee_id_for_user(s, staff_user_id)
+
+    async def _payments() -> list:
+        async with session_scope() as s:
+            return (
+                await s.execute(
+                    select(
+                        Payment.id,
+                        Payment.orderId,
+                        Payment.amount,
+                        Payment.createdAt,
+                        Order.orderNumber,
+                        Order.consignorName,
+                        Order.consigneeName,
+                    )
+                    .join(Order, Order.id == Payment.orderId)
+                    .where(
+                        Payment.recordedBy == str(staff_user_id),
+                        Payment.createdAt >= start,
+                        Payment.createdAt <= end,
+                    )
+                    .order_by(Payment.createdAt.asc())
                 )
-                .order_by(Order.createdAt.asc())
-            )
-        ).scalars().all()
+            ).all()
 
-    delivered = []
-    if employee_id is not None:
-        delivered = (
-            await session.execute(
-                select(Order, func.max(OrderStatusHistory.createdAt).label("deliveredAt"))
-                .join(OrderStatusHistory, OrderStatusHistory.orderId == Order.id)
-                .where(
-                    Order.assignedStaffId == employee_id,
-                    Order.deletedAt.is_(None),
-                    OrderStatusHistory.status == "delivered",
-                    OrderStatusHistory.createdAt >= start,
-                    OrderStatusHistory.createdAt <= end,
-                )
-                .group_by(Order.id)
-                .order_by(func.max(OrderStatusHistory.createdAt).asc())
-            )
-        ).all()
+    async def _settlements() -> dict:
+        async with session_scope() as s:
+            return await _settlement_totals(s, staff_user_id, day)
 
-    payment_rows = (
-        await session.execute(
-            select(Payment, Order)
-            .join(Order, Order.id == Payment.orderId)
-            .where(
-                Payment.recordedBy == str(staff_user_id),
-                Payment.createdAt >= start,
-                Payment.createdAt <= end,
-                Order.deletedAt.is_(None),
-            )
-            .order_by(Payment.createdAt.asc())
-        )
-    ).all()
-
-    union_ids: list[uuid.UUID] = list(
-        {o.id for o in collected}
-        | {o.id for o, _ in delivered}
-        | {p.orderId for p, _ in payment_rows}
+    employee_id, payment_rows, st = await _asyncio.gather(
+        _emp(), _payments(), _settlements()
     )
-    paid_map = await _total_paid_map(session, union_ids)
 
-    ledger: dict[uuid.UUID, dict] = {}
-    if union_ids:
-        detail_rows = (
-            await session.execute(
-                select(Order).where(Order.id.in_(union_ids), Order.deletedAt.is_(None))
-            )
-        ).scalars().all()
-        delivered_at_map = {o.id: d for o, d in delivered}
-        for o in detail_rows:
-            ledger[o.id] = {
-                "orderNumber": o.orderNumber,
-                "consignorName": o.consignorName,
-                "consigneeName": o.consigneeName,
-                "status": o.status.value if hasattr(o.status, "value") else o.status,
-                "createdAt": o.createdAt,
-                "toPay": float(o.toPay or 0),
-                "totalPaid": paid_map.get(o.id, 0.0),
-                "deliveredAt": delivered_at_map.get(o.id),
-            }
+    # --- round-trip 2: collected + delivered in parallel ---------------- #
+    async def _collected() -> list:
+        if employee_id is None:
+            return []
+        async with session_scope() as s:
+            return (
+                await s.execute(
+                    select(*_ORDER_COLS)
+                    .where(
+                        Order.assignedStaffId == employee_id,
+                        Order.createdAt >= start,
+                        Order.createdAt <= end,
+                    )
+                    .order_by(Order.createdAt.asc())
+                )
+            ).all()
+
+    async def _delivered() -> list:
+        if employee_id is None:
+            return []
+        async with session_scope() as s:
+            return (
+                await s.execute(
+                    select(
+                        *_ORDER_COLS,
+                        func.max(OrderStatusHistory.createdAt).label("deliveredAt"),
+                    )
+                    .join(OrderStatusHistory, OrderStatusHistory.orderId == Order.id)
+                    .where(
+                        Order.assignedStaffId == employee_id,
+                        OrderStatusHistory.status == "delivered",
+                        OrderStatusHistory.createdAt >= start,
+                        OrderStatusHistory.createdAt <= end,
+                    )
+                    .group_by(*_ORDER_COLS)
+                    .order_by(func.max(OrderStatusHistory.createdAt).asc())
+                )
+            ).all()
+
+    collected, delivered = await _asyncio.gather(_collected(), _delivered())
+
+    # Order metadata we already have in hand (no extra fetch for these).
+    order_meta: dict[uuid.UUID, dict] = {}
+    for r in collected:
+        order_meta[r.id] = {
+            "orderNumber": r.orderNumber,
+            "consignorName": r.consignorName,
+            "consigneeName": r.consigneeName,
+            "status": r.status.value if hasattr(r.status, "value") else r.status,
+            "createdAt": r.createdAt,
+            "toPay": float(r.toPay or 0),
+        }
+    delivered_at_map: dict[uuid.UUID, datetime] = {}
+    for r in delivered:
+        delivered_at_map[r.id] = r.deliveredAt
+        order_meta.setdefault(
+            r.id,
+            {
+                "orderNumber": r.orderNumber,
+                "consignorName": r.consignorName,
+                "consigneeName": r.consigneeName,
+                "status": r.status.value if hasattr(r.status, "value") else r.status,
+                "createdAt": r.createdAt,
+                "toPay": float(r.toPay or 0),
+            },
+        )
+    for p in payment_rows:
+        order_meta.setdefault(
+            p.orderId,
+            {
+                "orderNumber": p.orderNumber,
+                "consignorName": p.consignorName,
+                "consigneeName": p.consigneeName,
+                "status": None,
+                "createdAt": None,
+                "toPay": 0.0,
+            },
+        )
+
+    union_ids: list[uuid.UUID] = list(order_meta.keys())
+
+    # --- round-trip 3: paid totals + any missing toPay/status in parallel #
+    payment_only_ids = [
+        oid
+        for oid in union_ids
+        if oid not in {r.id for r in collected} and oid not in {r.id for r in delivered}
+    ]
+
+    async def _paid() -> dict:
+        async with session_scope() as s:
+            return await _total_paid_map(s, union_ids)
+
+    async def _fill_missing() -> list:
+        if not payment_only_ids:
+            return []
+        async with session_scope() as s:
+            return (
+                await s.execute(
+                    select(
+                        Order.id, Order.status, Order.toPay, Order.createdAt
+                    ).where(Order.id.in_(payment_only_ids))
+                )
+            ).all()
+
+    paid_map, missing_rows = await _asyncio.gather(_paid(), _fill_missing())
+    for r in missing_rows:
+        m = order_meta.get(r.id)
+        if m is not None:
+            m["status"] = r.status.value if hasattr(r.status, "value") else r.status
+            m["toPay"] = float(r.toPay or 0)
+            m["createdAt"] = r.createdAt
+
+    ledger: dict[uuid.UUID, dict] = {
+        oid: {
+            **meta,
+            "totalPaid": paid_map.get(oid, 0.0),
+            "deliveredAt": delivered_at_map.get(oid),
+        }
+        for oid, meta in order_meta.items()
+    }
 
     timeline = []
-    for o in collected:
+    for r in collected:
         timeline.append(
             {
-                "id": f"collected:{o.id}",
+                "id": f"collected:{r.id}",
                 "kind": "collected",
-                "orderId": o.id,
-                "orderNumber": o.orderNumber,
-                "consignorName": o.consignorName,
-                "consigneeName": o.consigneeName,
-                "createdAt": o.createdAt,
-                "toPay": float(o.toPay or 0),
+                "orderId": r.id,
+                "orderNumber": r.orderNumber,
+                "consignorName": r.consignorName,
+                "consigneeName": r.consigneeName,
+                "createdAt": r.createdAt,
+                "toPay": float(r.toPay or 0),
             }
         )
-    for o, delivered_at in delivered:
+    for r in delivered:
         timeline.append(
             {
-                "id": f"delivered:{o.id}",
+                "id": f"delivered:{r.id}",
                 "kind": "delivered",
-                "orderId": o.id,
-                "orderNumber": o.orderNumber,
-                "consignorName": o.consignorName,
-                "consigneeName": o.consigneeName,
-                "createdAt": delivered_at,
+                "orderId": r.id,
+                "orderNumber": r.orderNumber,
+                "consignorName": r.consignorName,
+                "consigneeName": r.consigneeName,
+                "createdAt": r.deliveredAt,
             }
         )
     payment_events = []
-    for p, o in payment_rows:
+    for p in payment_rows:
         led = ledger.get(p.orderId)
         remaining = max(0.0, led["toPay"] - led["totalPaid"]) if led else None
         payment_events.append(
@@ -350,9 +461,9 @@ async def daily_activity(
                 "id": f"payment:{p.id}",
                 "kind": "payment",
                 "orderId": p.orderId,
-                "orderNumber": o.orderNumber,
-                "consignorName": o.consignorName,
-                "consigneeName": o.consigneeName,
+                "orderNumber": p.orderNumber,
+                "consignorName": p.consignorName,
+                "consigneeName": p.consigneeName,
                 "createdAt": p.createdAt,
                 "amount": float(p.amount),
                 "remaining": remaining,
@@ -377,21 +488,20 @@ async def daily_activity(
             }
             for oid, led in ledger.items()
         ),
-        key=lambda g: g["collectedAt"],
+        key=lambda g: (g["collectedAt"] is None, g["collectedAt"]),
     )
 
-    amount_collected = sum(float(p.amount) for p, _ in payment_rows)
-    total_bill_value = sum(float(o.toPay or 0) for o in collected)
+    collected_ids = {r.id for r in collected}
+    amount_collected = sum(float(p.amount) for p in payment_rows)
+    total_bill_value = sum(float(r.toPay or 0) for r in collected)
     amount_pending = sum(
-        max(0.0, ledger[o.id]["toPay"] - ledger[o.id]["totalPaid"])
-        for o in collected
-        if o.id in ledger
+        max(0.0, ledger[oid]["toPay"] - ledger[oid]["totalPaid"])
+        for oid in collected_ids
+        if oid in ledger
     )
     shops_visited = len(
         {led["consignorName"] for led in ledger.values() if led["consignorName"]}
     )
-
-    st = await _settlement_totals(session, staff_user_id, day)
 
     return {
         "summary": {
