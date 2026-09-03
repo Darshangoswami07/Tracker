@@ -500,6 +500,9 @@ async def update_gr(order_id: UUID, payload: GRUpdateRequest, admin: GRAccessUse
     if "toPay" in updates or "paymentAmount" in updates:
         await order_repo.reconcile_delivered_status(order_id)
     fresh = await order_repo.get_order_with_details(order_id)
+    # Push the edit to any open GR-details / list screen (fields, financials,
+    # consignee/shop, …). `gr.updated` — the client just re-pulls the record.
+    await _publish_gr_change(fresh or order, previous_status=None, event="gr.updated", actor=admin)
     return success((await _gr_out(fresh or order)).model_dump(mode="json"), message="GR updated successfully.")
 
 
@@ -605,6 +608,7 @@ async def assign_driver(order_id: UUID, payload: GRAssignDriverRequest, admin: G
     order = await order_repo.assign_driver(order_id, payload.driverId)
     if order is None:
         raise NotFoundError("GR not found.")
+    await _publish_gr_change(order, previous_status=None, event="gr.updated", actor=admin)
     return success((await _gr_out(order)).model_dump(mode="json"), message="Driver assigned successfully.")
 
 
@@ -643,6 +647,7 @@ async def assign_staff(order_id: UUID, payload: GRAssignStaffRequest, admin: GRA
     order = await order_repo.assign_staff(order_id, employee_id)
     if order is None:
         raise NotFoundError("GR not found.")
+    await _publish_gr_change(order, previous_status=None, event="gr.updated", actor=admin)
     return success((await _gr_out(order)).model_dump(mode="json"), message="Staff assigned successfully.")
 
 
@@ -671,6 +676,8 @@ async def upload_attachment(
         file_size_bytes=size,
         uploaded_by=admin.id,
     )
+    # Slip/photo count + "has slip" indicator changed — nudge open screens.
+    await _publish_gr_change(order, previous_status=None, event="gr.updated", actor=admin)
     return success(
         OrderAttachmentOut(
             id=attachment.id,
