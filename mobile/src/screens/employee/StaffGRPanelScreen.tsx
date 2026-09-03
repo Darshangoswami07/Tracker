@@ -29,7 +29,16 @@ interface GREntry {
   deliveryAddress: string;
   status: string;
   hasSlip: boolean;
+  /** Canonical bill / paid figures from the GR list response — the same
+   *  values GR Details and the Staff Dashboard use. `toCollect = toPay -
+   *  totalPaid`; never recomputed from anything else. */
+  toPay: number;
+  totalPaid: number;
 }
+
+/** "₹1,250" — no decimals, Indian grouping. Matches the other GR screens. */
+const rupees = (n: number): string =>
+  `₹${Math.round(n).toLocaleString('en-IN')}`;
 
 /** Every GR status, matching the web Staff Panel's `<select>`
  * (`admin/src/components/tracker/StaffPanel.tsx`'s `STATUS_OPTIONS`) — that
@@ -122,6 +131,8 @@ export const StaffGRPanelScreen = () => {
             deliveryAddress: o.deliveryAddress,
             status: o.status,
             hasSlip: o.hasSlip,
+            toPay: o.toPay ?? 0,
+            totalPaid: o.totalPaid ?? 0,
           }))
         );
       } catch (error) {
@@ -452,6 +463,18 @@ export const StaffGRPanelScreen = () => {
                 </Text>
                 <Text style={styles.routeLine} numberOfLines={1}>{entry.pickupAddress} → {entry.deliveryAddress}</Text>
 
+                {/* Amount the staff still has to collect on this GR. Only shown
+                    when something is genuinely outstanding — a settled GR
+                    (incl. delivered→cleared with ₹0 remaining) shows nothing. */}
+                {entry.toPay - entry.totalPaid > 0.005 && (
+                  <View style={[styles.toCollect, { backgroundColor: colors.errorSoft }]}>
+                    <Ionicons name="wallet-outline" size={13} color={colors.error} />
+                    <Text style={[styles.toCollectText, { color: colors.error }]}>
+                      {rupees(entry.toPay - entry.totalPaid)} To Collect
+                    </Text>
+                  </View>
+                )}
+
                 <View style={[styles.rowFooter, { borderTopColor: colors.border }]}>
                   <TouchableOpacity style={styles.photoAction} onPress={() => handleUploadPhoto(entry)} disabled={uploadingId === entry.id}>
                     {uploadingId === entry.id ? (
@@ -697,6 +720,11 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     statusTrigger: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     consignorLine: { fontSize: theme.fonts.size.sm, fontWeight: '600', color: theme.colors.textPrimary },
     routeLine: { fontSize: theme.fonts.size.xs, color: theme.colors.textMuted },
+    toCollect: {
+      flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start',
+      marginTop: 8, paddingHorizontal: 8, paddingVertical: 4, borderRadius: theme.radii.sm,
+    },
+    toCollectText: { fontSize: theme.fonts.size.xs, fontWeight: '800' },
     rowFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth },
     photoAction: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     photoActionText: { fontSize: theme.fonts.size.xs, fontWeight: '700', color: theme.colors.textPrimary },
