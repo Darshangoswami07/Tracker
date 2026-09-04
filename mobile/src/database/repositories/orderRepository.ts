@@ -362,6 +362,11 @@ export interface ActivityEvent {
   createdAt: string;
 }
 
+/** Who the money actually belongs to — distinct from `recordedBy` (who
+ * entered the transaction). "STAFF" is the default/legacy behavior; "ADMIN"
+ * means the customer paid the owner/admin directly. */
+export type ReceivedBy = 'STAFF' | 'ADMIN';
+
 export interface LocalPayment {
   id: string;
   orderId: string;
@@ -369,6 +374,7 @@ export interface LocalPayment {
   paymentMethod: string | null;
   notes: string | null;
   recordedBy: string | null;
+  receivedBy: ReceivedBy;
   createdAt: string;
 }
 
@@ -795,6 +801,7 @@ export const orderRepository = {
     paymentMethod?: string;
     notes?: string;
     recordedBy?: string;
+    receivedBy?: ReceivedBy;
   }): Promise<LocalPayment> {
     return withApiError(async () => {
       const res = await api.post(ENDPOINTS.payments.create, {
@@ -803,6 +810,7 @@ export const orderRepository = {
         paymentMethod: input.paymentMethod,
         notes: input.notes,
         recordedBy: input.recordedBy,
+        receivedBy: input.receivedBy,
       });
       const p = body<any>(res);
       return {
@@ -812,6 +820,7 @@ export const orderRepository = {
         paymentMethod: p.paymentMethod ?? null,
         notes: p.notes ?? null,
         recordedBy: p.recordedBy ?? null,
+        receivedBy: (p.receivedBy as ReceivedBy) ?? 'STAFF',
         createdAt: p.createdAt,
       };
     });
@@ -842,6 +851,7 @@ export const orderRepository = {
         paymentMethod: p.paymentMethod ?? null,
         notes: p.notes ?? null,
         recordedBy: p.recordedBy ?? null,
+        receivedBy: (p.receivedBy as ReceivedBy) ?? 'STAFF',
         createdAt: p.createdAt,
       })),
     };
@@ -868,6 +878,7 @@ export const orderRepository = {
       paymentMethod: p.paymentMethod ?? null,
       notes: p.notes ?? null,
       recordedBy: p.recordedBy ?? null,
+      receivedBy: (p.receivedBy as ReceivedBy) ?? 'STAFF',
       createdAt: p.createdAt,
     }));
   },
@@ -891,6 +902,7 @@ export const orderRepository = {
           paymentMethod: p.paymentMethod ?? null,
           notes: p.notes ?? null,
           recordedBy: p.recordedBy ?? null,
+          receivedBy: (p.receivedBy as ReceivedBy) ?? 'STAFF',
           createdAt: p.createdAt,
         })),
       };
@@ -911,6 +923,7 @@ export const orderRepository = {
       month: Number(d.month ?? 0),
       prevMonth: Number(d.prevMonth ?? 0),
       totalCollected: Number(d.totalCollected ?? 0),
+      directUpiReceived: Number(d.directUpiReceived ?? 0),
       outstandingAmount: Number(d.outstandingAmount ?? 0),
       collectedGRCount: Number(d.collectedGRCount ?? 0),
       outstandingGRCount: Number(d.outstandingGRCount ?? 0),

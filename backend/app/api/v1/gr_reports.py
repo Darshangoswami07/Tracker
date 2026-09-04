@@ -213,6 +213,20 @@ async def revenue_overview(
     if pay_scope:
         total_collected_col = total_collected_col.filter(and_(*pay_scope))
 
+    # "Direct UPI Received" — money the customer paid straight to the
+    # Admin/owner (never in a staff member's hand) via UPI specifically.
+    # Only receivedBy == 'ADMIN' AND paymentMethod == 'upi' contribute; a
+    # normal staff UPI collection, or an Admin payment via cash/bank/cheque,
+    # must NOT. Legacy rows (receivedBy IS NULL) predate this feature and
+    # were always ordinary staff collections, so they never count here.
+    direct_upi_col = func.sum(Payment.amount).filter(
+        and_(
+            Payment.receivedBy == "ADMIN",
+            func.lower(Payment.paymentMethod) == "upi",
+            *pay_scope,
+        )
+    )
+
     row = (
         await session.execute(
             select(
@@ -225,6 +239,7 @@ async def revenue_overview(
                 func.coalesce(total_collected_col, 0).label("total_collected"),
                 collected(start_month, end_now).label("collected_this_month"),
                 collected(start_prev_month, start_month).label("collected_prev_month"),
+                func.coalesce(direct_upi_col, 0).label("direct_upi_received"),
             )
             .select_from(Payment)
             .join(Order, Order.id == Payment.orderId)
@@ -263,6 +278,7 @@ async def revenue_overview(
             "month": float(row.month),
             "prevMonth": float(row.prev_month),
             "totalCollected": float(row.total_collected),
+            "directUpiReceived": float(row.direct_upi_received),
             "outstandingAmount": float(counts.outstanding),
             "collectedGRCount": int(counts.collected_count),
             "outstandingGRCount": int(counts.outstanding_count),

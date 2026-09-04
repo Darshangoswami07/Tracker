@@ -13,8 +13,9 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#FFFFFF",
+        "backgroundColor": "#0B1220",
         "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.deliveryhub.app",
@@ -37,22 +38,21 @@
         {
           "backgroundColor": "#FFFFFF",
           "image": "./assets/splash-icon.png",
-          "imageWidth": 140,
-          "resizeMode": "contain",
+          "imageWidth": 120,
           "dark": {
             "image": "./assets/splash-icon.png",
-            "backgroundColor": "#0B0B12"
+            "backgroundColor": "#0B1220"
           }
         }
       ],
       "expo-secure-store",
       "expo-font"
     ],
+    "owner": "darshangirigoswami",
     "extra": {
       "eas": {
-        "projectId": "3d18e562-91a7-4eb3-9821-93f6084b5a71"
+        "projectId": "6aac2814-5d1a-4fdc-98ce-df1de71dc00b"
       }
-    },
-    "owner": "abhi0203"
+    }
   }
 }

@@ -9,7 +9,7 @@ import { useUserStore } from '../../store/userStore';
 import { api } from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
 import { orderRepository } from '../../database/repositories/orderRepository';
-import type { LocalPayment, PaymentSummary } from '../../database/repositories/orderRepository';
+import type { LocalPayment, PaymentSummary, ReceivedBy } from '../../database/repositories/orderRepository';
 import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
 import { EmptyState } from '../../components/EmptyState';
@@ -141,6 +141,13 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const [receivePaymentOpen, setReceivePaymentOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentMode, setPaymentMode] = useState<string>('cash');
+  // Who the money actually belongs to — independent of the Payment Mode
+  // (cash/UPI/bank/cheque). A staff member can enter a payment the customer
+  // paid straight to the Admin/owner; toggling this to 'ADMIN' keeps the
+  // GR's paid/remaining accounting normal but excludes it from the staff's
+  // own collection/balance and (for UPI) counts it in the Admin Dashboard's
+  // "Direct UPI Received" card instead.
+  const [receivedBy, setReceivedBy] = useState<ReceivedBy>('STAFF');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [submittingPayment, setSubmittingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -288,6 +295,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const closeReceivePayment = () => {
     setPaymentError(null);
     setReceivePaymentOpen(false);
+    setReceivedBy('STAFF');
   };
 
   const handleReceivePayment = async () => {
@@ -318,12 +326,18 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
         paymentMethod: paymentMode,
         notes: paymentNotes || undefined,
         recordedBy,
+        receivedBy,
       });
       setReceivePaymentOpen(false);
       setPaymentAmount('');
       setPaymentMode('cash');
+      setReceivedBy('STAFF');
       setPaymentNotes('');
       setCollectedByStaffId(null);
+      // Backend is the source of truth for money figures — never compute
+      // paid/remaining/staff/admin totals locally. Re-fetching the GR detail
+      // + payment summary here picks up the fresh values the server just
+      // committed (paid amount, remaining balance, payment history).
       await Promise.all([fetchDetail(), fetchPayments()]);
     } catch (err: any) {
       // `Alert.alert` is a no-op on web (react-native-web has no native
@@ -747,7 +761,34 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
                     </TouchableOpacity>
                   );
                 })}
+                {/* "Admin" — not a payment mode, a WHO-RECEIVED toggle. Stays
+                 * in the same chip row as Cash/UPI/Bank Transfer/Cheque
+                 * (replacing the old "Other" slot) but works independently:
+                 * tapping it flips `receivedBy` while the mode chip above
+                 * keeps its own separate selection (e.g. UPI + Admin). */}
+                <TouchableOpacity
+                  key="admin"
+                  style={[
+                    styles.collectorChip,
+                    { borderRadius: radii.pill, borderColor: receivedBy === 'ADMIN' ? colors.warning : colors.border },
+                    receivedBy === 'ADMIN' && { backgroundColor: colors.warning },
+                  ]}
+                  onPress={() => setReceivedBy((prev) => (prev === 'ADMIN' ? 'STAFF' : 'ADMIN'))}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.collectorChipText, { color: receivedBy === 'ADMIN' ? colors.onPrimary : colors.textPrimary }]}>
+                    {t('payment.admin', 'Admin')}
+                  </Text>
+                </TouchableOpacity>
               </View>
+              {receivedBy === 'ADMIN' && (
+                <View style={[styles.adminReceivedNote, { backgroundColor: colors.warningSoft, borderRadius: radii.md }]}>
+                  <Ionicons name="information-circle-outline" size={16} color={colors.warning} />
+                  <Text style={[styles.adminReceivedNoteText, { color: colors.textPrimary }]}>
+                    {t('payment.receivedByAdminNote')}
+                  </Text>
+                </View>
+              )}
               <TextInput
                 style={[styles.paymentInput, { color: colors.textPrimary, backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, marginTop: 12 }]}
                 placeholder={t('payment.notes')}
@@ -906,6 +947,8 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     collectorChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     collectorChip: { paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1 },
     collectorChipText: { fontSize: theme.fonts.size.xs, fontWeight: '700' },
+    adminReceivedNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 10, marginTop: 10 },
+    adminReceivedNoteText: { flex: 1, fontSize: theme.fonts.size.xs, fontWeight: '600', lineHeight: 16 },
     paymentInput: { paddingHorizontal: 14, paddingVertical: 12, fontSize: theme.fonts.size.md },
   });
 

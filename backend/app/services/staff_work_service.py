@@ -13,6 +13,18 @@ Attribution rules (unchanged from the mobile implementation):
     actually recorded the collection);
   * "delivered" is read off ``order_status_history`` (status == 'delivered');
   * settlements via ``staff_settlements.staffId`` (a ``users.id``).
+
+Staff collection vs. money received (Admin-direct payments):
+  ``recordedBy`` is WHO ENTERED the payment; ``receivedBy`` is WHO ACTUALLY
+  HOLDS the money ("STAFF" or "ADMIN"). A staff member can enter a payment
+  the customer paid straight to the Admin/owner — that money was never in
+  the staff member's hand, so it must never count toward their collection
+  total or settlement balance. Every collection-total query below is
+  therefore scoped by BOTH ``recordedBy == staff_user_id`` AND
+  ``NOT_ADMIN_RECEIVED`` (``receivedBy`` is NULL/legacy or ``'STAFF'``).
+  Rows predating this column (``receivedBy IS NULL``) are treated as
+  ``'STAFF'`` — the only thing a payment could be before Admin-direct
+  payments existed — so historical totals are unchanged by this feature.
 """
 from __future__ import annotations
 
@@ -20,7 +32,7 @@ import uuid
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.employee import Employee
@@ -29,6 +41,10 @@ from app.models.order_status_history import OrderStatusHistory
 from app.models.payment import Payment
 from app.models.staff_settlement import StaffSettlement
 from app.core.exceptions import ValidationBusinessError
+
+# A payment counts toward staff collection only if the money actually
+# stayed with the staff member. NULL = legacy row = always was staff money.
+NOT_ADMIN_RECEIVED = or_(Payment.receivedBy.is_(None), Payment.receivedBy != "ADMIN")
 
 
 def _day_bounds(day: date) -> tuple[datetime, datetime]:
@@ -92,6 +108,7 @@ async def daily_collection(
                 # Historical report — count payments even if the GR was later
                 # soft-deleted by an Admin. See ``daily_activity`` docstring.
                 Payment.recordedBy == str(staff_user_id),
+                NOT_ADMIN_RECEIVED,
                 Payment.createdAt >= start,
                 Payment.createdAt <= end,
             )
@@ -106,7 +123,8 @@ async def daily_collection(
         (
             await session.execute(
                 select(func.coalesce(func.sum(Payment.amount), 0)).where(
-                    Payment.recordedBy == str(staff_user_id)
+                    Payment.recordedBy == str(staff_user_id),
+                    NOT_ADMIN_RECEIVED,
                 )
             )
         ).scalar()
@@ -155,6 +173,7 @@ async def daily_summary(
             .join(Order, Order.id == Payment.orderId)
             .where(
                 Payment.recordedBy == str(staff_user_id),
+                NOT_ADMIN_RECEIVED,
                 Payment.createdAt >= start,
                 Payment.createdAt <= end,
             )
@@ -174,6 +193,7 @@ async def daily_summary_all(
         Payment.createdAt >= start,
         Payment.createdAt <= end,
         Payment.recordedBy.isnot(None),
+        NOT_ADMIN_RECEIVED,
     ]
     if company_id is not None:
         conds.append(Order.companyId == company_id)
@@ -213,6 +233,7 @@ async def daily_grs(
             .join(Order, Order.id == Payment.orderId)
             .where(
                 Payment.recordedBy == str(staff_user_id),
+                NOT_ADMIN_RECEIVED,
                 Payment.createdAt >= start,
                 Payment.createdAt <= end,
             )
@@ -304,6 +325,7 @@ async def daily_activity(
                     .join(Order, Order.id == Payment.orderId)
                     .where(
                         Payment.recordedBy == str(staff_user_id),
+                        NOT_ADMIN_RECEIVED,
                         Payment.createdAt >= start,
                         Payment.createdAt <= end,
                     )

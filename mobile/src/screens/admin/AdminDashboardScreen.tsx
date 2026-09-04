@@ -26,6 +26,10 @@ interface RevenueOverview {
   month: number;
   prevMonth: number;
   totalCollected: number;
+  // Money paid straight to the Admin/owner via UPI (receivedBy=ADMIN,
+  // paymentMode=UPI) — never counted as staff collection. Replaces "Total
+  // Collected" on this card row.
+  directUpiReceived: number;
   outstandingAmount: number;
   collectedGRCount: number;
   outstandingGRCount: number;
@@ -164,6 +168,7 @@ export const AdminDashboardScreen = () => {
     month: 0,
     prevMonth: 0,
     totalCollected: 0,
+    directUpiReceived: 0,
     outstandingAmount: 0,
     collectedGRCount: 0,
     outstandingGRCount: 0,
@@ -432,16 +437,16 @@ export const AdminDashboardScreen = () => {
       })(),
     },
     {
-      // Total Collected is a running lifetime total, not a time-bucketed
-      // figure — a "vs last month" comparison on it doesn't correspond to
-      // anything an admin actually asked (confusing, dropped per feedback).
-      // The GR count is unambiguous instead: "how many GRs have I been paid
-      // something on".
-      title: t('dashboard.totalCollected'),
-      value: formatINR(revenue.totalCollected),
+      // Replaces "Total Collected" — money paid straight to the Admin/owner
+      // via UPI (receivedBy=ADMIN, paymentMode=UPI only; see
+      // `/admin/orders/meta/revenue-overview`'s `directUpiReceived`). A
+      // normal staff UPI collection, or an Admin payment via cash/bank/
+      // cheque, never contributes to this figure.
+      title: t('dashboard.directUpiReceived'),
+      value: formatINR(revenue.directUpiReceived),
       icon: 'wallet-outline',
       color: '#14B8A6',
-      subtitle: `${revenue.collectedGRCount} ${revenue.collectedGRCount === 1 ? 'GR' : 'GRs'}`,
+      subtitle: t('dashboard.paidDirectlyToAdmin'),
     },
     {
       title: t('dashboard.outstanding'),

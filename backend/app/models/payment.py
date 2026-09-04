@@ -31,3 +31,10 @@ class Payment(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     paymentMethod: Mapped[str | None] = mapped_column(String(50), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     recordedBy: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    # Who the money actually belongs to — "STAFF" (default/legacy behavior)
+    # or "ADMIN" (customer paid the owner/admin directly; the staff member
+    # merely entered the transaction). Distinct from ``recordedBy`` (who
+    # entered it). NULL on rows created before this column existed; treated
+    # identically to "STAFF" everywhere it's read (see gr_status_service /
+    # staff_work_service / gr_reports "Direct UPI Received").
+    receivedBy: Mapped[str | None] = mapped_column(String(16), nullable=True)

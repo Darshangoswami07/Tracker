@@ -103,6 +103,12 @@ async def create_payment(
     # explicit recordedBy is respected.
     recorded_by = str(admin.id) if admin.role in _STAFF_ROLES else body.recordedBy
 
+    # Who the money belongs to is independent of who entered it — a staff
+    # member can enter a payment the customer actually handed straight to
+    # the Admin/owner. Defaults to "STAFF" (unchanged behavior) when the
+    # caller doesn't specify it.
+    received_by = body.receivedBy or "STAFF"
+
     repo = PaymentRepository(session)
     payment = Payment(
         orderId=body.orderId,
@@ -110,6 +116,7 @@ async def create_payment(
         paymentMethod=body.paymentMethod,
         notes=body.notes,
         recordedBy=recorded_by,
+        receivedBy=received_by,
     )
     await repo.save(payment)
 
@@ -165,6 +172,7 @@ async def list_payment_history(
             Payment.paymentMethod,
             Payment.notes,
             Payment.recordedBy,
+            Payment.receivedBy,
             Payment.createdAt,
             Order.orderNumber,
             Order.consigneeName,
@@ -190,6 +198,7 @@ async def list_payment_history(
             "paymentMethod": r.paymentMethod,
             "notes": r.notes,
             "recordedBy": r.recordedBy,
+            "receivedBy": r.receivedBy or "STAFF",
             "createdAt": r.createdAt.isoformat(),
         }
         for r in rows
