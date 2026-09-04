@@ -336,8 +336,15 @@ export const AdminDashboardScreen = () => {
     rtOverviewReloadTimer.current = setTimeout(() => {
       rtOverviewReloadTimer.current = null;
       void fetchShipmentOverview();
+      // A payment (including a direct-to-Admin one) fires a `gr.status`
+      // event, which is the ONLY signal this screen gets that money moved —
+      // `revenue` (holding "Direct UPI Received") must be refetched here too,
+      // or that card would only update on the next mount/focus/pull-refresh
+      // and silently drift from what Receiving Details shows in the
+      // meantime.
+      void fetchRevenue();
     }, 350);
-  }, [fetchShipmentOverview]);
+  }, [fetchShipmentOverview, fetchRevenue]);
 
   useEffect(() => {
     const onEvent = (evt: GrEvent) => {
