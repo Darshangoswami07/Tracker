@@ -16,7 +16,7 @@ from fastapi import Depends
 from pydantic import BaseModel, Field
 import time as _time
 
-from sqlalchemy import and_, case, delete, func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -571,8 +571,10 @@ async def bulk_import(
     session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Bulk-creates already-validated Excel GR rows. Skips GR numbers that
-    already exist (active), physically replaces soft-deleted ones, records one
-    ``import_history`` row for the batch. Ported from the mobile
+    already exist and are still live; a soft-deleted GR with the same number
+    is left untouched (it is the permanent record of past staff work — see
+    ``_write_batch``) and the new live row is created alongside it. Records
+    one ``import_history`` row for the batch. Ported from the mobile
     ``importRepository.bulkImportGRs``."""
     # `None` for platform ADMIN/SUPER_ADMIN (they may act across companies);
     # a concrete id for a company-scoped admin/owner.
@@ -660,7 +662,6 @@ async def bulk_import(
         )
     ).all()
     active = {n for n, deleted, _ in existing if deleted is None}
-    soft_deleted = {n: i for n, deleted, i in existing if deleted is not None}
     _lap("existing-gr-check")
 
     # ── One query to resolve every distinct consignee Shop, bulk-insert the
@@ -712,7 +713,6 @@ async def bulk_import(
     # ── Build every Order in memory (no DB). Row-level problems (bad date,
     #    in-file duplicate, already-active GR number) are decided here. ──────
     seen_in_file: set[str] = set()
-    stale_ids: list = []
     pending_orders: list[Order] = []
     pending_rows: list = []
     for r in payload.rows:
@@ -726,8 +726,6 @@ async def bulk_import(
         try:
             row_area = _row_area(r)
             shop = _shop_for(r)
-            if gr_number in soft_deleted:
-                stale_ids.append(soft_deleted[gr_number])
             order = Order(
                 orderNumber=gr_number,
                 companyId=company_id,
@@ -763,16 +761,16 @@ async def bulk_import(
             failures.append({"rowNumber": r.rowNumber, "grNumber": r.grNumber, "message": str(exc)})
     _lap("row-build")
 
-    # ── One transaction for the writes: physically drop the soft-deleted GRs
-    #    being replaced (DB ON DELETE CASCADE takes their history), bulk-insert
-    #    the new Orders, then bulk-insert one 'pending' history row each. ────
+    # ── One transaction for the writes: bulk-insert the new Orders, then
+    #    bulk-insert one 'pending' history row each. A soft-deleted GR that
+    #    shares a number with one of these rows is NEVER touched — it (and its
+    #    payments / status history) is the permanent record of the staff work
+    #    done against it; the partial unique index on `orderNumber`
+    #    (`deletedAt IS NULL`) lets the new live row coexist with it. ────────
     async def _write_batch(orders: list[Order]) -> int:
         if not orders:
             return 0
         async with session.begin_nested():
-            if stale_ids:
-                await session.execute(delete(Order).where(Order.id.in_(stale_ids)))
-                await session.flush()
             session.add_all(orders)
             await session.flush()  # ONE batched INSERT (insertmanyvalues) — ids populated
             session.add_all(

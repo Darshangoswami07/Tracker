@@ -267,6 +267,9 @@ export interface StaffActivityEvent {
   amount?: number;
   remaining?: number;
   toPay?: number;
+  /** GR was soft-deleted by an Admin after this event — the event still
+   * belongs permanently to the staff member's history. */
+  deleted?: boolean;
 }
 
 export interface StaffWorkGR {
@@ -280,6 +283,8 @@ export interface StaffWorkGR {
   toPay: number;
   totalPaid: number;
   balance: number;
+  /** GR was soft-deleted by an Admin — kept in history regardless. */
+  deleted?: boolean;
 }
 
 export interface StaffDailySummary {

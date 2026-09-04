@@ -1,11 +1,11 @@
-"""Regression test for the Excel GR bulk-import NOT NULL violation.
+"""Excel GR bulk-import: re-importing a GR number whose prior Order was
+soft-deleted.
 
-Reproduces the exact failure: a GR number that previously existed as a
-soft-deleted Order (with its own order_status_history rows) is re-imported.
-The import path physically deletes the stale Order to make way for the new
-one; before the fix, SQLAlchemy's default relationship cascade nulled out
-the dependent order_status_history.orderId (NOT NULL) instead of letting the
-database's ON DELETE CASCADE remove the rows, causing a NotNullViolation.
+The soft-deleted Order (plus its order_status_history and payments) is the
+permanent record of what a staff member did against that GR, so the import
+must NOT touch it. Instead the new live row is created alongside it — the
+partial unique index on ``orders.orderNumber`` (``WHERE deletedAt IS NULL``)
+allows both to coexist. Nothing is nulled and nothing cascade-deletes.
 """
 from __future__ import annotations
 
@@ -99,11 +99,13 @@ def import_row(row_number: int, gr_number: str) -> dict:
     }
 
 
-async def test_import_gr_over_soft_deleted_order_does_not_null_status_history(client):
-    """The exact repro for the six failing GRs (6993, 7002, 6896, 6951, 6998,
-    6955): re-importing a GR number whose prior Order was soft-deleted must
-    not raise a NotNullViolation on order_status_history.orderId, and the
-    newly created status-history row must point at the new order's id."""
+async def test_import_gr_over_soft_deleted_order_preserves_history(client):
+    """Re-importing a GR number whose prior Order was soft-deleted:
+      * succeeds, creating a NEW live Order row,
+      * its new status-history row points at the NEW order's id (no
+        NotNullViolation), and
+      * the OLD soft-deleted Order and its status-history are PRESERVED —
+        they are the permanent record of past staff work."""
     company_id = await create_company()
     token = await create_active_admin(client, "gr-import-admin@example.com", "+15552000099", company_id)
 
@@ -128,24 +130,31 @@ async def test_import_gr_over_soft_deleted_order_does_not_null_status_history(cl
 
     async with session_scope() as session:
         for gr in failing_grs:
-            order = (
+            new_order = (
                 await session.execute(select(Order).where(Order.orderNumber == gr, Order.deletedAt.is_(None)))
             ).scalar_one()
-            history_rows = (
+            new_history = (
                 await session.execute(
-                    select(OrderStatusHistory).where(OrderStatusHistory.orderId == order.id)
+                    select(OrderStatusHistory).where(OrderStatusHistory.orderId == new_order.id)
                 )
             ).scalars().all()
-            assert len(history_rows) == 1
-            assert history_rows[0].orderId == order.id
-            assert history_rows[0].orderId is not None
+            assert len(new_history) == 1
+            assert new_history[0].orderId == new_order.id
 
-            # The old soft-deleted order + its history must be gone (cascade
-            # delete via ON DELETE CASCADE), not left as an orphan.
-            leftover_soft_deleted = (
+            # The old soft-deleted order + its history MUST still exist — it is
+            # the historical record of prior staff work and is never touched by
+            # a re-import.
+            old_order = (
                 await session.execute(select(Order).where(Order.orderNumber == gr, Order.deletedAt.isnot(None)))
+            ).scalar_one()
+            assert old_order.id != new_order.id
+            old_history = (
+                await session.execute(
+                    select(OrderStatusHistory).where(OrderStatusHistory.orderId == old_order.id)
+                )
             ).scalars().all()
-            assert leftover_soft_deleted == []
+            assert len(old_history) == 1
+            assert old_history[0].notes == "Created"
 
 
 async def _active_staff(email: str, phone: str, company_id: str, area: str | None = None):

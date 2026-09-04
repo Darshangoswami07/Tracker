@@ -67,6 +67,10 @@ class StaffActivityEventOut(BaseModel):
     amount: Optional[float] = None
     remaining: Optional[float] = None
     toPay: Optional[float] = None
+    # True when the GR this event belongs to was later soft-deleted by an
+    # Admin. The event itself is still a permanent part of the staff member's
+    # history — this only lets the UI show a small "removed" hint.
+    deleted: bool = False
 
 
 class StaffWorkGROut(BaseModel):
@@ -80,6 +84,9 @@ class StaffWorkGROut(BaseModel):
     toPay: float
     totalPaid: float
     balance: float
+    # GR was soft-deleted by an Admin after this work was done. The row stays
+    # in the staff member's history regardless.
+    deleted: bool = False
 
 
 class StaffDailySummaryBlock(BaseModel):

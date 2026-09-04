@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 import { canDeleteGR as roleCanDeleteGR, canImportExcel as roleCanImportExcel } from '../../constants/roles';
 import { AREAS } from '../../constants/areas';
 import { grRealtime, type GrEvent } from '../../services/grRealtime';
+import { classifyGrBucket } from '../../utils/grStatus';
 import type { AppTheme } from '../../theme/types';
 
 const PAGE_SIZE = 20;
@@ -409,19 +410,6 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
   }, [fetchGRs]);
 
   useEffect(() => {
-    // Mirror of backend `gr_status_service.classify` — a delivered GR with
-    // nothing left to pay is `cleared` (incl. toPay <= 0: nothing owed).
-    const reportBucket = (rawStatus: string, toPay: number, totalPaid: number): string => {
-      const EPS = 0.005;
-      if (rawStatus === 'pending') return 'pending';
-      if (toPay > 0) {
-        if (totalPaid >= toPay - EPS) return 'cleared';
-        if (totalPaid > 0) return 'uncleared';
-        return 'delivered';
-      }
-      return 'cleared';
-    };
-
     const onEvent = (evt: GrEvent) => {
       if (evt.type === 'resync') {
         scheduleRtReload();
@@ -456,7 +444,7 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
           const idx = prev.findIndex((g) => g.id === evt.id);
           if (idx < 0) return prev; // card not on screen — the refetch handles it
           const card = prev[idx];
-          const newBucket = reportBucket(
+          const newBucket = classifyGrBucket(
             evt.status!,
             evt.toPay ?? card.toPay,
             // payment events carry the fresh ledger total; status events don't
@@ -492,7 +480,6 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
       unsub();
       if (rtReloadTimer.current) clearTimeout(rtReloadTimer.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusTab, scheduleRtReload]);
 
   // Shop-owner (consignee) dropdown options — LAZY: this list is only needed

@@ -15,6 +15,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { useAppNav } from '../../hooks/useAppNav';
 import { useTranslation } from 'react-i18next';
+import { grRealtime, type GrEvent } from '../../services/grRealtime';
 import type { AppTheme } from '../../theme/types';
 
 interface RevenueOverview {
@@ -227,13 +228,19 @@ export const AdminDashboardScreen = () => {
     }
   }, [t]);
 
+  // Guards against an in-flight request that resolves AFTER a newer one —
+  // e.g. rapid consecutive status changes each trigger a refetch; only the
+  // response for the most recently issued request is allowed to land.
+  const shipmentOverviewReqId = useRef(0);
   const fetchShipmentOverview = useCallback(async () => {
+    const reqId = ++shipmentOverviewReqId.current;
     try {
       // Canonical reporting counts from ONE server-side aggregate query over
       // Neon — the exact same classification the GR / Shipments screen shows
       // (backend `app/services/gr_status_service.py`). No client-side maths,
       // and not capped at one page.
       const sc = await orderRepository.getStatusCounts();
+      if (reqId !== shipmentOverviewReqId.current) return; // superseded by a later fetch
       setShipmentOverview({
         total: sc.total,
         pending: sc.pending,
@@ -297,6 +304,48 @@ export const AdminDashboardScreen = () => {
     });
     return unsubscribe;
   }, [navigation, fetchDashboardData]);
+
+  // Live status-card sync: same shared WebSocket (`services/grRealtime`) the
+  // GR / Shipments screen uses. Root cause this fixes — before this effect,
+  // the four status cards only refreshed on mount / pull-to-refresh / tab
+  // 'focus', so a status change made without leaving/re-entering this screen
+  // (or made by someone else while it sat in the background) stayed stale
+  // until a manual refresh.
+  //
+  // Deliberately NOT optimistic here (unlike `AdminGRShipmentsScreen`, which
+  // patches a card instantly from the event): that screen already holds each
+  // GR's current `toPay`/`totalPaid` in its item cache, so it can compute the
+  // exact new bucket. This screen only holds aggregate counts, and a plain
+  // status-change event's `totalPaid` is `null` (the backend only recomputes
+  // it on the payment path) — guessing the bucket here could show a count
+  // that's briefly wrong, which the spec explicitly rules out. Instead every
+  // relevant event schedules ONE debounced authoritative refetch, so the
+  // cards land on the exact backend numbers within a fraction of a second and
+  // never display an incorrect value. The debounce coalesces bursts of rapid
+  // changes into a single request (no request storm), and the request-id
+  // guard in `fetchShipmentOverview` stops a slow, stale response from
+  // clobbering a newer one.
+  const rtOverviewReloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleOverviewReload = useCallback(() => {
+    if (rtOverviewReloadTimer.current) return;
+    rtOverviewReloadTimer.current = setTimeout(() => {
+      rtOverviewReloadTimer.current = null;
+      void fetchShipmentOverview();
+    }, 350);
+  }, [fetchShipmentOverview]);
+
+  useEffect(() => {
+    const onEvent = (evt: GrEvent) => {
+      if (evt.type === 'gr.status' || evt.type === 'gr.created' || evt.type === 'gr.deleted' || evt.type === 'resync') {
+        scheduleOverviewReload();
+      }
+    };
+    const unsub = grRealtime.subscribe(onEvent);
+    return () => {
+      unsub();
+      if (rtOverviewReloadTimer.current) clearTimeout(rtOverviewReloadTimer.current);
+    };
+  }, [scheduleOverviewReload]);
 
   if (loading) {
     return (

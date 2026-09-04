@@ -254,6 +254,7 @@ _ORDER_COLS = (
     Order.status,
     Order.createdAt,
     Order.toPay,
+    Order.deletedAt,
 )
 
 
@@ -369,6 +370,7 @@ async def daily_activity(
             "status": r.status.value if hasattr(r.status, "value") else r.status,
             "createdAt": r.createdAt,
             "toPay": float(r.toPay or 0),
+            "deleted": r.deletedAt is not None,
         }
     delivered_at_map: dict[uuid.UUID, datetime] = {}
     for r in delivered:
@@ -382,6 +384,7 @@ async def daily_activity(
                 "status": r.status.value if hasattr(r.status, "value") else r.status,
                 "createdAt": r.createdAt,
                 "toPay": float(r.toPay or 0),
+                "deleted": r.deletedAt is not None,
             },
         )
     for p in payment_rows:
@@ -394,6 +397,7 @@ async def daily_activity(
                 "status": None,
                 "createdAt": None,
                 "toPay": 0.0,
+                "deleted": False,
             },
         )
 
@@ -417,7 +421,7 @@ async def daily_activity(
             return (
                 await s.execute(
                     select(
-                        Order.id, Order.status, Order.toPay, Order.createdAt
+                        Order.id, Order.status, Order.toPay, Order.createdAt, Order.deletedAt
                     ).where(Order.id.in_(payment_only_ids))
                 )
             ).all()
@@ -429,6 +433,7 @@ async def daily_activity(
             m["status"] = r.status.value if hasattr(r.status, "value") else r.status
             m["toPay"] = float(r.toPay or 0)
             m["createdAt"] = r.createdAt
+            m["deleted"] = r.deletedAt is not None
 
     ledger: dict[uuid.UUID, dict] = {
         oid: {
@@ -451,6 +456,7 @@ async def daily_activity(
                 "consigneeName": r.consigneeName,
                 "createdAt": r.createdAt,
                 "toPay": float(r.toPay or 0),
+                "deleted": r.deletedAt is not None,
             }
         )
     for r in delivered:
@@ -463,6 +469,7 @@ async def daily_activity(
                 "consignorName": r.consignorName,
                 "consigneeName": r.consigneeName,
                 "createdAt": r.deliveredAt,
+                "deleted": r.deletedAt is not None,
             }
         )
     payment_events = []
@@ -480,6 +487,7 @@ async def daily_activity(
                 "createdAt": p.createdAt,
                 "amount": float(p.amount),
                 "remaining": remaining,
+                "deleted": bool(led["deleted"]) if led else False,
             }
         )
     timeline.extend(payment_events)
@@ -498,6 +506,7 @@ async def daily_activity(
                 "toPay": led["toPay"],
                 "totalPaid": led["totalPaid"],
                 "balance": max(0.0, led["toPay"] - led["totalPaid"]),
+                "deleted": bool(led.get("deleted")),
             }
             for oid, led in ledger.items()
         ),

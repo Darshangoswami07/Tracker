@@ -52,7 +52,9 @@ const addDays = (d: Date, delta: number): Date => {
 };
 
 const EVENT_CONFIG: Record<StaffActivityEvent['kind'], { icon: keyof typeof Ionicons.glyphMap; color: string; label: string }> = {
-  collected: { icon: 'checkmark-circle', color: '#3B82F6', label: 'GR Collected' },
+  // `collected` here means the GR was assigned to / taken on by this staff
+  // member (attributed via `orders.assignedStaffId`) — not a payment.
+  collected: { icon: 'checkmark-circle', color: '#3B82F6', label: 'GR Assigned' },
   delivered: { icon: 'checkmark-done-circle', color: '#10B981', label: 'GR Delivered' },
   payment: { icon: 'cash', color: '#F59E0B', label: 'Payment Collected' },
 };
@@ -326,9 +328,14 @@ export const AdminStaffDailyWorkScreen = ({ route }: any) => {
                         <Text style={[styles.timelineLabel, { color: config.color }]}>{config.label}</Text>
                         <Text style={[styles.timelineTime, { color: colors.textMuted }]}>{formatTime(event.createdAt)}</Text>
                       </View>
-                      <Text style={[styles.timelineGr, { color: colors.textPrimary }]}>
-                        GR #{event.orderNumber}{event.consignorName ? ` · ${event.consignorName}` : ''}
-                      </Text>
+                      <View style={styles.grLine}>
+                        <Text style={[styles.timelineGr, { color: colors.textPrimary }]}>
+                          GR #{event.orderNumber}{event.consignorName ? ` · ${event.consignorName}` : ''}
+                        </Text>
+                        {event.deleted && (
+                          <Text style={[styles.deletedTag, { color: colors.textMuted, borderColor: colors.border }]}>Removed by admin</Text>
+                        )}
+                      </View>
                       {event.kind === 'collected' && typeof event.toPay === 'number' && (
                         <Text style={[styles.timelineDetail, { color: colors.textSecondary }]}>Bill: {formatCurrency(event.toPay)}</Text>
                       )}
@@ -358,7 +365,12 @@ export const AdminStaffDailyWorkScreen = ({ route }: any) => {
                     activeOpacity={0.85}
                   >
                     <View style={styles.grHeader}>
-                      <Text style={[styles.grNo, { color: colors.textPrimary }]}>GR #{gr.orderNumber}</Text>
+                      <View style={styles.grLine}>
+                        <Text style={[styles.grNo, { color: colors.textPrimary }]}>GR #{gr.orderNumber}</Text>
+                        {gr.deleted && (
+                          <Text style={[styles.deletedTag, { color: colors.textMuted, borderColor: colors.border }]}>Removed by admin</Text>
+                        )}
+                      </View>
                       <StatusBadge status={gr.status} size="sm" />
                     </View>
                     <Text style={[styles.partyLine, { color: colors.textSecondary }]}>{gr.consignorName || '—'}</Text>
@@ -474,8 +486,14 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     timelineHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     timelineLabel: { fontSize: theme.fonts.size.sm, fontWeight: '800', flex: 1 },
     timelineTime: { fontSize: theme.fonts.size.xs, fontWeight: '600' },
-    timelineGr: { fontSize: theme.fonts.size.sm, fontWeight: '700' },
+    timelineGr: { fontSize: theme.fonts.size.sm, fontWeight: '700', flexShrink: 1 },
     timelineDetail: { fontSize: theme.fonts.size.xs, fontWeight: '600' },
+    grLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
+    deletedTag: {
+      fontSize: theme.fonts.size.xs, fontWeight: '700',
+      borderWidth: StyleSheet.hairlineWidth, borderRadius: 6,
+      paddingHorizontal: 6, paddingVertical: 1, overflow: 'hidden',
+    },
     grCard: { padding: 16, gap: 8 },
     grHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     grNo: { fontSize: theme.fonts.size.md, fontWeight: '800' },
