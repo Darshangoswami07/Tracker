@@ -30,6 +30,23 @@ const body = <T>(res: { data: any }): T => {
 const RAW_ERROR = /Request failed with status code|AxiosError|Network Error/i;
 
 /**
+ * Normalises a date argument to a plain `YYYY-MM-DD` string in the device's
+ * LOCAL calendar. Staff-work endpoints only care about the calendar day
+ * (`_parse_day` on the backend calls `.date()` on it), so sending a full UTC
+ * ISO timestamp is wrong: near midnight in a non-UTC timezone
+ * `new Date().toISOString()` rolls back to the previous calendar date and the
+ * backend then loads the wrong day ("Yesterday" read as "Today"). Passing the
+ * local day removes that ambiguity. Accepts a `Date`, an ISO string, or an
+ * already-normalised `YYYY-MM-DD` (returned unchanged).
+ */
+const toLocalDayParam = (value: string | Date): string => {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/**
  * Runs an API call and, on failure, re-throws a plain `Error` carrying the
  * backend's own human-readable message (e.g. "Settlement amount cannot exceed
  * available balance.") when there is one. This preserves the behaviour screens
@@ -980,7 +997,7 @@ export const orderRepository = {
 
   async getStaffDailySummary(staffId: string, dateIso: string): Promise<{ totalCollection: number; totalGRs: number }> {
     const res = await api.get(ENDPOINTS.staffWork.dailySummary, {
-      params: { staffId, date: dateIso },
+      params: { staffId, date: toLocalDayParam(dateIso) },
     });
     const d = body<any>(res);
     return { totalCollection: Number(d.totalCollection ?? 0), totalGRs: Number(d.totalGRs ?? 0) };
@@ -988,7 +1005,7 @@ export const orderRepository = {
 
   async getStaffDailyGRs(staffId: string, dateIso: string): Promise<StaffDailyGR[]> {
     const res = await api.get(ENDPOINTS.staffWork.dailyGRs, {
-      params: { staffId, date: dateIso },
+      params: { staffId, date: toLocalDayParam(dateIso) },
     });
     return body<any[]>(res).map((r) => ({
       orderId: r.orderId,
@@ -1007,7 +1024,7 @@ export const orderRepository = {
 
   async getStaffDailyActivity(staffId: string, dateIso: string): Promise<StaffDailyActivity> {
     const res = await api.get(ENDPOINTS.staffWork.dailyWork, {
-      params: { staffId, date: dateIso },
+      params: { staffId, date: toLocalDayParam(dateIso) },
     });
     return body<StaffDailyActivity>(res);
   },
@@ -1027,7 +1044,7 @@ export const orderRepository = {
 
   async getStaffDailyCollection(staffId: string, dateIso: string): Promise<StaffDailyCollection> {
     const res = await api.get(ENDPOINTS.staffWork.dailyCollection, {
-      params: { staffId, date: dateIso },
+      params: { staffId, date: toLocalDayParam(dateIso) },
       timeout: ENV.dashboardTimeoutMs,
     });
     const d = body<any>(res);

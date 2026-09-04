@@ -185,55 +185,74 @@ async def revenue_overview(
     if area:
         base.append(Order.area == area)
 
-    eff = func.coalesce(Order.grDate, Order.createdAt)
-    rev = func.coalesce(Order.paymentAmount, 0) + func.coalesce(Order.toPay, 0)
     total_paid_expr = func.greatest(func.coalesce(paid.c.paid, 0), func.coalesce(Order.paymentAmount, 0))
 
-    def bucket(lo, hi):
-        return func.coalesce(func.sum(rev).filter(and_(*base, eff >= lo, eff < hi)), 0)
+    # "Collected" money = the sum of PAYMENT TRANSACTIONS, bucketed by when
+    # each payment was recorded. Scoped to the caller's company/area via the
+    # Order join, but deliberately NOT filtered by `Order.deletedAt` /
+    # `isActive`: a payment is a persistent financial event, so soft-deleting
+    # its GR later must never remove it from "Collected Today" /
+    # "Total Collected" / the weekly & monthly collection figures. "Collected
+    # Today" also resets to 0 by calendar date on its own — there are simply
+    # no payment rows dated the new day yet.
+    pay_scope = []
+    if company_id is not None:
+        pay_scope.append(Order.companyId == company_id)
+    if area:
+        pay_scope.append(Order.area == area)
 
-    q = (
-        select(
-            bucket(start_today, end_now).label("today"),
-            bucket(start_yesterday, start_today).label("yesterday"),
-            bucket(start_week, end_now).label("week"),
-            bucket(start_prev_week, start_week).label("prev_week"),
-            bucket(start_month, end_now).label("month"),
-            bucket(start_prev_month, start_month).label("prev_month"),
-            func.coalesce(func.sum(total_paid_expr).filter(and_(*base)), 0).label("total_collected"),
-            func.coalesce(
-                func.sum(
-                    func.greatest(func.coalesce(Order.toPay, 0) - total_paid_expr, 0)
-                ).filter(and_(*base)),
-                0,
-            ).label("outstanding"),
-            func.count(Order.id).filter(and_(*base, total_paid_expr > 0)).label("collected_count"),
-            func.count(Order.id)
-            .filter(and_(*base, func.coalesce(Order.toPay, 0) - total_paid_expr > 0.005))
-            .label("outstanding_count"),
+    def collected(lo, hi):
+        return func.coalesce(
+            func.sum(Payment.amount).filter(
+                and_(Payment.createdAt >= lo, Payment.createdAt < hi, *pay_scope)
+            ),
+            0,
         )
-        .select_from(Order)
-        .outerjoin(paid, paid.c.orderId == Order.id)
-    )
-    row = (await session.execute(q)).one()
 
-    pbase = list(base)
-    ptrend = (
+    total_collected_col = func.sum(Payment.amount)
+    if pay_scope:
+        total_collected_col = total_collected_col.filter(and_(*pay_scope))
+
+    row = (
         await session.execute(
             select(
-                func.coalesce(func.sum(Payment.amount).filter(Payment.createdAt >= start_month), 0),
-                func.coalesce(
-                    func.sum(Payment.amount).filter(
-                        and_(Payment.createdAt >= start_prev_month, Payment.createdAt < start_month)
-                    ),
-                    0,
-                ),
+                collected(start_today, end_now).label("today"),
+                collected(start_yesterday, start_today).label("yesterday"),
+                collected(start_week, end_now).label("week"),
+                collected(start_prev_week, start_week).label("prev_week"),
+                collected(start_month, end_now).label("month"),
+                collected(start_prev_month, start_month).label("prev_month"),
+                func.coalesce(total_collected_col, 0).label("total_collected"),
+                collected(start_month, end_now).label("collected_this_month"),
+                collected(start_prev_month, start_month).label("collected_prev_month"),
             )
             .select_from(Payment)
             .join(Order, Order.id == Payment.orderId)
-            .where(*pbase)
         )
     ).one()
+
+    # Outstanding ("Amount to Collect") and the GR counts are about LIVE GRs
+    # — there is nothing to collect on a deleted GR — so they keep the
+    # active / not-soft-deleted filter.
+    counts = (
+        await session.execute(
+            select(
+                func.coalesce(
+                    func.sum(
+                        func.greatest(func.coalesce(Order.toPay, 0) - total_paid_expr, 0)
+                    ).filter(and_(*base)),
+                    0,
+                ).label("outstanding"),
+                func.count(Order.id).filter(and_(*base, total_paid_expr > 0)).label("collected_count"),
+                func.count(Order.id)
+                .filter(and_(*base, func.coalesce(Order.toPay, 0) - total_paid_expr > 0.005))
+                .label("outstanding_count"),
+            )
+            .select_from(Order)
+            .outerjoin(paid, paid.c.orderId == Order.id)
+        )
+    ).one()
+    ptrend = (row.collected_this_month, row.collected_prev_month)
 
     return success(
         {
@@ -244,9 +263,9 @@ async def revenue_overview(
             "month": float(row.month),
             "prevMonth": float(row.prev_month),
             "totalCollected": float(row.total_collected),
-            "outstandingAmount": float(row.outstanding),
-            "collectedGRCount": int(row.collected_count),
-            "outstandingGRCount": int(row.outstanding_count),
+            "outstandingAmount": float(counts.outstanding),
+            "collectedGRCount": int(counts.collected_count),
+            "outstandingGRCount": int(counts.outstanding_count),
             "collectedThisMonth": float(ptrend[0]),
             "collectedPrevMonth": float(ptrend[1]),
         },

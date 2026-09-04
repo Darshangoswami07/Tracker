@@ -14,6 +14,7 @@ import {
   type StaffActivityEvent,
 } from '../../database/repositories/orderRepository';
 import { grRealtime } from '../../services/grRealtime';
+import { useRecentDays } from '../../hooks/useRecentDays';
 import type { AppTheme } from '../../theme/types';
 
 /** `YYYY-MM-DD` in local time — the stable per-day cache/query key. */
@@ -24,6 +25,11 @@ const dayKey = (d: Date): string =>
  * days instantly (no skeleton, no refetch) within a session. Keyed by
  * `staffId|day`. A realtime GR/payment/status event clears it. */
 const workCache = new Map<string, StaffDailyActivity>();
+/** When each cached day was last fetched — used to skip a redundant network
+ * revalidation when the same day is re-selected within a short window. */
+const workCacheAt = new Map<string, number>();
+/** How long a cached day is considered fresh enough to skip revalidation. */
+const REVALIDATE_TTL_MS = 30_000;
 
 const formatCurrency = (amount: number): string =>
   `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -44,12 +50,6 @@ const addDays = (d: Date, delta: number): Date => {
   next.setDate(next.getDate() + delta);
   return next;
 };
-
-/** Last 14 selectable days (today first), for the date-picker sheet — a
- * lightweight substitute for a full calendar widget (no date-picker
- * dependency exists in this app yet) that still lets Admin jump to any
- * recent date, not just step one day at a time. */
-const RECENT_DAYS = Array.from({ length: 14 }, (_, i) => addDays(new Date(), -i));
 
 const EVENT_CONFIG: Record<StaffActivityEvent['kind'], { icon: keyof typeof Ionicons.glyphMap; color: string; label: string }> = {
   collected: { icon: 'checkmark-circle', color: '#3B82F6', label: 'GR Collected' },
@@ -79,10 +79,24 @@ export const AdminStaffDailyWorkScreen = ({ route }: any) => {
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
+  // `today` / `recentDays` are always anchored to the real current calendar
+  // date (self-refreshing across midnight), NEVER to `selectedDate`.
+  const { today, recentDays, refresh: refreshToday } = useRecentDays();
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('loading');
   const [activity, setActivity] = useState<StaffDailyActivity | null>(null);
   const [dateSheetOpen, setDateSheetOpen] = useState(false);
+
+  /** Step one day. Forward is clamped so navigation can never move past
+   * today; backward is unbounded (older history stays reachable). */
+  const stepDay = useCallback(
+    (delta: number) =>
+      setSelectedDate((d) => {
+        const next = addDays(d, delta);
+        return dayKey(next) > dayKey(today) ? d : next;
+      }),
+    [today],
+  );
 
   const reqIdRef = useRef(0);
   const selectedDateRef = useRef(selectedDate);
@@ -93,8 +107,20 @@ export const AdminStaffDailyWorkScreen = ({ route }: any) => {
   const load = useCallback(async (date: Date, opts: { force?: boolean } = {}) => {
     const key = `${staffId}|${dayKey(date)}`;
     const cached = workCache.get(key);
+
+    // Fresh cache hit → paint it and skip the network entirely. Re-selecting
+    // the same day (Today⇄Yesterday⇄…) within the TTL costs zero requests.
+    if (cached && !opts.force && Date.now() - (workCacheAt.get(key) ?? 0) < REVALIDATE_TTL_MS) {
+      // Still bump the request id so any in-flight older request can't land
+      // on top of this day's data.
+      reqIdRef.current += 1;
+      setActivity(cached);
+      setLoadStatus('success');
+      return;
+    }
+
     if (cached && !opts.force) {
-      // Instant paint from cache; still revalidate quietly in the background
+      // Stale cache: instant paint, then revalidate quietly in the background
       // so numbers stay live without a skeleton flash.
       setActivity(cached);
       setLoadStatus('success');
@@ -108,6 +134,7 @@ export const AdminStaffDailyWorkScreen = ({ route }: any) => {
       const data = await orderRepository.getStaffDailyActivity(staffId, date.toISOString());
       if (reqId !== reqIdRef.current) return; // a newer date/refresh superseded this
       workCache.set(key, data);
+      workCacheAt.set(key, Date.now());
       setActivity(data);
       setLoadStatus('success');
     } catch (error) {
@@ -129,6 +156,7 @@ export const AdminStaffDailyWorkScreen = ({ route }: any) => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const unsub = grRealtime.subscribe(() => {
       workCache.clear();
+      workCacheAt.clear();
       if (timer) return;
       timer = setTimeout(() => {
         timer = null;
@@ -141,7 +169,6 @@ export const AdminStaffDailyWorkScreen = ({ route }: any) => {
     };
   }, [load]);
 
-  const today = new Date();
   const onToday = isSameDay(selectedDate, today);
   const onYesterday = isSameDay(selectedDate, addDays(today, -1));
   const dateLabel = onToday ? 'Today' : onYesterday ? 'Yesterday' : formatDay(selectedDate);
@@ -168,16 +195,16 @@ export const AdminStaffDailyWorkScreen = ({ route }: any) => {
 
         {/* Date filter */}
         <View style={[styles.dateRow, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
-          <TouchableOpacity onPress={() => setSelectedDate((d) => addDays(d, -1))} hitSlop={8} style={styles.dateArrow}>
+          <TouchableOpacity onPress={() => stepDay(-1)} hitSlop={8} style={styles.dateArrow}>
             <Ionicons name="chevron-back" size={20} color={colors.textPrimary} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.dateCenter} onPress={() => setDateSheetOpen(true)} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.dateCenter} onPress={() => { refreshToday(); setDateSheetOpen(true); }} activeOpacity={0.7}>
             <Ionicons name="calendar-outline" size={16} color={colors.primary} />
             <Text style={[styles.dateText, { color: colors.textPrimary }]}>{dateLabel}</Text>
             <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => setSelectedDate((d) => addDays(d, 1))}
+            onPress={() => stepDay(1)}
             hitSlop={8}
             style={styles.dateArrow}
             disabled={onToday}
@@ -394,11 +421,11 @@ export const AdminStaffDailyWorkScreen = ({ route }: any) => {
             <View style={styles.sheetHandle} />
             <Text style={[styles.sheetTitle, { color: colors.textPrimary }]}>Select Date</Text>
             <ScrollView style={styles.dateList} showsVerticalScrollIndicator={false}>
-              {RECENT_DAYS.map((d) => {
+              {recentDays.map((d) => {
                 const selected = isSameDay(d, selectedDate);
                 return (
                   <TouchableOpacity
-                    key={d.toISOString().slice(0, 10)}
+                    key={dayKey(d)}
                     style={[styles.dateOption, { borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? `${colors.primary}10` : 'transparent', borderRadius: radii.md }]}
                     onPress={() => { setSelectedDate(d); setDateSheetOpen(false); }}
                   >

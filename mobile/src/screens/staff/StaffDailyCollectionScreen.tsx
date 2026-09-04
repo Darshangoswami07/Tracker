@@ -8,6 +8,7 @@ import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
 import { EmptyState } from '../../components/EmptyState';
 import { useAppNav } from '../../hooks/useAppNav';
+import { useRecentDays } from '../../hooks/useRecentDays';
 import { useUserStore } from '../../store/userStore';
 import {
   orderRepository,
@@ -23,6 +24,10 @@ const formatCurrency = (amount: number): string =>
 const isSameDay = (a: Date, b: Date): boolean =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
+/** `YYYY-MM-DD` in local time — sortable/comparable per-day key. */
+const dayKey = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 const formatDay = (d: Date): string => d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const formatDayShort = (d: Date): string => d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 const formatTime = (iso: string): string => {
@@ -35,8 +40,6 @@ const addDays = (d: Date, delta: number): Date => {
   next.setDate(next.getDate() + delta);
   return next;
 };
-
-const RECENT_DAYS = Array.from({ length: 14 }, (_, i) => addDays(new Date(), -i));
 
 const TX_CONFIG: Record<CollectionTransaction['kind'], { icon: keyof typeof Ionicons.glyphMap; color: string; labelKey: string; sign: '+' | '-' }> = {
   collection: { icon: 'arrow-down-circle', color: '#10B981', labelKey: 'collection.grCollection', sign: '+' },
@@ -71,6 +74,9 @@ export const StaffDailyCollectionScreen = () => {
 
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
+  // `today` / `recentDays` are always anchored to the real current calendar
+  // date (self-refreshing across midnight), NEVER to `selectedDate`.
+  const { today, recentDays, refresh: refreshToday } = useRecentDays();
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('loading');
   const [collection, setCollection] = useState<StaffDailyCollection | null>(null);
@@ -106,10 +112,20 @@ export const StaffDailyCollectionScreen = () => {
     return () => clearTimeout(timer);
   }, [banner]);
 
-  const today = new Date();
   const onToday = isSameDay(selectedDate, today);
   const onYesterday = isSameDay(selectedDate, addDays(today, -1));
   const dateLabel = onToday ? t('filters.today') : onYesterday ? t('filters.yesterday') : formatDay(selectedDate);
+
+  /** Step one day. Forward is clamped so navigation can never move past
+   * today; backward is unbounded (older history stays reachable). */
+  const stepDay = useCallback(
+    (delta: number) =>
+      setSelectedDate((d) => {
+        const next = addDays(d, delta);
+        return dayKey(next) > dayKey(today) ? d : next;
+      }),
+    [today],
+  );
 
   const c = collection;
 
@@ -206,16 +222,16 @@ export const StaffDailyCollectionScreen = () => {
 
         {/* Date filter */}
         <View style={[styles.dateRow, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
-          <TouchableOpacity onPress={() => setSelectedDate((d) => addDays(d, -1))} hitSlop={8} style={styles.dateArrow}>
+          <TouchableOpacity onPress={() => stepDay(-1)} hitSlop={8} style={styles.dateArrow}>
             <Ionicons name="chevron-back" size={20} color={colors.textPrimary} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.dateCenter} onPress={() => setDateSheetOpen(true)} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.dateCenter} onPress={() => { refreshToday(); setDateSheetOpen(true); }} activeOpacity={0.7}>
             <Ionicons name="calendar-outline" size={16} color={colors.primary} />
             <Text style={[styles.dateText, { color: colors.textPrimary }]}>{dateLabel}</Text>
             <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => setSelectedDate((d) => addDays(d, 1))}
+            onPress={() => stepDay(1)}
             hitSlop={8}
             style={styles.dateArrow}
             disabled={onToday}
@@ -347,11 +363,11 @@ export const StaffDailyCollectionScreen = () => {
             <View style={styles.sheetHandle} />
             <Text style={[styles.sheetTitle, { color: colors.textPrimary }]}>{t('collection.selectDate')}</Text>
             <ScrollView style={styles.dateList} showsVerticalScrollIndicator={false}>
-              {RECENT_DAYS.map((d) => {
+              {recentDays.map((d) => {
                 const selected = isSameDay(d, selectedDate);
                 return (
                   <TouchableOpacity
-                    key={d.toISOString().slice(0, 10)}
+                    key={dayKey(d)}
                     style={[styles.dateOption, { borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? `${colors.primary}10` : 'transparent', borderRadius: radii.md }]}
                     onPress={() => { setSelectedDate(d); setDateSheetOpen(false); }}
                   >

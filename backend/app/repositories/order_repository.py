@@ -239,13 +239,17 @@ class OrderRepository(BaseRepository[Order]):
             }
 
     async def get_revenue_overview(self, company_id: UUID | None = None) -> dict:
-        """Return revenue aggregation for today, this week, and this month.
+        """Return collection aggregation for today / week / month (+ the prior
+        period for each, for comparison %), plus lifetime ``totalCollected``
+        and current ``outstandingAmount``.
 
-        Revenue per GR = coalesce(paymentAmount, 0) + coalesce(toPay, 0).
+        The "collected" figures are summed from the ``payments`` transaction
+        ledger, bucketed by ``Payment.createdAt``, and are NOT filtered by
+        ``Order.deletedAt`` — soft-deleting a GR never removes money that was
+        already collected against it. ``outstandingAmount`` is the only figure
+        still scoped to live (active, not-soft-deleted) GRs.
+
         Optionally scoped to a single company (platform admins see all).
-
-        Returns dicts with ``current`` and ``previous`` period totals so the
-        frontend can show comparison percentages.
         """
         async with session_scope(self._session) as session:
             today = date.today()
@@ -269,46 +273,57 @@ class OrderRepository(BaseRepository[Order]):
                 start_of_prev_month = today.replace(month=today.month - 1, day=1)
             start_of_prev_month = datetime.combine(start_of_prev_month, datetime.min.time()).replace(tzinfo=timezone.utc)
 
-            # Revenue expression: Paid_Amt + ToPay_Amt
-            revenue_expr = func.coalesce(Order.paymentAmount, 0) + func.coalesce(Order.toPay, 0)
+            # "Collected" figures are the sum of PAYMENT TRANSACTIONS (the
+            # `payments` ledger), bucketed by when each payment was recorded —
+            # NOT derived from the GR's own `paymentAmount` column and NOT
+            # filtered by `Order.deletedAt`. A payment is a persistent
+            # financial event: soft-deleting its GR later must never erase it
+            # from "Collected Today" / "Total Collected" / the weekly/monthly
+            # collection cards. The Order join exists only for company
+            # scoping; a soft-deleted order keeps its row, so its payments
+            # still count. "Collected Today" therefore also resets to 0 by
+            # calendar date automatically (no payment rows dated the new day
+            # yet) with no manual reset.
+            from app.models.payment import Payment
 
-            # Effective date for bucketing: prefer grDate, fall back to createdAt
-            effective_date = func.coalesce(Order.grDate, Order.createdAt)
+            pay_scope = [] if company_id is None else [Order.companyId == company_id]
 
-            # Match GR list filters: active, not soft-deleted, optional company scope
-            base_filter = [Order.isActive == True, Order.deletedAt.is_(None)]
-            if company_id is not None:
-                base_filter.append(Order.companyId == company_id)
+            def collected_between(lo, hi):
+                return func.coalesce(
+                    func.sum(Payment.amount).filter(
+                        and_(Payment.createdAt >= lo, Payment.createdAt < hi, *pay_scope)
+                    ),
+                    0,
+                )
 
-            # Single query with FILTER (WHERE) for 6 periods + 2 lifetime totals
+            total_collected_expr = func.sum(Payment.amount)
+            if pay_scope:
+                total_collected_expr = total_collected_expr.filter(and_(*pay_scope))
+
+            end_of_today = start_of_today + timedelta(days=1)
             row = (await session.execute(
                 select(
-                    func.coalesce(func.sum(revenue_expr).filter(
-                        and_(*base_filter, effective_date >= start_of_today, effective_date < start_of_today + timedelta(days=1))
-                    ), 0).label("today"),
-                    func.coalesce(func.sum(revenue_expr).filter(
-                        and_(*base_filter, effective_date >= start_of_yesterday, effective_date < start_of_today)
-                    ), 0).label("yesterday"),
-                    func.coalesce(func.sum(revenue_expr).filter(
-                        and_(*base_filter, effective_date >= start_of_week, effective_date < start_of_today + timedelta(days=1))
-                    ), 0).label("week"),
-                    func.coalesce(func.sum(revenue_expr).filter(
-                        and_(*base_filter, effective_date >= start_of_prev_week, effective_date < start_of_week)
-                    ), 0).label("prev_week"),
-                    func.coalesce(func.sum(revenue_expr).filter(
-                        and_(*base_filter, effective_date >= start_of_month, effective_date < start_of_today + timedelta(days=1))
-                    ), 0).label("month"),
-                    func.coalesce(func.sum(revenue_expr).filter(
-                        and_(*base_filter, effective_date >= start_of_prev_month, effective_date < start_of_month)
-                    ), 0).label("prev_month"),
-                    func.coalesce(func.sum(Order.paymentAmount).filter(
-                        and_(*base_filter),
-                    ), 0).label("total_collected"),
-                    func.coalesce(func.sum(Order.toPay).filter(
-                        and_(*base_filter),
-                    ), 0).label("outstanding"),
+                    collected_between(start_of_today, end_of_today).label("today"),
+                    collected_between(start_of_yesterday, start_of_today).label("yesterday"),
+                    collected_between(start_of_week, end_of_today).label("week"),
+                    collected_between(start_of_prev_week, start_of_week).label("prev_week"),
+                    collected_between(start_of_month, end_of_today).label("month"),
+                    collected_between(start_of_prev_month, start_of_month).label("prev_month"),
+                    func.coalesce(total_collected_expr, 0).label("total_collected"),
                 )
+                .select_from(Payment)
+                .join(Order, Order.id == Payment.orderId)
             )).one()
+
+            # Outstanding ("Amount to Collect") legitimately belongs to LIVE
+            # GRs only — there is nothing to collect on a deleted GR — so it
+            # keeps the active / not-soft-deleted filter.
+            outstanding_filter = [Order.isActive == True, Order.deletedAt.is_(None)]
+            if company_id is not None:
+                outstanding_filter.append(Order.companyId == company_id)
+            outstanding = (await session.execute(
+                select(func.coalesce(func.sum(Order.toPay).filter(and_(*outstanding_filter)), 0))
+            )).scalar() or 0
 
             return {
                 "today": float(row.today),
@@ -318,7 +333,7 @@ class OrderRepository(BaseRepository[Order]):
                 "month": float(row.month),
                 "prevMonth": float(row.prev_month),
                 "totalCollected": float(row.total_collected),
-                "outstandingAmount": float(row.outstanding),
+                "outstandingAmount": float(outstanding),
             }
 
     async def get_order_chart_data(self, days: int = 30) -> list:
