@@ -755,7 +755,17 @@
     "paid": "भुगतान",
     "balance": "शेष",
     "cleared": "क्लियर",
-    "uncleared": "अनक्लियर"
+    "uncleared": "अनक्लियर",
+    "adminDirect": "सीधे एडमिन",
+    "staffReceived": "स्टाफ द्वारा प्राप्त",
+    "totalAdminDirect": "कुल सीधे एडमिन",
+    "totalStaffReceived": "कुल स्टाफ द्वारा प्राप्त",
+    "receivedByAdminLabel": "एडमिन द्वारा प्राप्त",
+    "receivedByStaffLabel": "स्टाफ द्वारा प्राप्त",
+    "enteredBy": "द्वारा दर्ज किया गया",
+    "noAdminDirectPayments": "अभी तक कोई सीधा एडमिन भुगतान नहीं",
+    "noStaffReceivedPayments": "अभी तक कोई स्टाफ भुगतान नहीं",
+    "loadMore": "और लोड करें"
   },
   "receivingDetails": {
     "customDateRange": "कस्टम रेंज",

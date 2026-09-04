@@ -76,6 +76,9 @@ export const ENDPOINTS = {
       todayCollection: '/admin/orders/meta/today-collection',
       receiving: '/admin/orders/receiving',
       receivingOverview: '/admin/orders/receiving/overview',
+      /** Split by WHO RECEIVED the money (?receivedBy=ADMIN|STAFF) — backs the
+       * Receiving Details "Admin Direct" / "Staff Received" tabs. */
+      receivingPaymentHistory: '/admin/orders/receiving/payment-history',
       shopsOverview: '/admin/orders/shops/overview',
       shopsCounts: '/admin/orders/shops/counts',
       import: '/admin/orders/import',

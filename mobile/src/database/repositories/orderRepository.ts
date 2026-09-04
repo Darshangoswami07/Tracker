@@ -412,6 +412,41 @@ export interface ReceivingOverview {
   paidCount: number;
   overpaidCount: number;
   grCount: number;
+  /** Same figure as the Admin Dashboard's "Direct UPI Received" card
+   * (`receivedBy=ADMIN` AND `paymentMethod=upi` only) — identical backend
+   * expression, so the two screens can never disagree. */
+  directUpiReceived: number;
+  /** "Admin Direct" tab total — every payment with `receivedBy=ADMIN`, any
+   * payment method (Cash/UPI/Bank Transfer/Cheque). */
+  directAdminTotal: number;
+  directAdminCount: number;
+  /** "Staff Received" tab total — every payment that is NOT `receivedBy=
+   * ADMIN` (legacy rows with no `receivedBy` count as Staff, matching the
+   * Staff Dashboard's own accounting — see `staff_work_service.NOT_ADMIN_RECEIVED`). */
+  staffReceivedTotal: number;
+  staffReceivedCount: number;
+}
+
+/** Who actually holds the money — the accounting source of truth, always
+ * from `payments.receivedBy` on the server. Never derived from who entered
+ * the payment, the logged-in user, or the payment mode. */
+export type PaymentReceiver = 'ADMIN' | 'STAFF';
+
+/** One row of the "Admin Direct" / "Staff Received" history tabs. */
+export interface ReceivingPaymentHistoryItem {
+  id: string;
+  orderId: string;
+  orderNumber: string;
+  consigneeName: string | null;
+  consignorName: string | null;
+  amount: number;
+  paymentMethod: string | null;
+  notes: string | null;
+  receivedBy: PaymentReceiver;
+  /** Who entered the transaction (may differ from `receivedBy`) — resolved
+   * server-side to a display name; null if it no longer resolves. */
+  enteredByName: string | null;
+  createdAt: string;
 }
 
 export interface PaymentSummary {
@@ -985,6 +1020,46 @@ export const orderRepository = {
       paidCount: Number(d.paidCount ?? 0),
       overpaidCount: Number(d.overpaidCount ?? 0),
       grCount: Number(d.grCount ?? 0),
+      directUpiReceived: Number(d.directUpiReceived ?? 0),
+      directAdminTotal: Number(d.directAdminTotal ?? 0),
+      directAdminCount: Number(d.directAdminCount ?? 0),
+      staffReceivedTotal: Number(d.staffReceivedTotal ?? 0),
+      staffReceivedCount: Number(d.staffReceivedCount ?? 0),
+    };
+  },
+
+  /** Paginated payment history for ONE receiver tab ("Admin Direct" /
+   * "Staff Received") — one efficient backend request (join + window
+   * count), no per-payment follow-up call, optional payment-mode filter. */
+  async getReceivingPaymentHistory(params: {
+    receivedBy: PaymentReceiver;
+    paymentMethod?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{ items: ReceivingPaymentHistoryItem[]; total: number }> {
+    const query: Record<string, unknown> = {
+      receivedBy: params.receivedBy,
+      page: params.page ?? 1,
+      page_size: params.pageSize ?? 20,
+    };
+    if (params.paymentMethod) query.paymentMethod = params.paymentMethod;
+    const res = await api.get(ENDPOINTS.admin.orders.receivingPaymentHistory, { params: query });
+    const d = body<{ items: any[]; total: number }>(res);
+    return {
+      items: d.items.map((r) => ({
+        id: r.id,
+        orderId: r.orderId,
+        orderNumber: r.orderNumber,
+        consigneeName: r.consigneeName ?? null,
+        consignorName: r.consignorName ?? null,
+        amount: Number(r.amount ?? 0),
+        paymentMethod: r.paymentMethod ?? null,
+        notes: r.notes ?? null,
+        receivedBy: (r.receivedBy as PaymentReceiver) ?? 'STAFF',
+        enteredByName: r.enteredByName ?? null,
+        createdAt: r.createdAt,
+      })),
+      total: Number(d.total ?? 0),
     };
   },
 

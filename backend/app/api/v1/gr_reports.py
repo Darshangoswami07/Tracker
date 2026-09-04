@@ -16,7 +16,7 @@ from fastapi import Depends
 from pydantic import BaseModel, Field
 import time as _time
 
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import String, and_, case, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +28,7 @@ from app.models.order import Order
 from app.models.order_status_history import OrderStatusHistory
 from app.models.shop import Shop
 from app.models.payment import Payment
+from app.models.user import User
 from app.models.import_history import ImportHistory
 from app.repositories.order_repository import OrderRepository
 from app.schemas.order import GRCreateRequest
@@ -437,6 +438,47 @@ async def receiving_overview(
             .where(*conds)
         )
     ).scalar() or 0
+
+    # Receiver split (Receiving Details "Admin Direct" / "Staff Received"
+    # tabs) — the SAME two conditions used everywhere else this distinction
+    # matters (`app/services/staff_work_service.py`'s `NOT_ADMIN_RECEIVED`,
+    # `meta/revenue-overview`'s `direct_upi_col`): a payment counts as
+    # Admin-direct only when `receivedBy == 'ADMIN'`; every other payment
+    # (including legacy rows with `receivedBy IS NULL`, which predate this
+    # column and were always ordinary staff collections) counts as
+    # Staff-received. Scoped like `revenue-overview`'s `pay_scope` — company/
+    # area only, NOT `Order.deletedAt` — a payment is a persistent financial
+    # event that must keep counting even if its GR is later soft-deleted.
+    pay_scope = []
+    if company_id is not None:
+        pay_scope.append(Order.companyId == company_id)
+    if area:
+        pay_scope.append(Order.area == area)
+    admin_received = Payment.receivedBy == "ADMIN"
+    staff_received = or_(Payment.receivedBy.is_(None), Payment.receivedBy != "ADMIN")
+    direct_row = (
+        await session.execute(
+            select(
+                func.coalesce(
+                    func.sum(Payment.amount).filter(
+                        and_(admin_received, func.lower(Payment.paymentMethod) == "upi", *pay_scope)
+                    ),
+                    0,
+                ).label("direct_upi"),
+                func.coalesce(
+                    func.sum(Payment.amount).filter(and_(admin_received, *pay_scope)), 0
+                ).label("admin_direct_total"),
+                func.count(Payment.id).filter(and_(admin_received, *pay_scope)).label("admin_direct_count"),
+                func.coalesce(
+                    func.sum(Payment.amount).filter(and_(staff_received, *pay_scope)), 0
+                ).label("staff_received_total"),
+                func.count(Payment.id).filter(and_(staff_received, *pay_scope)).label("staff_received_count"),
+            )
+            .select_from(Payment)
+            .join(Order, Order.id == Payment.orderId)
+        )
+    ).one()
+
     return success(
         {
             "totalToPay": float(total_to_pay),
@@ -448,8 +490,108 @@ async def receiving_overview(
             "paidCount": int(paid_c),
             "overpaidCount": int(overpaid),
             "grCount": int(gr_count),
+            # Same expression `meta/revenue-overview` uses for the Admin
+            # Dashboard's "Direct UPI Received" card — identical numbers,
+            # guaranteed (test 16 in the spec: dashboard figure == SUM(Admin
+            # Direct payments WHERE paymentMethod = upi), never the broader total).
+            "directUpiReceived": float(direct_row.direct_upi),
+            "directAdminTotal": float(direct_row.admin_direct_total),
+            "directAdminCount": int(direct_row.admin_direct_count),
+            "staffReceivedTotal": float(direct_row.staff_received_total),
+            "staffReceivedCount": int(direct_row.staff_received_count),
         },
         message="Receiving overview retrieved successfully.",
+    )
+
+
+@router.get("/receiving/payment-history")
+async def receiving_payment_history(
+    admin: GRAccessUser,
+    receivedBy: Annotated[str, Query(pattern="^(ADMIN|STAFF)$")] = "ADMIN",
+    paymentMethod: Optional[str] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Payment history split by WHO RECEIVED the money — backs the Receiving
+    Details "Admin Direct" / "Staff Received" tabs.
+
+    ``receivedBy`` is the single source of truth (never who entered the
+    payment, never the currently-logged-in user, never the payment mode): a
+    staff member can record a payment with `enteredBy=<themselves>` and
+    `receivedBy='ADMIN'` — that row belongs in Admin Direct and nowhere else.
+    ``receivedBy=STAFF`` matches legacy rows (`receivedBy IS NULL`) too, same
+    as `receiving_overview`/`staff_work_service.NOT_ADMIN_RECEIVED` above, so
+    historical payments predating this column classify identically everywhere.
+
+    ONE query: Payment (join) Order (outer join) User for the name of who
+    entered it — no per-row follow-up request, DB-level pagination via a
+    window count. Not filtered by `Order.deletedAt` — a payment is a
+    permanent financial record and must remain visible even if its GR is
+    later soft-deleted."""
+    company_id = await effective_company_id(admin)
+    area = _effective_area(admin)
+    receiver_cond = (
+        Payment.receivedBy == "ADMIN"
+        if receivedBy == "ADMIN"
+        else or_(Payment.receivedBy.is_(None), Payment.receivedBy != "ADMIN")
+    )
+    conds = [receiver_cond]
+    if company_id is not None:
+        conds.append(Order.companyId == company_id)
+    if area:
+        conds.append(Order.area == area)
+    if paymentMethod:
+        conds.append(func.lower(Payment.paymentMethod) == paymentMethod.strip().lower())
+
+    base = (
+        select(
+            Payment.id,
+            Payment.orderId,
+            Payment.amount,
+            Payment.paymentMethod,
+            Payment.notes,
+            Payment.recordedBy,
+            Payment.receivedBy,
+            Payment.createdAt,
+            Order.orderNumber,
+            Order.consigneeName,
+            Order.consignorName,
+            User.firstName,
+            User.lastName,
+            func.count().over().label("_total"),
+        )
+        .select_from(Payment)
+        .join(Order, Order.id == Payment.orderId)
+        .outerjoin(User, cast(User.id, String) == Payment.recordedBy)
+        .where(*conds)
+        .order_by(Payment.createdAt.desc(), Payment.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    rows = (await session.execute(base)).all()
+    total = int(rows[0]._total) if rows else 0
+    items = []
+    for r in rows:
+        entered_by = f"{r.firstName or ''} {r.lastName or ''}".strip() or None
+        items.append(
+            {
+                "id": str(r.id),
+                "orderId": str(r.orderId),
+                "orderNumber": r.orderNumber,
+                "consigneeName": r.consigneeName,
+                "consignorName": r.consignorName,
+                "amount": float(r.amount),
+                "paymentMethod": r.paymentMethod,
+                "notes": r.notes,
+                "receivedBy": r.receivedBy or "STAFF",
+                "enteredByName": entered_by,
+                "createdAt": r.createdAt.isoformat(),
+            }
+        )
+    return success(
+        {"items": items, "total": total, "page": page, "pageSize": page_size},
+        message="Payment history retrieved successfully.",
     )
 
 

@@ -755,7 +755,17 @@
     "paid": "Paid",
     "balance": "Balance",
     "cleared": "Cleared",
-    "uncleared": "Uncleared"
+    "uncleared": "Uncleared",
+    "adminDirect": "Admin Direct",
+    "staffReceived": "Staff Received",
+    "totalAdminDirect": "Total Admin Direct",
+    "totalStaffReceived": "Total Staff Received",
+    "receivedByAdminLabel": "Admin ne receive kiya",
+    "receivedByStaffLabel": "Staff ne receive kiya",
+    "enteredBy": "Entered by",
+    "noAdminDirectPayments": "Abhi tak koi Admin Direct payment nahi hai",
+    "noStaffReceivedPayments": "Abhi tak koi Staff payment nahi hai",
+    "loadMore": "Aur Load Karo"
   },
   "receivingDetails": {
     "customDateRange": "Custom Range",
