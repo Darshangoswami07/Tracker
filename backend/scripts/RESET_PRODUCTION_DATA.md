@@ -1,62 +1,55 @@
-# Production Data Reset — completed
+# Production Data Reset — completed (2nd run)
 
-**Script:** `backend/scripts/reset_production_data.py`
-**Run against:** the database your `.env` / `DATABASE_URL` points at (Neon).
-**Mode:** single transaction — all-or-nothing. Re-runnable (idempotent: a second
-run deletes 0 rows).
+**Script:** `backend/scripts/reset_production_data.py` (now committed, tracked in git —
+see [note below](#note-why-a-second-run-was-needed)).
 
 ```
 .venv\Scripts\python.exe -m scripts.reset_production_data --dry-run   # report only
 .venv\Scripts\python.exe -m scripts.reset_production_data --yes       # apply
 ```
 
+## Note: why a second run was needed
+
+This exact reset was already run once earlier in this session (447 rows wiped
+then). Since that run, further dev/test activity re-accumulated 313 rows of
+new operational data (105 GRs, 26 payments, 63 shops, etc.) — a normal side
+effect of continued backend work against the same database, not a failure of
+the first reset. This run clears that back out to the same clean baseline.
+The categorization decisions (wipe shops — they're 100% import-derived here;
+clear import/notification/audit/approval logs; keep `refresh_tokens` so no
+one is logged out) are unchanged from the first run's confirmed plan.
+
 ---
 
 ## What was done
 
-**447 operational rows deleted, 0 identity/auth rows touched.**
+**313 operational rows deleted, 0 identity/auth rows touched.**
 
 | Wiped (transactional / derived / test-era) | rows |
 |---|---|
-| `orders` (GR / shipment records) | 78 |
-| `payments` (collection ledger) | 4 |
-| `order_status_history` (delivery/status events) | 85 |
-| `order_attachments` (slip photos) | 16 |
-| `staff_settlements` (owner/labour/driver handovers) | 19 |
-| `shops` (all auto-created from test imports) | 99 |
-| `import_history` (Excel import run log) | 53 |
-| `notifications` | 22 |
-| `audit_logs` | 47 |
-| `approval_logs` | 24 |
+| `orders` (GR / shipment records) | 105 |
+| `payments` (collection ledger) | 26 |
+| `order_status_history` (delivery/status events) | 113 |
+| `order_attachments` (slip photos) | 0 |
+| `staff_settlements` (owner/labour/driver handovers) | 2 |
+| `shops` (all auto-created from consignee names) | 63 |
+| `import_history` (Excel import run log) | 3 |
+| `notifications` | 0 |
+| `audit_logs` | 1 |
+| `approval_logs` | 0 |
 | `reports` | 0 |
-| **total** | **447** |
-
-Plus: `drivers.totalDeliveries` / `currentLocation` reset to empty state (the one
-driver row was already at 0 — nothing to change).
+| **total** | **313** |
 
 | Preserved — untouched | rows |
 |---|---|
 | `users` (admins, staff, owners) | 17 |
 | `companies` | 17 |
-| `employees` (staff identity + assignment link) | 3 |
+| `employees` (staff identity + assignment link) | 4 |
 | `drivers` (identity) | 1 |
-| `refresh_tokens` (active login sessions) | 956 |
-| `registration_requests` (onboarding trail) | 17 |
-| `email_otps` | 48 |
-| `roles`, `permissions`, `role_permissions`, `licenses`, `devices`, `customers`, `vehicles`, `driver_documents`, `driver_locations`, `vehicle_assignments`, `vehicle_images`, `password_resets` | as-is |
+| `refresh_tokens` (active login sessions) | 1018 |
+| `registration_requests`, `email_otps`, roles/permissions/licenses/devices/customers/vehicles | as-is |
 
 No user IDs, credentials, roles, company links, or approval flags were modified.
-
----
-
-## Why the metrics now read 0 (not hardcoded)
-
-Nothing in this app stores dashboard / report / analytics numbers. Every metric —
-Total GR, Pending, Delivered, Cleared, Uncleared, collections, revenue, staff
-performance, shop totals, daily/monthly stats — is computed on demand from
-`orders` + `payments` + `staff_settlements` (`gr_status_service`,
-`staff_work_service`, `order_repository.get_revenue_overview`). With those rows
-gone, every query returns 0. There is no cache table and no seeded zero.
 
 ---
 
@@ -65,34 +58,18 @@ gone, every query returns 0. There is no cache table and no seeded zero.
 | check | result |
 |---|---|
 | `status_counts` (platform-wide) | `total 0, pending 0, cleared 0, uncleared 0, delivered 0` |
-| `status_counts` per company (both real admins) | all 0 |
-| `get_revenue_overview` (today/week/month/prev) | all `0.0` |
-| staff `daily_activity` (real staff account, today) | all 0 |
-| identity tables unchanged | users 17, companies 17, employees 3, drivers 1 — all OK |
-| 3 real accounts: `status`, `isActive`, `isApproved`, `isVerified`, password hash | intact |
-| employees still linked to their user + company rows | yes |
+| `revenue_overview.totalCollected` | `0.0` |
+| identity tables unchanged | users 17, companies 17, employees 4, drivers 1 — all OK |
+| 2 real accounts: `status`, `isActive`, `isApproved`, `isVerified`, password hash | intact |
 | login endpoint, real email + wrong password | clean `401 Invalid email or password.` (pipeline intact, not a crash) |
-| login endpoint, unknown email | `401` |
-| **create a real GR** (in a rolled-back tx) | company `total 0 → 1`, `pending 0 → 1`, then back to 0 after rollback — counters move from real data |
+| **create a real GR** (in a rolled-back tx) | `total 0 → 1, pending 0 → 1`, then back to `0` after rollback — counters move from real data, nothing hardcoded |
 
-12 admin-tier and 5 staff accounts remain and can log in with unchanged
-credentials. Existing sessions are not invalidated.
+12 admin-tier and 5 staff accounts remain and can log in with unchanged credentials.
 
 ---
 
-## Notes / follow-ups
+## Reminder
 
-- **Shops were wiped** (your choice). "All Shops" shows 0 until real GRs arrive;
-  a shop row is recreated automatically from the consignee name the moment a
-  real GR is created or imported. Nothing else references `shops`
-  (`orders.shopId` is `ON DELETE SET NULL`).
-- **Test-artifact user accounts** still present (not deleted — per your rule):
-  `listings-admin1@example.com`, `mdtest-verify@example.com`,
-  `pwpolicy-test-*`, `pwreset-test-*` (×2), `listings-emp4@example.com`,
-  `diag-staff@example.com`, `p48818849@gmail.com`. These are from the automated
-  test suites. Real client accounts are the `@gmail.com` ones. Say the word if
-  you want a second pass to remove the obvious test accounts.
-- The one remaining UI step is a manual login on the real app — every layer
-  beneath it (DB rows, auth pipeline, metric queries, GR-create path) is
-  verified above.
-- `backend/scripts/reset_production_data.py` is new and currently uncommitted.
+- Shops are wiped by design — "All Shops" reads 0 until a real GR/import creates one; a shop row regenerates automatically from the consignee name.
+- Test-artifact accounts (`@example.com`, `pwreset-test-*`, etc.) are still present — not deleted, per the "do not delete users" rule. Real accounts are the `@gmail.com` ones.
+- This script is idempotent and safe to re-run any time dev/test activity needs clearing again before the real production cutover — it always reports before/after counts and only ever touches the transactional tables listed above.
