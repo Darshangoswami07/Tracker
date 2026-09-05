@@ -34,7 +34,11 @@ export const Header = ({ title, leftAction, rightAction, secondaryRightAction, s
     container: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, ...shadows.sm },
     content: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     action: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radii.md },
-    title: { fontWeight: '800', flex: 1, textAlign: 'center' },
+    // `minWidth: 0` overrides the flexbox default of `min-width: auto` on web
+    // (react-native-web maps this to a real CSS flex item) — without it, a
+    // long title refuses to shrink below its own content width and pushes
+    // past the back button / right actions instead of wrapping in place.
+    title: { fontWeight: '800', flex: 1, minWidth: 0, textAlign: 'center' },
     rightActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     iconContainer: { position: 'relative' },
     badge: { position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
@@ -64,7 +68,13 @@ export const Header = ({ title, leftAction, rightAction, secondaryRightAction, s
           <View style={{ width: 44 }} />
         )}
 
-        <Text style={[styles.title, { color: colors.textPrimary, fontSize: fonts.size.lg }]}>{title}</Text>
+        <Text
+          style={[styles.title, { color: colors.textPrimary, fontSize: fonts.size.lg }]}
+          numberOfLines={2}
+          ellipsizeMode="tail"
+        >
+          {title}
+        </Text>
 
         <View style={styles.rightActions}>
           {secondaryRightAction && (

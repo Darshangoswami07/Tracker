@@ -19,7 +19,7 @@ import { persistSlipImage } from '../../services/slipStorage';
 import { grRealtime, type GrEvent } from '../../services/grRealtime';
 import { useAppNav } from '../../hooks/useAppNav';
 import { useTranslation } from 'react-i18next';
-import { PAYMENT_MODES, formatPaymentMode } from '../../constants/paymentModes';
+import { RECEIVE_PAYMENT_OPTIONS, formatPaymentMode, formatPaymentModeWithReceiver } from '../../constants/paymentModes';
 import { allowedGrStatusTargets } from '../../constants/roles';
 import type { AppTheme } from '../../theme/types';
 
@@ -140,13 +140,14 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const [payments, setPayments] = useState<LocalPayment[]>([]);
   const [receivePaymentOpen, setReceivePaymentOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
+  // Payment mode IS the receiver: selecting "Admin UPI" vs "Staff UPI" sets
+  // both `paymentMode` (stored as `paymentMethod`, still 'upi' either way)
+  // and `receivedBy` together — there's no separate "Received By" selector.
+  // `receivedBy` drives the existing Admin/Staff accounting split (GR
+  // paid/remaining accounting is unaffected either way; it only excludes the
+  // amount from the staff's own collection/balance and, for UPI, counts it
+  // in the Admin Dashboard's "Direct UPI Received" card instead).
   const [paymentMode, setPaymentMode] = useState<string>('cash');
-  // Who the money actually belongs to — independent of the Payment Mode
-  // (cash/UPI/bank/cheque). A staff member can enter a payment the customer
-  // paid straight to the Admin/owner; toggling this to 'ADMIN' keeps the
-  // GR's paid/remaining accounting normal but excludes it from the staff's
-  // own collection/balance and (for UPI) counts it in the Admin Dashboard's
-  // "Direct UPI Received" card instead.
   const [receivedBy, setReceivedBy] = useState<ReceivedBy>('STAFF');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [submittingPayment, setSubmittingPayment] = useState(false);
@@ -307,7 +308,14 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
       return;
     }
     const balance = paymentSummary?.balance ?? 0;
-    if (amount > balance) {
+    // `+ 0.005` matches the backend's own overpayment tolerance
+    // (`payment.py: already_paid + body.amount > to_pay + 0.005`) — both
+    // `toPay` and the payment ledger sum arrive here as JS floats, so an
+    // exact-match payment (amount === balance) can see e.g. balance ===
+    // 189.99999999999997 instead of 190 due to binary floating-point
+    // subtraction, not a real shortfall. Without this tolerance, typing the
+    // exact remaining amount shown on screen gets wrongly rejected.
+    if (amount > balance + 0.005) {
       setPaymentError(`Payment cannot exceed the remaining amount of ${formatCurrency(balance)}.`);
       return;
     }
@@ -594,7 +602,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
                       <View>
                         <Text style={[styles.paymentRowAmount, { color: colors.textPrimary }]}>{formatCurrency(p.amount)}</Text>
                         <Text style={[styles.paymentRowMeta, { color: colors.textSecondary }]}>
-                          {formatPaymentMode(p.paymentMethod)}{recorderName ? ` · Recorded by ${recorderName}` : ''}
+                          {formatPaymentModeWithReceiver(p.paymentMethod, p.receivedBy)}{recorderName ? ` · Recorded by ${recorderName}` : ''}
                         </Text>
                         <Text style={[styles.paymentRowDate, { color: colors.textMuted }]}>{formatDate(p.createdAt)}</Text>
                       </View>
@@ -742,44 +750,31 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
               />
               <Text style={[styles.paymentFormSectionTitle, { color: colors.textMuted }]}>{t('payment.paymentMode', 'Payment Mode')}</Text>
               <View style={styles.collectorChipRow}>
-                {PAYMENT_MODES.map((mode) => {
-                  const selected = paymentMode === mode.value;
+                {/* Payment mode tells the system where the money went — Admin
+                 * UPI / Staff UPI each set `paymentMode` + `receivedBy`
+                 * together, no separate "Received By" selector. */}
+                {RECEIVE_PAYMENT_OPTIONS.map((opt) => {
+                  const selected = paymentMode === opt.paymentMethod && receivedBy === opt.receivedBy;
                   return (
                     <TouchableOpacity
-                      key={mode.value}
+                      key={opt.id}
                       style={[
                         styles.collectorChip,
                         { borderRadius: radii.pill, borderColor: selected ? colors.primary : colors.border },
                         selected && { backgroundColor: colors.primary },
                       ]}
-                      onPress={() => setPaymentMode(mode.value)}
+                      onPress={() => {
+                        setPaymentMode(opt.paymentMethod);
+                        setReceivedBy(opt.receivedBy);
+                      }}
                       activeOpacity={0.85}
                     >
                       <Text style={[styles.collectorChipText, { color: selected ? colors.onPrimary : colors.textPrimary }]}>
-                        {t(mode.labelKey, mode.label)}
+                        {t(opt.labelKey, opt.label)}
                       </Text>
                     </TouchableOpacity>
                   );
                 })}
-                {/* "Admin" — not a payment mode, a WHO-RECEIVED toggle. Stays
-                 * in the same chip row as Cash/UPI/Bank Transfer/Cheque
-                 * (replacing the old "Other" slot) but works independently:
-                 * tapping it flips `receivedBy` while the mode chip above
-                 * keeps its own separate selection (e.g. UPI + Admin). */}
-                <TouchableOpacity
-                  key="admin"
-                  style={[
-                    styles.collectorChip,
-                    { borderRadius: radii.pill, borderColor: receivedBy === 'ADMIN' ? colors.warning : colors.border },
-                    receivedBy === 'ADMIN' && { backgroundColor: colors.warning },
-                  ]}
-                  onPress={() => setReceivedBy((prev) => (prev === 'ADMIN' ? 'STAFF' : 'ADMIN'))}
-                  activeOpacity={0.85}
-                >
-                  <Text style={[styles.collectorChipText, { color: receivedBy === 'ADMIN' ? colors.onPrimary : colors.textPrimary }]}>
-                    {t('payment.admin', 'Admin')}
-                  </Text>
-                </TouchableOpacity>
               </View>
               {receivedBy === 'ADMIN' && (
                 <View style={[styles.adminReceivedNote, { backgroundColor: colors.warningSoft, borderRadius: radii.md }]}>

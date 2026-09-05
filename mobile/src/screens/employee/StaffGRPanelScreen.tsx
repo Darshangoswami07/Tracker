@@ -522,7 +522,7 @@ export const StaffGRPanelScreen = () => {
                 activeOpacity={0.85}
               >
                 <View style={styles.rowTop}>
-                  <Text style={styles.grNo}>{entry.orderNumber}</Text>
+                  <Text style={styles.grNo} numberOfLines={1}>{entry.orderNumber}</Text>
                   <View style={styles.rowTopRight}>
                     <TouchableOpacity
                       style={styles.statusTrigger}
@@ -550,7 +550,7 @@ export const StaffGRPanelScreen = () => {
                     )}
                   </View>
                 </View>
-                <Text style={styles.consignorLine}>
+                <Text style={styles.consignorLine} numberOfLines={2} ellipsizeMode="tail">
                   {entry.consignorName || '—'} <Text style={{ color: colors.textMuted }}>→</Text> {entry.consigneeName || '—'}
                 </Text>
                 <Text style={styles.routeLine} numberOfLines={1}>{entry.pickupAddress} → {entry.deliveryAddress}</Text>
@@ -803,14 +803,19 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     },
     filterRowText: { flex: 1, fontSize: theme.fonts.size.sm, fontWeight: '600' },
     centerFill: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    scrollContent: { padding: theme.spacing.lg, paddingTop: theme.spacing.sm, gap: theme.spacing.md, paddingBottom: 60 },
+    // `paddingBottom` clears the bottom tab bar (60px + safe-area inset) so
+    // the last card in the list is never left partially hidden behind it.
+    scrollContent: { padding: theme.spacing.lg, paddingTop: theme.spacing.sm, gap: theme.spacing.md, paddingBottom: 100 },
     row: { padding: 16, gap: 6 },
-    rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    rowTopRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+    rowTopRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0 },
     menuButton: { padding: 2 },
-    grNo: { fontWeight: '800', fontSize: theme.fonts.size.md, color: theme.colors.textPrimary },
+    grNo: { fontWeight: '800', fontSize: theme.fonts.size.md, color: theme.colors.textPrimary, flexShrink: 1, minWidth: 0 },
     statusTrigger: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    consignorLine: { fontSize: theme.fonts.size.sm, fontWeight: '600', color: theme.colors.textPrimary },
+    // `wordBreak`/`overflowWrap` only take effect on web (react-native-web
+    // passes unknown Text style props through as CSS) — without them, an
+    // unbroken long shop/owner name overflows the card horizontally on web.
+    consignorLine: { fontSize: theme.fonts.size.sm, fontWeight: '600', color: theme.colors.textPrimary, wordBreak: 'break-word', overflowWrap: 'anywhere' } as any,
     routeLine: { fontSize: theme.fonts.size.xs, color: theme.colors.textMuted },
     toCollect: {
       flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start',

@@ -13,7 +13,7 @@ import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
 import { EmptyState } from '../../components/EmptyState';
 import { FilterChips } from '../../components/FilterChips';
-import { formatPaymentMode } from '../../constants/paymentModes';
+import { formatPaymentModeWithReceiver } from '../../constants/paymentModes';
 import { grRealtime } from '../../services/grRealtime';
 import { useAppNav } from '../../hooks/useAppNav';
 import { useTranslation } from 'react-i18next';
@@ -465,7 +465,7 @@ export const ReceivingDetailsScreen = () => {
                     </Text>
                     <View style={styles.directAdminMetaRow}>
                       <View style={[styles.directAdminModeBadge, { backgroundColor: '#14B8A615' }]}>
-                        <Text style={[styles.directAdminModeText, { color: '#14B8A6' }]}>{formatPaymentMode(item.paymentMethod)}</Text>
+                        <Text style={[styles.directAdminModeText, { color: '#14B8A6' }]}>{formatPaymentModeWithReceiver(item.paymentMethod, item.receivedBy)}</Text>
                       </View>
                       <Text style={[styles.dateText, { color: colors.textMuted }]}>{formatDateTime(item.createdAt)}</Text>
                     </View>

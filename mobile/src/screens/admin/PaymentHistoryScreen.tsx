@@ -9,6 +9,7 @@ import { api } from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
 import { orderRepository } from '../../database/repositories/orderRepository';
 import type { PaymentHistoryItem } from '../../database/repositories/orderRepository';
+import { formatPaymentModeWithReceiver } from '../../constants/paymentModes';
 import { grRealtime } from '../../services/grRealtime';
 import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
@@ -387,7 +388,7 @@ export const PaymentHistoryScreen = () => {
                       <Text style={[styles.paymentCardNote, { color: colors.textMuted }]} numberOfLines={2}>{p.notes}</Text>
                     )}
                     <View style={[styles.paymentCardMeta, { borderTopColor: colors.border }]}>
-                      <Text style={[styles.paymentCardMetaText, { color: colors.textMuted }]}>{p.paymentMethod ?? 'cash'}</Text>
+                      <Text style={[styles.paymentCardMetaText, { color: colors.textMuted }]}>{formatPaymentModeWithReceiver(p.paymentMethod, p.receivedBy)}</Text>
                     </View>
                   </View>
                 ))}

@@ -819,6 +819,8 @@
     "overpaid": "Overpaid",
     "cash": "Cash",
     "upi": "UPI",
+    "adminUpi": "Admin UPI",
+    "staffUpi": "Staff UPI",
     "bankTransfer": "Bank Transfer",
     "cheque": "Cheque",
     "other": "Other",

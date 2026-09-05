@@ -786,7 +786,7 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
                         />
                       </TouchableOpacity>
                     )}
-                    <Text style={[styles.grNo, { color: colors.textPrimary }]}>{gr.orderNumber}</Text>
+                    <Text style={[styles.grNo, { color: colors.textPrimary }]} numberOfLines={1}>{gr.orderNumber}</Text>
                   </View>
                   <View style={styles.cardHeaderRight}>
                     <StatusBadge status={gr.status} size="sm" />
@@ -797,7 +797,11 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
                     )}
                   </View>
                 </View>
-                <Text style={[styles.consignorLine, { color: colors.textSecondary }]}>
+                <Text
+                  style={[styles.consignorLine, { color: colors.textSecondary }]}
+                  numberOfLines={2}
+                  ellipsizeMode="tail"
+                >
                   {gr.consignorName || '—'} <Text style={{ color: colors.textMuted }}>→</Text> {gr.consigneeName || '—'}
                 </Text>
                 <View style={styles.routeRow}>
@@ -810,16 +814,16 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
                 {gr.toPay > 0 && (
                   <View style={styles.financialRow}>
                     <View style={styles.financialBlock}>
-                      <Text style={[styles.financialLabel, { color: colors.textMuted }]}>{t('receiving.toPay')}</Text>
-                      <Text style={[styles.financialValue, { color: colors.textPrimary }]}>{formatCurrency(gr.toPay)}</Text>
+                      <Text style={[styles.financialLabel, { color: colors.textMuted }]} numberOfLines={1}>{t('receiving.toPay')}</Text>
+                      <Text style={[styles.financialValue, { color: colors.textPrimary }]} numberOfLines={1}>{formatCurrency(gr.toPay)}</Text>
                     </View>
                     <View style={styles.financialBlock}>
-                      <Text style={[styles.financialLabel, { color: colors.textMuted }]}>{t('receiving.paid')}</Text>
-                      <Text style={[styles.financialValue, { color: '#10B981' }]}>{formatCurrency(gr.totalPaid)}</Text>
+                      <Text style={[styles.financialLabel, { color: colors.textMuted }]} numberOfLines={1}>{t('receiving.paid')}</Text>
+                      <Text style={[styles.financialValue, { color: '#10B981' }]} numberOfLines={1}>{formatCurrency(gr.totalPaid)}</Text>
                     </View>
                     <View style={styles.financialBlock}>
-                      <Text style={[styles.financialLabel, { color: colors.textMuted }]}>{t('receiving.balance')}</Text>
-                      <Text style={[styles.financialValue, { color: gr.outstanding > 0 ? '#F97316' : '#10B981' }]}>
+                      <Text style={[styles.financialLabel, { color: colors.textMuted }]} numberOfLines={1}>{t('receiving.balance')}</Text>
+                      <Text style={[styles.financialValue, { color: gr.outstanding > 0 ? '#F97316' : '#10B981' }]} numberOfLines={1}>
                         {formatCurrency(gr.outstanding)}
                       </Text>
                     </View>
@@ -1142,7 +1146,9 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
 const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fonts' | 'shadows'>) =>
   StyleSheet.create({
     safe: { flex: 1 },
-    scrollContent: { paddingBottom: 40, paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.md },
+    // `paddingBottom` clears the bottom tab bar (60px + safe-area inset) so
+    // the last card in the list is never left partially hidden behind it.
+    scrollContent: { paddingBottom: 100, paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.md },
     shimmerBlock: { marginBottom: theme.spacing.md, borderRadius: theme.radii.lg },
     summaryRow: { flexDirection: 'row', gap: 8, marginBottom: theme.spacing.lg },
     summaryCard: { flex: 1, padding: 12, alignItems: 'center', gap: 2 },
@@ -1176,9 +1182,9 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     filters: { marginBottom: theme.spacing.lg },
     list: { gap: theme.spacing.md },
     card: { padding: 16, gap: 6 },
-    cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    cardHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
-    cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+    cardHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
+    cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0 },
     checkbox: { padding: 2 },
     menuButton: { padding: 2 },
     selectionBar: {
@@ -1193,15 +1199,18 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
       paddingHorizontal: 16, paddingVertical: 10, borderRadius: theme.radii.lg,
     },
     selectionDeleteText: { color: '#fff', fontSize: theme.fonts.size.sm, fontWeight: '800' },
-    grNo: { fontSize: theme.fonts.size.md, fontWeight: '800' },
-    consignorLine: { fontSize: theme.fonts.size.sm, fontWeight: '600' },
+    grNo: { fontSize: theme.fonts.size.md, fontWeight: '800', flexShrink: 1, minWidth: 0 },
+    // `wordBreak`/`overflowWrap` only take effect on web (react-native-web
+    // passes unknown Text style props through as CSS) — without them, an
+    // unbroken long shop/owner name overflows the card horizontally on web.
+    consignorLine: { fontSize: theme.fonts.size.sm, fontWeight: '600', wordBreak: 'break-word', overflowWrap: 'anywhere' } as any,
     routeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     routeLine: { fontSize: theme.fonts.size.xs, flex: 1 },
     financialRow: {
       flexDirection: 'row', gap: 12, marginTop: 6, paddingTop: 8,
       borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border,
     },
-    financialBlock: { flex: 1, alignItems: 'center' },
+    financialBlock: { flex: 1, minWidth: 0, alignItems: 'center' },
     financialLabel: { fontSize: theme.fonts.size.xs, fontWeight: '600', marginBottom: 2 },
     financialValue: { fontSize: theme.fonts.size.sm, fontWeight: '800' },
     cardFooter: {
