@@ -39,3 +39,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# app config (owner/projectId/adaptive-icon settings edited locally per-environment)
+app.json
