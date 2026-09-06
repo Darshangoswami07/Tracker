@@ -11,13 +11,12 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, BackgroundTasks, Query
 from fastapi import Depends
 from pydantic import BaseModel, Field
 import time as _time
 
 from sqlalchemy import String, and_, case, cast, func, or_, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import GRAccessUser
@@ -726,6 +725,7 @@ class ImportRequest(BaseModel):
 async def bulk_import(
     payload: ImportRequest,
     admin: GRAccessUser,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Bulk-creates already-validated Excel GR rows. Skips GR numbers that
@@ -795,200 +795,241 @@ async def bulk_import(
             raise ValidationBusinessError(
                 f"{target_staff.firstName} {target_staff.lastName} is not assigned to {payload.area}."
             )
-        from app.api.v1.gr import _resolve_employee_id
 
-        staff_employee_id = await _resolve_employee_id(target_staff.id, company_id)
+    import asyncio as _asyncio
+    import uuid as _uuid
 
+    from sqlalchemy.dialects.postgresql import insert as _pg_insert
+
+    from app.database.db import session_scope
+    from app.models.employee import Employee
     from app.repositories.shop_repository import normalize_shop_name
 
     _t0 = _time.monotonic()
     _tick = _t0
 
     def _lap(label: str) -> None:
+        # DEBUG level: the per-stage timing is developer instrumentation, not
+        # something every production import should log.
         nonlocal _tick
         now = _time.monotonic()
-        logger.info("GR import: %s %.0fms", label, (now - _tick) * 1000)
+        logger.debug("GR import: %s %.0fms", label, (now - _tick) * 1000)
         _tick = now
 
-    # ── One query for every GR number in the file that already exists ──────
-    gr_numbers_in_file = [(r.grNumber or "").strip() for r in payload.rows]
-    existing = (
-        await session.execute(
-            select(Order.orderNumber, Order.deletedAt, Order.id).where(
-                Order.orderNumber.in_(gr_numbers_in_file)
-            )
-        )
-    ).all()
-    active = {n for n, deleted, _ in existing if deleted is None}
-    _lap("existing-gr-check")
-
-    # ── One query to resolve every distinct consignee Shop, bulk-insert the
-    #    missing ones. Keyed on the same normalized, case-insensitive form
-    #    ShopRepository.get_or_create matches on, so no per-row round trip. ──
     def _row_area(r) -> str | None:
         return staff_area if is_staff else (r.resolvedArea or payload.area)
 
+    # ── Pure-Python prep: every key we'll need to look up, gathered up front ─
+    gr_numbers_in_file = [(r.grNumber or "").strip() for r in payload.rows]
     wanted_shops: dict[tuple[str | None, str], None] = {}
     for r in payload.rows:
         norm = normalize_shop_name(r.consigneeName)
         if norm:
             wanted_shops[(_row_area(r), norm)] = None
+    wanted_shop_lower = list({n.lower() for (_a, n) in wanted_shops})
 
-    shop_map: dict[tuple[str | None, str], Shop] = {}
-    if wanted_shops:
-        wanted_lower = list({n.lower() for (_a, n) in wanted_shops})
-        rows = (
-            await session.execute(
-                select(Shop).where(
-                    Shop.companyId == company_id,
-                    func.lower(func.trim(Shop.name)).in_(wanted_lower),
+    # ── ONE parallel round trip for every independent read: the existing-GR
+    #    check, the staff member's `employees` row, and the consignee Shops.
+    #    Each on its own connection (concurrent use of one AsyncSession is
+    #    unsafe), so the wall time is a single DB round trip, not three. ─────
+    async def _fetch_existing() -> set[str]:
+        async with session_scope() as s:
+            rows = (
+                await s.execute(
+                    select(Order.orderNumber).where(
+                        Order.orderNumber.in_(gr_numbers_in_file),
+                        Order.deletedAt.is_(None),
+                    )
                 )
-            )
-        ).scalars().all()
-        for sh in rows:
-            key = (sh.area, normalize_shop_name(sh.name).lower())
-            # First (oldest) row wins, matching get_or_create's ordering.
-            shop_map.setdefault(key, sh)
-        new_shops = []
-        for (area_val, norm) in wanted_shops:
-            if (area_val, norm.lower()) not in shop_map:
-                sh = Shop(companyId=company_id, area=area_val, name=norm)
-                new_shops.append(sh)
-                shop_map[(area_val, norm.lower())] = sh
-        if new_shops:
-            session.add_all(new_shops)
-            await session.flush()  # one round trip for every new shop
-    _lap("shop-bulk-resolve")
+            ).scalars().all()
+        return set(rows)
 
-    def _shop_for(r) -> Shop | None:
+    async def _fetch_employee_id():
+        if target_staff is None:
+            return "n/a"
+        async with session_scope() as s:
+            return await s.scalar(select(Employee.id).where(Employee.userId == str(target_staff.id)))
+
+    async def _fetch_shops() -> list[Shop]:
+        if not wanted_shop_lower:
+            return []
+        async with session_scope() as s:
+            return (
+                await s.execute(
+                    select(Shop)
+                    .where(
+                        Shop.companyId == company_id,
+                        func.lower(func.trim(Shop.name)).in_(wanted_shop_lower),
+                    )
+                    .order_by(Shop.createdAt.asc())  # oldest wins, like get_or_create
+                )
+            ).scalars().all()
+
+    active, resolved_employee_id, existing_shop_rows = await _asyncio.gather(
+        _fetch_existing(), _fetch_employee_id(), _fetch_shops()
+    )
+    _lap("parallel prep (existing GRs + staff employee + shops)")
+
+    # The staff member had no `employees` row yet — one is created in the same
+    # write transaction below (mirrors `_resolve_employee_id`). Common in prod
+    # only for a staff member's very first assignment.
+    new_employee: Employee | None = None
+    if target_staff is not None and resolved_employee_id is None:
+        new_employee = Employee(
+            id=_uuid.uuid4(), userId=str(target_staff.id), companyId=company_id, role="staff"
+        )
+        staff_employee_id = new_employee.id
+    elif target_staff is not None:
+        staff_employee_id = resolved_employee_id
+
+    # ── Resolve/prepare Shop rows (no more DB reads). New shops get a
+    #    pre-generated id so an Order can reference `shopId` before the shop
+    #    row is even flushed. ───────────────────────────────────────────────
+    shop_id_map: dict[tuple[str | None, str], _uuid.UUID] = {}
+    for sh in existing_shop_rows:
+        shop_id_map.setdefault((sh.area, normalize_shop_name(sh.name).lower()), sh.id)
+    new_shops: list[Shop] = []
+    for (area_val, norm) in wanted_shops:
+        if (area_val, norm.lower()) not in shop_id_map:
+            sh = Shop(id=_uuid.uuid4(), companyId=company_id, area=area_val, name=norm)
+            new_shops.append(sh)
+            shop_id_map[(area_val, norm.lower())] = sh.id
+
+    def _shop_id_for(r) -> _uuid.UUID | None:
         norm = normalize_shop_name(r.consigneeName)
-        return shop_map.get((_row_area(r), norm.lower())) if norm else None
+        return shop_id_map.get((_row_area(r), norm.lower())) if norm else None
 
     imported = failed = 0
     duplicate_numbers: list[str] = []
     failures: list[dict] = []
+    _now = datetime.now(timezone.utc)
 
-    # ── Build every Order in memory (no DB). Row-level problems (bad date,
-    #    in-file duplicate, already-active GR number) are decided here. ──────
+    # ── Build every Order as a plain dict for one bulk INSERT (no per-row ORM
+    #    object, no per-row flush). Row-level problems (bad date, in-file
+    #    duplicate, already-active GR number) are decided here, in memory. ───
     seen_in_file: set[str] = set()
-    pending_orders: list[Order] = []
-    pending_rows: list = []
+    order_values: list[dict] = []
+    row_by_number: dict[str, object] = {}
     for r in payload.rows:
         gr_number = (r.grNumber or "").strip()
         if gr_number in active or gr_number in seen_in_file:
-            # Already in the DB (active) OR a second occurrence in this same
-            # file — both count as "duplicate", never a failure.
             duplicate_numbers.append(r.grNumber)
             continue
         seen_in_file.add(gr_number)
         try:
-            row_area = _row_area(r)
-            shop = _shop_for(r)
-            order = Order(
-                orderNumber=gr_number,
-                companyId=company_id,
-                shopId=shop.id if shop else None,
-                assignedStaffId=staff_employee_id,
-                consignorName=r.consignorName,
-                consigneeName=r.consigneeName,
-                particulars=r.particulars,
-                packageCount=r.packageCount or 1,
-                pickupAddress=r.fromLocation or "—",
-                deliveryAddress=r.toLocation or "—",
-                pickupTime=datetime.now(timezone.utc),
-                weight=r.weight,
-                status="pending",  # ALWAYS pending — Excel status is ignored
-                source="excel",
-                grDate=datetime.fromisoformat(r.grDateIso.replace("Z", "+00:00")) if r.grDateIso else None,
-                fromLocation=r.fromLocation,
-                toLocation=r.toLocation,
-                paymentMode=r.paymentMode,
-                toPay=r.toPay,
-                paymentAmount=r.paymentAmount,
-                chalaanNo=r.chalaanNo,
-                chalaanDate=r.chalaanDate,
-                transportGrn=r.transportGrn,
-                grSourceLabel=r.grSourceLabel,
-                area=row_area,
+            grd = (
+                datetime.fromisoformat(r.grDateIso.replace("Z", "+00:00"))
+                if r.grDateIso
+                else None
             )
-            pending_orders.append(order)
-            pending_rows.append(r)
+            order_values.append(
+                {
+                    "id": _uuid.uuid4(),
+                    "orderNumber": gr_number,
+                    "companyId": company_id,
+                    "shopId": _shop_id_for(r),
+                    "assignedStaffId": staff_employee_id,
+                    "consignorName": r.consignorName,
+                    "consigneeName": r.consigneeName,
+                    "particulars": r.particulars,
+                    "packageCount": r.packageCount or 1,
+                    "pickupAddress": r.fromLocation or "—",
+                    "deliveryAddress": r.toLocation or "—",
+                    "pickupTime": _now,
+                    "weight": r.weight,
+                    "status": "pending",  # ALWAYS pending — Excel status is ignored
+                    "source": "excel",
+                    "grDate": grd,
+                    "fromLocation": r.fromLocation,
+                    "toLocation": r.toLocation,
+                    "paymentMode": r.paymentMode,
+                    "toPay": r.toPay,
+                    "paymentAmount": r.paymentAmount,
+                    "chalaanNo": r.chalaanNo,
+                    "chalaanDate": r.chalaanDate,
+                    "transportGrn": r.transportGrn,
+                    "grSourceLabel": r.grSourceLabel,
+                    "area": _row_area(r),
+                    # Columns whose defaults are ORM-side only (no server_default)
+                    # — a Core INSERT must supply them explicitly.
+                    "priority": "normal",
+                    "distance": 0.0,
+                    "isActive": True,
+                    "createdAt": _now,
+                    "updatedAt": _now,
+                }
+            )
+            row_by_number[gr_number] = r
         except Exception as exc:  # noqa: BLE001 — one bad row must not abort the batch
             failed += 1
             logger.warning("GR import row %s (GR %s) build failed: %s", r.rowNumber, gr_number, exc)
             failures.append({"rowNumber": r.rowNumber, "grNumber": r.grNumber, "message": str(exc)})
     _lap("row-build")
 
-    # ── One transaction for the writes: bulk-insert the new Orders, then
-    #    bulk-insert one 'pending' history row each. A soft-deleted GR that
-    #    shares a number with one of these rows is NEVER touched — it (and its
-    #    payments / status history) is the permanent record of the staff work
-    #    done against it; the partial unique index on `orderNumber`
-    #    (`deletedAt IS NULL`) lets the new live row coexist with it. ────────
-    async def _write_batch(orders: list[Order]) -> int:
-        if not orders:
-            return 0
-        async with session.begin_nested():
-            session.add_all(orders)
-            await session.flush()  # ONE batched INSERT (insertmanyvalues) — ids populated
-            session.add_all(
-                [
-                    OrderStatusHistory(orderId=o.id, status="pending", notes="Imported from Excel")
-                    for o in orders
-                ]
-            )
-            await session.flush()  # ONE batched INSERT for the history rows
-        return len(orders)
+    # ── Writes, in the request's single transaction ──────────────────────
+    # 1. new shops / employee first (Orders FK-reference them).
+    if new_shops or new_employee is not None:
+        session.add_all([*new_shops, *([new_employee] if new_employee else [])])
+        await session.flush()
 
-    try:
-        imported += await _write_batch(pending_orders)
-    except IntegrityError:
-        # A concurrent import raced one or more of these GR numbers in between
-        # our upfront check and now. Re-check, drop the ones that are now
-        # taken (they become 'duplicate'), retry the rest once.
-        logger.warning("GR import: bulk insert hit a unique-constraint race — re-checking and retrying")
-        now_taken = {
-            n for (n,) in (
-                await session.execute(
-                    select(Order.orderNumber).where(
-                        Order.orderNumber.in_([o.orderNumber for o in pending_orders]),
-                        Order.deletedAt.is_(None),
-                    )
+    if order_values:
+        # 2. ONE bulk INSERT. `ON CONFLICT DO NOTHING` on the partial unique
+        #    index (`orderNumber` WHERE deletedAt IS NULL) makes this
+        #    race-safe at the DATABASE level — a concurrent import that grabs
+        #    the same GR number in between our check and now is skipped, not
+        #    an error, so no SAVEPOINT / retry dance is needed. A soft-deleted
+        #    GR with the same number is untouched (it's outside the partial
+        #    index). RETURNING tells us exactly which rows landed.
+        stmt = (
+            _pg_insert(Order)
+            .values(order_values)
+            .on_conflict_do_nothing(
+                index_elements=["orderNumber"], index_where=Order.deletedAt.is_(None)
+            )
+            .returning(Order.id, Order.orderNumber)
+        )
+        inserted = (await session.execute(stmt)).all()
+        imported = len(inserted)
+        inserted_numbers = {num for _id, num in inserted}
+        for d in order_values:
+            if d["orderNumber"] not in inserted_numbers:
+                # Raced with a concurrent import — counts as duplicate.
+                duplicate_numbers.append(d["orderNumber"])
+
+        # 3. ONE bulk INSERT for the "Imported from Excel" timeline rows.
+        if inserted:
+            await session.execute(
+                _pg_insert(OrderStatusHistory).values(
+                    [
+                        {
+                            "id": _uuid.uuid4(),
+                            "orderId": oid,
+                            "status": "pending",
+                            "notes": "Imported from Excel",
+                            "timestamp": _now,
+                            "createdAt": _now,
+                            "updatedAt": _now,
+                        }
+                        for oid, _num in inserted
+                    ]
                 )
-            ).all()
-        }
-        retry_orders, retry_rows = [], []
-        for o, r in zip(pending_orders, pending_rows):
-            if o.orderNumber in now_taken:
-                duplicate_numbers.append(o.orderNumber)
-                if o in session:  # drop it so the next flush doesn't retry it
-                    session.expunge(o)
-            else:
-                retry_orders.append(o)
-                retry_rows.append(r)
-        try:
-            imported += await _write_batch(retry_orders)
-        except IntegrityError as exc:
-            failed += len(retry_orders)
-            for r in retry_rows:
-                failures.append({"rowNumber": r.rowNumber, "grNumber": r.grNumber, "message": "GR number already exists."})
-            logger.warning("GR import: retry still failed: %s", exc)
+            )
     _lap("bulk-write")
 
-    hist = ImportHistory(
-        fileName=payload.fileName,
-        importedAt=datetime.now(timezone.utc),
-        importedByName=payload.importedByName,
-        importedBy=admin.id,
-        companyId=company_id,
-        area=staff_area if is_staff else payload.area,
-        totalRows=len(payload.rows),
-        importedRows=imported,
-        duplicateRows=len(duplicate_numbers),
-        failedRows=failed,
+    # The batch's audit record — not on the critical path. Written after the
+    # response is sent so the client never waits on it.
+    background_tasks.add_task(
+        _write_import_history,
+        file_name=payload.fileName,
+        imported_by_name=payload.importedByName,
+        imported_by=admin.id,
+        company_id=company_id,
+        area=(staff_area if is_staff else payload.area),
+        total_rows=len(payload.rows),
+        imported_rows=imported,
+        duplicate_rows=len(duplicate_numbers),
+        failed_rows=failed,
     )
-    session.add(hist)
-    await session.flush()
 
     return success(
         {
@@ -1001,6 +1042,34 @@ async def bulk_import(
         },
         message="Import complete.",
     )
+
+
+async def _write_import_history(
+    *, file_name, imported_by_name, imported_by, company_id, area,
+    total_rows, imported_rows, duplicate_rows, failed_rows,
+) -> None:
+    """Persists the ``import_history`` audit row after the import response has
+    already been returned (it is not something the client waits on)."""
+    try:
+        from app.database.db import session_scope
+
+        async with session_scope() as s:
+            s.add(
+                ImportHistory(
+                    fileName=file_name,
+                    importedAt=datetime.now(timezone.utc),
+                    importedByName=imported_by_name,
+                    importedBy=imported_by,
+                    companyId=company_id,
+                    area=area,
+                    totalRows=total_rows,
+                    importedRows=imported_rows,
+                    duplicateRows=duplicate_rows,
+                    failedRows=failed_rows,
+                )
+            )
+    except Exception:  # noqa: BLE001 — an audit-row failure must not surface to the user
+        logging.getLogger(__name__).warning("GR import: import_history write failed", exc_info=True)
 
 
 @router.get("/import-history")
