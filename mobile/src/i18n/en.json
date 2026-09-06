@@ -694,7 +694,8 @@
     "detected": "Detected",
     "notDetected": "Not detected",
     "notDetectedOptional": "Not detected — optional",
-    "grNumberNotDetected": "GR number could not be detected. Please enter it manually."
+    "grNumberNotDetected": "GR number could not be detected. Please enter it manually.",
+    "grStatus": "GR Status"
   },
   "field": {
     "grNumber": "GR Number",

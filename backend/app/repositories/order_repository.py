@@ -698,47 +698,12 @@ class OrderRepository(BaseRepository[Order]):
             )
             await session.flush()
 
-    async def reconcile_delivered_status(self, order_id: UUID) -> None:
-        """Flip a GR to 'delivered' once nothing is outstanding. Ported from the
-        mobile ``reconcileDeliveredStatus`` with one guard: a GR whose ``toPay``
-        was never set (None) is treated as "charges not yet determined" and
-        left ``pending`` — only an explicit ``toPay <= 0`` (a genuine
-        nothing-to-collect GR) or a payments ledger that has reached ``toPay``
-        triggers the flip. Never downgrades."""
-        from app.models.payment import Payment
-
-        async with session_scope(self._session) as session:
-            order = await session.get(Order, order_id)
-            if order is None or order.status == OrderStatus.DELIVERED:
-                return
-            ledger_paid = float(
-                (
-                    await session.execute(
-                        select(func.coalesce(func.sum(Payment.amount), 0)).where(
-                            Payment.orderId == order_id
-                        )
-                    )
-                ).scalar()
-                or 0
-            )
-            legacy_paid = float(order.paymentAmount or 0)
-            total_paid = max(ledger_paid, legacy_paid)
-            if order.toPay is None and total_paid <= 0:
-                return  # nothing owed recorded, nothing paid — stay pending
-            to_pay = float(order.toPay or 0)
-            if to_pay > 0 and total_paid < to_pay - 0.005:
-                return
-            order.status = OrderStatus.DELIVERED
-            order.updatedAt = datetime.now(timezone.utc)
-            session.add(order)
-            session.add(
-                OrderStatusHistory(
-                    orderId=order_id,
-                    status="delivered",
-                    notes="Auto-marked delivered: nothing outstanding",
-                )
-            )
-            await session.flush()
+    # NOTE: `reconcile_delivered_status` was DELETED. It used to auto-flip a
+    # GR to 'delivered' once the bill was fully paid. Payment settlement and
+    # delivery status are independent — a GR's status is changed only by the
+    # explicit "Update Status" action (`update_gr_status`). Nothing on the
+    # payment or GR-create/edit path may mutate `order.status`.
+    # See tests/test_payment_no_auto_status.py.
 
     async def distinct_shop_names(
         self, company_id: UUID | None = None, area: str | None = None

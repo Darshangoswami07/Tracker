@@ -694,7 +694,8 @@
     "detected": "Detected",
     "notDetected": "Not detected",
     "notDetectedOptional": "Not detected — optional",
-    "grNumberNotDetected": "GR number detect nahi hua. Manually enter karein."
+    "grNumberNotDetected": "GR number detect nahi hua. Manually enter karein.",
+    "grStatus": "GR Status"
   },
   "field": {
     "grNumber": "GR Number",

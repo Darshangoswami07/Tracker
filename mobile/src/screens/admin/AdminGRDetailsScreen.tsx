@@ -433,15 +433,24 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
               <Text style={[styles.trackingCode, { color: colors.textMuted }]}>Tracking: {gr.trackingCode}</Text>
             )}
           </View>
-          <StatusBadge status={gr.status} size="lg" />
+          <View style={styles.grStatusBlock}>
+            <Text style={[styles.label, { color: colors.textMuted }]}>{t('createGR.grStatus', 'GR Status')}</Text>
+            <StatusBadge status={gr.status} size="lg" />
+          </View>
         </View>
 
-        {/* Payment Summary Card */}
+        {/* Payment Summary Card — payment state is shown here, independent of
+            the GR delivery status badge above. Collecting the full amount
+            does NOT change the GR status (that's a manual "Update Status"
+            action only). */}
         {gr.toPay != null && (
           <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
             <View style={styles.paymentSummaryHeader}>
               <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>{t('summary.financialOverview')}</Text>
-              <StatusBadge status={paymentStatus} size="sm" />
+              <View style={styles.paymentStatusBlock}>
+                <Text style={[styles.paymentSummaryLabel, { color: colors.textMuted }]}>{t('payment.status', 'Payment')}</Text>
+                <StatusBadge status={paymentStatus} size="sm" />
+              </View>
             </View>
             <View style={styles.paymentSummaryRow}>
               <View style={styles.paymentSummaryItem}>
@@ -874,6 +883,8 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     scrollContent: { paddingBottom: 48, paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.lg, gap: theme.spacing.md },
     shimmer: { borderRadius: theme.radii.lg },
     titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+    grStatusBlock: { alignItems: 'flex-end', gap: 4 },
+    paymentStatusBlock: { alignItems: 'flex-end', gap: 4 },
     label: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
     grNo: { fontSize: theme.fonts.size.xl, fontWeight: '800', marginTop: 2 },
     trackingCode: { fontSize: theme.fonts.size.xs, marginTop: 4 },

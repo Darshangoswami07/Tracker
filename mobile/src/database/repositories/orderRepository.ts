@@ -175,10 +175,14 @@ const EXTENDED_FIELD_KEYS: (keyof GRExtendedFields)[] = [
 export interface LocalGRDetail extends GRExtendedFields {
   id: string;
   orderNumber: string;
-  /** Canonical reporting bucket (pending/cleared/uncleared/delivered). */
+  /** GR DELIVERY status — raw workflow value ('pending' | 'delivered'),
+   *  changed only by the manual "Update Status" action. Independent of
+   *  payment: a fully-paid GR keeps whatever delivery status it has. */
   status: string;
-  /** Raw workflow flag (pending|delivered) — used only where a screen needs
-   *  to reason about the underlying lifecycle rather than the reporting view. */
+  /** Payment-derived 4-bucket reporting view (pending/cleared/uncleared/
+   *  delivered) — for aggregate surfaces only, never the headline status. */
+  reportingStatus?: string;
+  /** Alias of `status` kept for older call sites. */
   rawStatus?: string;
   trackingCode: string | null;
   pickupAddress: string;
@@ -523,10 +527,17 @@ const mapTimeline = (t: any): LocalTimelineEvent => ({
 const mapDetail = (g: any): LocalGRDetail => ({
   id: g.id,
   orderNumber: g.orderNumber,
-  // Canonical 4-bucket status, matching the GR list — a delivered GR with
-  // nothing left to pay reads as `cleared`. Falls back to the raw workflow
-  // value for any older response shape.
-  status: g.reportingStatus ?? g.status,
+  // GR DELIVERY status — the raw workflow value ('pending' | 'delivered'),
+  // changed ONLY by the explicit "Update Status" action. Deliberately NOT
+  // the payment-derived 4-bucket `reportingStatus`: a fully-paid Pending GR
+  // must still read as "Pending" here, and a fully-paid Delivered GR as
+  // "Delivered" (never "Cleared"). Payment state is shown separately (the
+  // payment-summary card's own Unpaid / Partial / Fully-Paid badge).
+  status: g.status,
+  /** Payment-derived reporting bucket (pending/cleared/uncleared/delivered)
+   *  — kept for anything that still needs the aggregate view; never the
+   *  headline GR status. */
+  reportingStatus: g.reportingStatus ?? g.status,
   rawStatus: g.status,
   trackingCode: g.trackingCode ?? null,
   pickupAddress: g.pickupAddress,
