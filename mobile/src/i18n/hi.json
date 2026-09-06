@@ -694,7 +694,8 @@
     "detected": "Pata chala",
     "notDetected": "Pata nahi chala",
     "notDetectedOptional": "Pata nahi chala — vikalpik",
-    "grNumberNotDetected": "GR number detect nahi ho paya. Kripya ise haath se darj karein."
+    "grNumberNotDetected": "GR number detect nahi ho paya. Kripya ise haath se darj karein.",
+    "grStatus": "जीआर स्थिति"
   },
   "field": {
     "grNumber": "GR Number",

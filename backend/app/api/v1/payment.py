@@ -19,7 +19,7 @@ from app.api.deps import GRAccessUser
 from app.core.rbac import is_admin
 from app.core.tenancy import assert_same_company, effective_company_id
 from app.database.db import get_db_session
-from app.models.enums import OrderStatus, UserRole
+from app.models.enums import UserRole
 from app.models.order import Order
 from app.models.payment import Payment
 from app.repositories.payment_repository import PaymentRepository
@@ -32,10 +32,10 @@ _STAFF_ROLES = (UserRole.STAFF, UserRole.EMPLOYEE)
 
 async def _publish_gr_after_payment(order_id: UUID) -> None:
     """Runs as a FastAPI BackgroundTask — i.e. AFTER the payment transaction
-    has committed. Re-reads the (now durable) order and fans its current
-    reporting status out to connected GR dashboards, so a payment that
-    settles the balance flips the admin list ``delivered → cleared`` (or
-    ``uncleared → cleared``) live, with no polling."""
+    has committed. Re-reads the (now durable) order and fans a *notify-only*
+    event out to connected GR screens so paid / remaining / payment-status
+    refresh live, with no polling. It does NOT change the GR — `order.status`
+    is untouched here and everywhere else on the payment path."""
     try:
         from app.api.v1.gr import _publish_gr_change
         from app.database.db import session_scope
@@ -71,10 +71,12 @@ async def create_payment(
     Admin/Staff/Driver) and is scoped to the caller's own company via
     ``assert_same_company``, matching every other order-mutating endpoint in
     ``gr.py``. Runs in the single request-scoped session (auto-committed by
-    ``get_db_session`` on success, rolled back on exception), so the payment
-    insert and the order's status flip to DELIVERED commit or roll back
-    together — the database can never end up with totalPaid >= toPay but
-    status still PENDING.
+    ``get_db_session`` on success, rolled back on exception).
+
+    This endpoint updates PAYMENT DATA ONLY. It never reads, computes or
+    writes ``order.status`` — a GR's delivery status is the exclusive job of
+    ``PATCH /admin/orders/{id}/status``. A Pending GR that becomes fully paid
+    here stays Pending.
     """
     order = await session.get(Order, body.orderId)
     if order is None:
@@ -120,14 +122,17 @@ async def create_payment(
     )
     await repo.save(payment)
 
-    total_paid = already_paid + body.amount
-    if to_pay > 0 and total_paid >= to_pay - 0.005 and order.status != OrderStatus.DELIVERED:
-        order.status = OrderStatus.DELIVERED
-        session.add(order)
+    # PAYMENT AND DELIVERY STATUS ARE INDEPENDENT. Recording a payment — even
+    # one that settles the full bill — must NEVER change `order.status`.
+    # A GR's delivery status (pending / delivered) is changed only by the
+    # explicit "Update Status" action (`PATCH /admin/orders/{id}/status` →
+    # `update_gr_status`). "Fully paid" is a payment fact, not a delivery
+    # fact: a Pending GR with ₹0 remaining stays Pending until a human marks
+    # it delivered. See tests/test_payment_no_auto_status.py.
 
-    # After the response is sent (transaction committed) tell the GR
-    # dashboards the reporting status may have moved (uncleared/delivered →
-    # cleared once nothing is outstanding). Never before the commit.
+    # After the response is sent (transaction committed) tell connected GR
+    # screens the money figures moved, so paid/remaining/payment-status
+    # refresh live. This is a notify-only fan-out — it never mutates the GR.
     background_tasks.add_task(_publish_gr_after_payment, body.orderId)
 
     return payment

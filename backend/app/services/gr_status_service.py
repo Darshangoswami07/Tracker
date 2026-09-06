@@ -14,18 +14,27 @@ A delivered GR whose remaining-to-pay is ₹0 is CLEARED — that includes a GR
 with no bill at all (``toPay <= 0``): nothing is owed, so it is settled. It
 is never left showing DELIVERED just because no payment row exists.
 
-"delivered (workflow)" == the GR has left the ``pending`` order status, i.e.
-someone explicitly marked it delivered (or the fully-paid auto-reconcile in
-``payment.py`` / ``OrderRepository.reconcile_delivered_status`` did). An
-undelivered GR that has a partial payment stays PENDING - it is never
-UNCLEARED.
+"delivered (workflow)" == the GR has left the ``pending`` order status, which
+happens **only** when a human runs the explicit "Update Status" action
+(``PATCH /admin/orders/{id}/status``). Recording a payment — even one that
+settles the whole bill — never advances the status: a Pending GR that is
+fully paid stays PENDING here (``not delivered → "pending"``) until someone
+marks it delivered. An undelivered GR with a partial payment likewise stays
+PENDING, never UNCLEARED.
+
+CLEARED / UNCLEARED are therefore payment-derived *sub-states of an already
+manually-delivered GR* — they are a reporting/filtering convenience, not a
+status the payment flow can trigger.
 
     totalPaid = GREATEST(SUM(payments.amount), COALESCE(orders.paymentAmount, 0))
     totalBill = COALESCE(orders.toPay, 0)
 
 ``orders.paymentAmount`` is folded in because the Excel bulk import records a
-paid figure straight onto the order without a ``payments`` ledger row, and the
-delivered-reconcile already treats it the same way.
+paid figure straight onto the order without a ``payments`` ledger row.
+
+This module only *classifies* — it never writes ``order.status``. Delivery
+status changes exclusively through ``update_gr_status`` (manual "Update
+Status"); no payment or GR-create/edit path touches it.
 """
 from __future__ import annotations
 

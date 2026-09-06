@@ -424,7 +424,8 @@ async def create_gr(payload: GRCreateRequest, admin: GRAccessUser) -> dict:
         **extended,
     )
     await order_repo.append_status_history(order.id, "pending", "Created")
-    await order_repo.reconcile_delivered_status(order.id)
+    # A new GR is ALWAYS 'pending' — even if it's created already fully paid.
+    # Delivery status only ever changes via the explicit "Update Status" flow.
     fresh = await order_repo.get_order_with_details(order.id)
     return success((await _gr_out(fresh or order)).model_dump(mode="json"), message="GR created successfully.")
 
@@ -507,10 +508,9 @@ async def update_gr(order_id: UUID, payload: GRUpdateRequest, admin: GRAccessUse
     order = await order_repo.update_fields(order_id, **updates)
     if order is None:
         raise NotFoundError("GR not found.")
-    # Edit GR can lower toPay to/under what's already paid, or set the legacy
-    # paymentAmount directly — re-check whether nothing is outstanding.
-    if "toPay" in updates or "paymentAmount" in updates:
-        await order_repo.reconcile_delivered_status(order_id)
+    # Editing the bill (`toPay`) / `paymentAmount` changes only the money
+    # figures — it never touches delivery status. A GR whose bill is edited
+    # down to ₹0 stays whatever status it already was.
     fresh = await order_repo.get_order_with_details(order_id)
     # Push the edit to any open GR-details / list screen (fields, financials,
     # consignee/shop, …). `gr.updated` — the client just re-pulls the record.
