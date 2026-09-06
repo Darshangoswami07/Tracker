@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppTheme } from '../../theme/useAppTheme';
@@ -119,6 +119,13 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { goBack, navigate, navigation } = useAppNav();
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  // Bottom sheet grows with its content up to this ceiling, then scrolls
+  // internally. Derived from the live viewport (+ safe-area) so it adapts to
+  // short phones, tall phones, font scaling and gesture/nav bars — never a
+  // hardcoded screen height.
+  const sheetMaxHeight = Math.max(320, Math.min(windowHeight * 0.9, windowHeight - insets.top - 12));
   const accessToken = useAuthStore((state) => state.accessToken);
   const currentUser = useUserStore((state) => state.user);
   const isStaffUser = currentUser?.role === 'staff';
@@ -686,16 +693,25 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
       <AttachmentViewerModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
 
       {/* Receive Payment Bottom Sheet */}
-      <Modal visible={receivePaymentOpen} transparent animationType="slide" onRequestClose={closeReceivePayment}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { backgroundColor: colors.background, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl }]}>
-            <View style={styles.modalHeader}>
+      <Modal visible={receivePaymentOpen} transparent animationType="slide" onRequestClose={closeReceivePayment} statusBarTranslucent>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={[styles.paymentSheet, { backgroundColor: colors.background, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, maxHeight: sheetMaxHeight }]}>
+            <View style={styles.paymentHeader}>
               <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>{t('payment.receivePayment')}</Text>
               <TouchableOpacity onPress={closeReceivePayment} hitSlop={8}>
                 <Ionicons name="close" size={22} color={colors.textPrimary} />
               </TouchableOpacity>
             </View>
-            <View style={styles.paymentForm}>
+            <ScrollView
+              style={styles.paymentScroll}
+              contentContainerStyle={styles.paymentForm}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+              showsVerticalScrollIndicator={false}
+            >
               {paymentError && (
                 <View style={[styles.paymentErrorBanner, { backgroundColor: colors.errorSoft, borderRadius: radii.md }]}>
                   <Ionicons name="alert-circle-outline" size={16} color={colors.error} />
@@ -800,8 +816,10 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
                 value={paymentNotes}
                 onChangeText={setPaymentNotes}
               />
+            </ScrollView>
+            <View style={[styles.paymentFooter, { borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, 12) }]}>
               <TouchableOpacity
-                style={[styles.receivePaymentBtn, { backgroundColor: colors.primary, borderRadius: radii.md, marginTop: 20, opacity: submittingPayment ? 0.6 : 1 }]}
+                style={[styles.receivePaymentBtn, { backgroundColor: colors.primary, borderRadius: radii.md, marginTop: 0, opacity: submittingPayment ? 0.6 : 1 }]}
                 onPress={handleReceivePayment}
                 disabled={submittingPayment}
                 activeOpacity={0.85}
@@ -817,7 +835,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Status picker */}
@@ -910,6 +928,27 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     createdAt: { fontSize: theme.fonts.size.xs, textAlign: 'center', fontWeight: '600' },
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
     modalSheet: { padding: theme.spacing.lg, maxHeight: '70%' },
+    // Receive Payment sheet: no fixed padding on the shell — the header, the
+    // scrollable body and the pinned footer pad themselves, so the ScrollView
+    // and the footer border reach the sheet edges and content never renders
+    // behind the button. maxHeight is set inline from the live viewport.
+    paymentSheet: { overflow: 'hidden' },
+    paymentHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: theme.spacing.lg,
+      paddingTop: theme.spacing.lg,
+      paddingBottom: theme.spacing.md,
+    },
+    // flexShrink lets the body shrink to fit short screens (→ it scrolls);
+    // flexGrow:0 keeps the sheet hugging its content on tall screens.
+    paymentScroll: { flexGrow: 0, flexShrink: 1 },
+    paymentFooter: {
+      paddingHorizontal: theme.spacing.lg,
+      paddingTop: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+    },
     modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: theme.spacing.md },
     modalTitle: { fontSize: theme.fonts.size.lg, fontWeight: '800' },
     emptyOptions: { textAlign: 'center', paddingVertical: 24, fontSize: theme.fonts.size.sm },
@@ -941,7 +980,7 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     receivePaymentInlineBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, marginTop: 14 },
     receivePaymentInlineBtnText: { fontSize: theme.fonts.size.sm, fontWeight: '700' },
     paymentRowNote: { fontSize: theme.fonts.size.xs, maxWidth: 120 },
-    paymentForm: { gap: 0 },
+    paymentForm: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.lg },
     paymentFormRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
     paymentFormLabel: { fontSize: theme.fonts.size.sm, fontWeight: '600' },
     paymentFormValue: { fontSize: theme.fonts.size.md, fontWeight: '700' },
