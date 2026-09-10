@@ -8,6 +8,7 @@ import Svg, {
   Rect,
   Stop,
 } from 'react-native-svg';
+import { startupTrace } from '../../utils/startupTrace';
 
 /* --- Palette ----------------------------------------------------------- */
 const SKY_TOP = '#E9E4FF';
@@ -52,6 +53,8 @@ const SEAM = '#FFFFFF';
  * drawn as one 400x200 SVG that scales responsively.
  */
 export const TruckIllustration = () => {
+  startupTrace.mark('TruckIllustration:render-start');
+  startupTrace.mark('TruckIllustration:render-end');
   return (
     <Svg
       width="100%"

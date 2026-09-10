@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
@@ -13,9 +14,11 @@ import { HeroBanner } from '../../components/HeroBanner';
 import { Logo } from '../../components/Logo';
 import { ScreenHeading } from '../../components/ScreenHeading';
 import { TextLink } from '../../components/TextLink';
+import { warmBackend } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { useSessionStore } from '../../store/sessionStore';
 import { useAppTheme } from '../../theme/useAppTheme';
+import { startupTrace } from '../../utils/startupTrace';
 import { loginSchema, type LoginValues } from '../../features/auth/schemas/authSchemas';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../../navigation/types';
@@ -29,6 +32,7 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
  *  backend-enforced, not just a label swap. */
 
 export const LoginScreen = ({ navigation, route }: Props) => {
+  startupTrace.mark('LoginScreen:render-start');
   const { t } = useTranslation();
   const { colors, spacing } = useAppTheme();
   const login = useAuth().login;
@@ -37,6 +41,13 @@ export const LoginScreen = ({ navigation, route }: Props) => {
   const rememberedEmail = useSessionStore((state) => state.rememberedEmail);
   const rememberMe = useSessionStore((state) => state.rememberMe);
   const setRememberMe = useSessionStore((state) => state.setRememberMe);
+
+  // Start waking the (free-tier, possibly-suspended) backend now, while the
+  // user is still reading the form / typing — so the cold start overlaps the
+  // typing time instead of landing entirely on the login request.
+  useEffect(() => {
+    void warmBackend();
+  }, []);
 
   const { control, handleSubmit } = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
@@ -48,6 +59,7 @@ export const LoginScreen = ({ navigation, route }: Props) => {
   });
 
   const onSubmit = (values: LoginValues) => {
+    startupTrace.mark('login:submit');
     setRememberMe(values.rememberMe, values.email);
     login.mutate({ email: values.email.trim().toLowerCase(), password: values.password, accountType });
   };
@@ -63,6 +75,7 @@ export const LoginScreen = ({ navigation, route }: Props) => {
   // This would typically be handled by checking the error after login attempt
   // For now, we show the appropriate message
 
+  startupTrace.mark('LoginScreen:render-end');
   return (
     <AuthScaffold hero={<HeroBanner />}>
 

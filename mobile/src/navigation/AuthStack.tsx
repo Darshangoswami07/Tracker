@@ -1,4 +1,5 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { startupTrace } from '../utils/startupTrace';
 import { useAuthStore } from '../store/authStore';
 import { useRegistrationStore } from '../store/registrationStore';
 import { useAppTheme } from '../theme/useAppTheme';
@@ -19,15 +20,20 @@ import { PrivacyScreen } from '../screens/auth/PrivacyScreen';
 import { WelcomeScreen } from '../screens/auth/WelcomeScreen';
 import type { AuthStackParamList } from './types';
 
+startupTrace.mark('AuthStack:module-loaded');
+
 const Stack = createNativeStackNavigator<AuthStackParamList>();
+startupTrace.mark('AuthStack:createNativeStackNavigator-done');
 
 /** Navigation stack shown while the user is unauthenticated. */
 export const AuthStack = () => {
+  startupTrace.mark('AuthStack:render-start');
   const { colors, fonts } = useAppTheme();
   const resumePending = useRegistrationStore((state) => state.hydrated && state.isInFlight());
   const authLaunchRoute = useAuthStore((state) => state.authLaunchRoute);
 
   const initialRouteName: keyof AuthStackParamList = resumePending ? 'RegistrationPending' : authLaunchRoute;
+  startupTrace.mark('AuthStack:render-end', { initialRouteName });
 
   return (
     <Stack.Navigator

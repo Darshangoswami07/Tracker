@@ -19,6 +19,7 @@ import type {
 } from '../features/auth/types';
 import { useAuthStore } from '../store/authStore';
 import { toAppError } from '../services/errorMapper';
+import { startupTrace } from '../utils/startupTrace';
 
 export const QUERY_KEYS = {
   currentUser: ['auth', 'current-user'],
@@ -34,10 +35,12 @@ export const useAuth = () => {
   const clearSession = useAuthStore((state) => state.clearSession);
 
   const loginMutation = useMutation({
-    mutationFn: (payload: LoginPayload) => loginApi(payload),
+    mutationFn: (payload: LoginPayload) => startupTrace.measure('login:api', () => loginApi(payload)),
     onSuccess: (result) => {
+      startupTrace.mark('login:api-response');
       setSession(result.tokens, result.user);
       queryClient.setQueryData(QUERY_KEYS.currentUser, result.user);
+      startupTrace.mark('login:session-set');
     },
   });
 

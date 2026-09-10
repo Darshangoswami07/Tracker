@@ -1,5 +1,6 @@
 import { View } from 'react-native';
 import Svg, { Circle, Ellipse, Rect } from 'react-native-svg';
+import { startupTrace } from '../utils/startupTrace';
 
 const BOX = '#635BFF';
 const BOX_MID = '#7366F7';
@@ -15,6 +16,8 @@ const SPEED = '#8A7CFF';
  * as a flat SVG, fills roughly 70% of the badge. No animation.
  */
 export const TruckGlyph = ({ size = 50 }: { size?: number }) => {
+  startupTrace.mark('TruckGlyph:render-start');
+  startupTrace.mark('TruckGlyph:render-end');
   return (
     <View style={{ width: size, height: size }}>
       <Svg width="100%" height="100%" viewBox="0 0 100 100">

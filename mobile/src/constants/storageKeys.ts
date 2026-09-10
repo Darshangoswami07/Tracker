@@ -10,6 +10,10 @@ export const StorageKeys = {
   refreshToken: 'auth.refresh_token',
   /** Email remembered by the "Remember Me" option on the login screen. */
   rememberedEmail: 'auth.remembered_email',
+  /** Last known authenticated user profile (non-sensitive). Cached so a
+   * returning user's dashboard shell can render instantly on cold start
+   * while `GET /users/me` revalidates in the background. */
+  cachedUser: 'auth.cached_user',
   /** Preferred theme mode. */
   themeMode: 'app.theme_mode',
   /** App settings preferences (notifications, privacy, data). */

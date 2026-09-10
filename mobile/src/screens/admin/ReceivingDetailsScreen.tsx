@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, BackHandler, LayoutAnimation, Modal, Platform, Pressable,
-  RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, UIManager, View,
+  ActivityIndicator, BackHandler, LayoutAnimation, Modal, Pressable,
+  RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -19,12 +19,11 @@ import { useAppNav } from '../../hooks/useAppNav';
 import { useTranslation } from 'react-i18next';
 import type { AppTheme } from '../../theme/types';
 
-// Subtle content-swap animation when switching Admin Direct <-> Staff
-// Received (LayoutAnimation, not a new animation dependency). Android needs
-// this experimental flag enabled once; iOS/New Architecture ignore it.
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+// The Admin Direct <-> Staff Received swap is animated with LayoutAnimation
+// (see the tab `onPress` handlers). Under the New Architecture LayoutAnimation
+// is enabled by default on both platforms, so the old
+// `UIManager.setLayoutAnimationEnabledExperimental(true)` Android opt-in is
+// gone — it is now a no-op that logs a warning at import time.
 
 const PAGE_SIZE = 20;
 const RECEIVER_PAGE_SIZE = 10;

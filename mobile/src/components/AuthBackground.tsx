@@ -1,5 +1,6 @@
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import Svg, { Defs, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
+import { startupTrace } from '../utils/startupTrace';
 
 /**
  * Soft premium canvas behind the auth screens: a pure white base with a very
@@ -8,6 +9,7 @@ import Svg, { Defs, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
  * bottom edge. Static, no large colored blocks, no harsh gradients.
  */
 export const AuthBackground = () => {
+  startupTrace.mark('AuthBackground:render-start');
   const { width, height } = useWindowDimensions();
 
   const heroGlowHeight = Math.round(height * 0.42);
@@ -15,6 +17,7 @@ export const AuthBackground = () => {
   const waveHeight = Math.round(height * 0.22);
   const waveTop = height - waveHeight * 0.62;
 
+  startupTrace.mark('AuthBackground:render-end');
   return (
     <View style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}>
       <Svg width={width} height={height} style={StyleSheet.absoluteFill}>

@@ -1,5 +1,6 @@
 import { StorageKeys } from '../constants/storageKeys';
 import type { TokenPair } from '../types/token';
+import { startupTrace } from '../utils/startupTrace';
 import { secureStoreService } from './secureStore';
 
 /**
@@ -24,8 +25,12 @@ export const tokenStorage = {
   },
 
   async getTokenPair(): Promise<TokenPair | null> {
+    // TEMP INSTRUMENTATION — remove once the auth-hydration span is understood.
+    startupTrace.mark('tokenStorage.getTokenPair:start');
     const accessToken = await secureStoreService.get(StorageKeys.accessToken);
+    startupTrace.mark('tokenStorage.getTokenPair:access-read', { found: Boolean(accessToken) });
     const refreshToken = await secureStoreService.get(StorageKeys.refreshToken);
+    startupTrace.mark('tokenStorage.getTokenPair:refresh-read', { found: Boolean(refreshToken) });
     if (!accessToken || !refreshToken) return null;
     return {
       accessToken,

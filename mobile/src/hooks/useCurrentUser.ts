@@ -7,7 +7,7 @@ import { toAppError } from '../services/errorMapper';
 export const useCurrentUser = () => {
   const query = useQuery({
     queryKey: QUERY_KEYS.currentUser,
-    queryFn: getCurrentUser,
+    queryFn: ({ signal }) => getCurrentUser(signal),
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });

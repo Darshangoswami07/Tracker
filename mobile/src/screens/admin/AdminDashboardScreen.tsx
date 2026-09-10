@@ -16,6 +16,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { useAppNav } from '../../hooks/useAppNav';
 import { useTranslation } from 'react-i18next';
 import { grRealtime, type GrEvent } from '../../services/grRealtime';
+import { startupTrace } from '../../utils/startupTrace';
 import type { AppTheme } from '../../theme/types';
 
 interface RevenueOverview {
@@ -188,7 +189,9 @@ export const AdminDashboardScreen = () => {
   const fetchStats = useCallback(async () => {
     if (!accessToken) return;
     try {
-      const statsRes = await api.get('/admin/dashboard/stats', { headers: { Authorization: `Bearer ${accessToken}` } });
+      const statsRes = await startupTrace.measure('dashboard:GET /admin/dashboard/stats', () =>
+        api.get('/admin/dashboard/stats', { headers: { Authorization: `Bearer ${accessToken}` } }),
+      );
       const d = statsRes.data.data;
       setStats({
         totalOrders: d.totalOrders ?? 0,
@@ -207,7 +210,9 @@ export const AdminDashboardScreen = () => {
   const fetchRevenue = useCallback(async () => {
     setRevenueStatus('loading');
     try {
-      const data = await orderRepository.getRevenueOverview();
+      const data = await startupTrace.measure('dashboard:revenue-overview', () =>
+        orderRepository.getRevenueOverview(),
+      );
       setRevenue(data);
       setRevenueStatus('success');
     } catch (error) {
@@ -224,7 +229,9 @@ export const AdminDashboardScreen = () => {
   const fetchActivity = useCallback(async () => {
     setActivityStatus('loading');
     try {
-      const events = await orderRepository.listRecentActivity(8);
+      const events = await startupTrace.measure('dashboard:recent-activity', () =>
+        orderRepository.listRecentActivity(8),
+      );
       setActivities(events.map(e => describeActivity(e, t)));
       setActivityStatus('success');
     } catch (error) {
@@ -244,7 +251,9 @@ export const AdminDashboardScreen = () => {
       // Neon — the exact same classification the GR / Shipments screen shows
       // (backend `app/services/gr_status_service.py`). No client-side maths,
       // and not capped at one page.
-      const sc = await orderRepository.getStatusCounts();
+      const sc = await startupTrace.measure('dashboard:status-counts', () =>
+        orderRepository.getStatusCounts(),
+      );
       if (reqId !== shipmentOverviewReqId.current) return; // superseded by a later fetch
       setShipmentOverview({
         total: sc.total,
@@ -260,7 +269,9 @@ export const AdminDashboardScreen = () => {
 
   const fetchTodayCollection = useCallback(async () => {
     try {
-      const amount = await orderRepository.getTodayCollection();
+      const amount = await startupTrace.measure('dashboard:today-collection', () =>
+        orderRepository.getTodayCollection(),
+      );
       setTodayCollection(amount);
     } catch (error) {
       console.error('Failed to load today collection:', error);
@@ -268,11 +279,17 @@ export const AdminDashboardScreen = () => {
   }, []);
 
   const fetchDashboardData = useCallback(() => {
-    void fetchStats();
-    void fetchRevenue();
-    void fetchActivity();
-    void fetchShipmentOverview();
-    void fetchTodayCollection();
+    // All five run concurrently (no `await` between them). The trace marks
+    // bracket the batch so wall-clock "all dashboard data loaded" is
+    // measurable separately from "shell visible".
+    startupTrace.mark('dashboard:data-start');
+    void Promise.allSettled([
+      fetchStats(),
+      fetchRevenue(),
+      fetchActivity(),
+      fetchShipmentOverview(),
+      fetchTodayCollection(),
+    ]).then(() => startupTrace.mark('dashboard:data-complete'));
   }, [fetchStats, fetchRevenue, fetchActivity, fetchShipmentOverview, fetchTodayCollection]);
 
   const onRefresh = useCallback(() => {
@@ -281,12 +298,24 @@ export const AdminDashboardScreen = () => {
   }, [fetchDashboardData]);
 
   useEffect(() => {
+    startupTrace.mark('dashboard:mount');
+    // The shimmer shell is a placeholder, not the real UI. Guarantee the real
+    // dashboard shell (header, layout, section containers) paints within
+    // ~700ms regardless of how slow / cold the backend is — every data
+    // region already has its own loading/empty/error state. Without this the
+    // whole screen stayed on the full-screen shimmer until the *slowest,
+    // least critical* call (`/admin/dashboard/stats`) returned.
+    const shellTimer = setTimeout(() => {
+      setLoading(false);
+      startupTrace.mark('dashboard:shell-visible', { via: 'timer' });
+    }, 700);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchDashboardData();
     Animated.parallel([
       Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: Platform.OS !== 'web' }),
       Animated.timing(slideAnim, { toValue: 0, duration: 600, useNativeDriver: Platform.OS !== 'web' }),
     ]).start();
+    return () => clearTimeout(shellTimer);
   }, [fetchDashboardData, fadeAnim, slideAnim]);
 
   // Re-fetch every time this screen regains focus (separate from the mount

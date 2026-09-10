@@ -8,6 +8,7 @@ import { useColorScheme } from 'react-native';
 import { buildTheme } from './index';
 import { ThemeContext } from './useAppTheme';
 import { useThemeStore } from '../store/themeStore';
+import { startupTrace } from '../utils/startupTrace';
 import type { ThemeMode } from './types';
 
 /**
@@ -16,15 +17,24 @@ import type { ThemeMode } from './types';
  * persisted preference (light / dark / system); "system" is resolved against
  * the OS color scheme at render time.
  */
+startupTrace.mark('ThemeProvider:module-loaded');
+
 export const AppThemeProvider = ({ children }: PropsWithChildren) => {
+  startupTrace.mark('AppThemeProvider:render-start');
   const preference = useThemeStore((state) => state.preference);
   const system = useColorScheme();
 
   const mode: ThemeMode =
     preference === 'system' ? (system === 'dark' ? 'dark' : 'light') : preference;
 
-  const theme = useMemo(() => buildTheme(mode), [mode]);
+  const theme = useMemo(() => {
+    startupTrace.mark('theme:init-start');
+    const built = buildTheme(mode);
+    startupTrace.mark('theme:init-end');
+    return built;
+  }, [mode]);
 
+  startupTrace.mark('AppThemeProvider:render-end');
   return (
     <ThemeContext.Provider value={theme}>
       <NavigationThemeProvider value={theme.navigation}>

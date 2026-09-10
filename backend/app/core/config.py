@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     # postgresql+psycopg://user:pass@host/db?sslmode=require&channel_binding=require
     DATABASE_URL: str = "postgresql+psycopg://deliveryhub:deliveryhub@localhost:5432/deliveryhub"
 
+    # Run the create-all + partial-unique-index bootstrap on every startup.
+    # Convenient in local dev, but on a hosted deployment where schema is
+    # owned by Alembic migrations it just adds several seconds of DB
+    # reflection round-trips to every (already slow) cold start for no
+    # benefit. Set RUN_DB_BOOTSTRAP=false in production.
+    RUN_DB_BOOTSTRAP: bool = True
+
     # --- File uploads ------------------------------------------------------
     STORAGE_BACKEND: Literal["local", "s3"] = "local"
     UPLOAD_DIR: str = "uploads"
