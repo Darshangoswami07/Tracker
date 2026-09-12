@@ -99,6 +99,11 @@ const DashboardTabStack = () => (
     <DashboardStack.Screen name="AllShops" component={AdminAllShopsScreen} />
     <DashboardStack.Screen name="AreaShops" component={AdminAreaShopsScreen} />
     <DashboardStack.Screen name="ShopHistory" component={AdminShopHistoryScreen} />
+    {/* Same dual-registration reasoning as CreateGR above — Payment History /
+     * All Shops / Shop History / Staff Daily Work all live in THIS stack and
+     * link to GRDetails, so it must be registered here too or opening a GR
+     * from one of them has nowhere local to resolve to. */}
+    <DashboardStack.Screen name="GRDetails" component={AdminGRDetailsScreen} />
   </DashboardStack.Navigator>
 );
 
@@ -129,6 +134,12 @@ const ReceivingDetailsTabStack = () => (
 const GRTrackerTabStack = () => (
   <GRTrackerStack.Navigator screenOptions={useStackScreenOptions()}>
     <GRTrackerStack.Screen name="GRTrackerClassic" component={StaffGRPanelScreen} />
+    {/* Registered directly in THIS stack (not just ShipmentsStack) so opening
+     * a GR from GR Tracker pushes onto its own stack — goBack() then returns
+     * to GR Tracker, not the Shipments list. Same reasoning as CreateGR in
+     * DashboardTabStack above. Reuses the exact same working GR Details
+     * screen the Shipments tab already uses — no duplicate implementation. */}
+    <GRTrackerStack.Screen name="GRDetails" component={AdminGRDetailsScreen} />
   </GRTrackerStack.Navigator>
 );
 

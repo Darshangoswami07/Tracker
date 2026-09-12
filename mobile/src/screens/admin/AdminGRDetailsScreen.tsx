@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -165,29 +165,77 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const [collectorOptions, setCollectorOptions] = useState<{ id: string; fullName: string; area: string | null }[]>([]);
   const [collectedByStaffId, setCollectedByStaffId] = useState<string | null>(null);
 
+  // Monotonic "which GR is currently selected" generation counter. Bumped
+  // exactly once per `orderId` change (below), and captured by every fetch
+  // below at the moment it's issued — a response only ever gets to call
+  // `setState` if the counter it captured still matches `requestIdRef.current`
+  // when it resolves. This is what actually stops a slow response for a GR
+  // the user has since navigated away from from ever overwriting the screen
+  // for the GR they're now looking at — awaiting a promise and comparing
+  // `orderId` after the fact (the naive fix) is NOT enough on its own, because
+  // this screen instance can be reused for a different GR (React Navigation's
+  // `navigate()` updates params on the same mounted screen rather than
+  // pushing a new one when the route is already on the stack) — a plain
+  // `orderId` closure comparison would still be racy against a same-named
+  // variable read fresh each render. A ref-backed counter has no such
+  // ambiguity: it identifies THIS SPECIFIC fetch attempt, not just "which GR
+  // was selected when the closure was created".
+  const requestIdRef = useRef(0);
+
+  // Fires BEFORE paint whenever the selected GR changes (useLayoutEffect,
+  // not useEffect) — so the previous GR's data, payment summary and history
+  // are cleared and the skeleton takes over in the SAME commit the new
+  // `orderId` becomes active, with no frame where the old GR's numbers are
+  // visible under the new GR's identity. A plain `useEffect` reset would
+  // still let React paint one frame of stale data first (render happens
+  // with the new `orderId` but old state, THEN the effect resets it).
+  useLayoutEffect(() => {
+    requestIdRef.current += 1;
+    /* eslint-disable react-hooks/set-state-in-effect --
+       Deliberate synchronous reset to the new GR's "not loaded yet" state,
+       timed to land in the same commit as the `orderId` change (see the
+       comment on `requestIdRef` above). */
+    setGr(null);
+    setPaymentSummary(null);
+    setPayments([]);
+    setNotFound(false);
+    setError(null);
+    setLoading(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [orderId]);
+
   const fetchDetail = useCallback(async () => {
+    const requestId = requestIdRef.current;
     try {
-      const gr = await orderRepository.getById(orderId);
-      if (!gr) {
+      const fetched = await orderRepository.getById(orderId);
+      // A newer GR has been selected since this request was issued — the
+      // user has already moved on, so this response is stale. Ignoring it
+      // (never calling setGr/setError/setNotFound/setLoading) is the entire
+      // fix for "an older request finishes after a newer GR was opened".
+      if (requestId !== requestIdRef.current) return;
+      if (!fetched) {
         setNotFound(true);
         return;
       }
-      setGr(gr);
+      setGr(fetched);
       setError(null);
       setNotFound(false);
     } catch (err: any) {
+      if (requestId !== requestIdRef.current) return;
       setError(err?.message ?? t('createGR.couldNotLoadGR'));
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [orderId]);
+  }, [orderId, t]);
 
   const fetchPayments = useCallback(async () => {
+    const requestId = requestIdRef.current;
     try {
       const [summary, paymentList] = await Promise.all([
         orderRepository.getPaymentSummary(orderId),
         orderRepository.listPayments(orderId),
       ]);
+      if (requestId !== requestIdRef.current) return; // stale — see fetchDetail
       setPaymentSummary(summary);
       setPayments(paymentList);
     } catch {
@@ -259,13 +307,17 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const updateStatus = async (status: string) => {
     setStatusPickerOpen(false);
     if (!gr || status === gr.status) return;
+    const requestId = requestIdRef.current;
     setUpdating(true);
     try {
-      setGr(await orderRepository.updateStatus(orderId, status));
+      const updated = await orderRepository.updateStatus(orderId, status);
+      if (requestId !== requestIdRef.current) return; // user switched GRs mid-request
+      setGr(updated);
     } catch (err: any) {
+      if (requestId !== requestIdRef.current) return;
       Alert.alert(t('createGR.errorTitle'), err?.message ?? t('createGR.statusUpdateFailed'));
     } finally {
-      setUpdating(false);
+      if (requestId === requestIdRef.current) setUpdating(false);
     }
   };
 

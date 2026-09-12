@@ -83,6 +83,13 @@ export type DashboardStackParamList = {
    * Uncleared/Delivered) at top, search, nothing else: only this shop's
    * GRs, only this area's data. */
   ShopHistory: { shopName: string; area: string };
+  /** Reuses the shared `AdminGRDetailsScreen` — registered here (in addition
+   * to `ShipmentsStackParamList`) so a GR opened from Payment History / All
+   * Shops / Shop History / Staff Daily Work (all reachable from THIS stack)
+   * pushes onto the Dashboard stack and `goBack()` returns to whichever of
+   * those screens the user actually came from, instead of cross-tab-jumping
+   * into Shipments. Same reasoning as `CreateGR`/`ExcelImport` above. */
+  GRDetails: { orderId: string };
 };
 
 /** Screens reached from the Shipments tab. */
@@ -116,6 +123,12 @@ export type ReceivingDetailsStackParamList = {
 /** Screens reached from the GR Tracker (classic) tab. */
 export type GRTrackerStackParamList = {
   GRTrackerClassic: undefined;
+  /** Reuses the shared `AdminGRDetailsScreen` — registered directly in this
+   * stack (not just `ShipmentsStackParamList`) so a GR opened from GR
+   * Tracker pushes onto THIS stack and `goBack()` returns here, instead of
+   * cross-tab-jumping into Shipments. Same reasoning as `CreateGR` and the
+   * Staff shell's `StaffDashboardStackParamList.GRDetails`. */
+  GRDetails: { orderId: string };
 };
 
 /** Screens reached from the More tab (account, settings, remaining admin tools). */
