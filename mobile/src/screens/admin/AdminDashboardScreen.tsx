@@ -3,13 +3,12 @@ import { Animated, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacit
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/useAppTheme';
-import { useAuthStore } from '../../store/authStore';
 import { useUserStore } from '../../store/userStore';
-import { api } from '../../api/client';
 import { orderRepository, type ActivityEvent } from '../../database/repositories/orderRepository';
 import { StatCard } from '../../components/StatCard';
 import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
+import { StatCardSkeleton } from '../../components/StatCardSkeleton';
 import { ActivityItem } from '../../components/ActivityItem';
 import { EmptyState } from '../../components/EmptyState';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -39,9 +38,11 @@ interface RevenueOverview {
 }
 
 interface AdminStats {
-  totalOrders: number;
+  // `totalOrders`/`onlineUsers` used to live here too, sourced from the
+  // heavier admin-stats endpoint (several extra queries) — this screen
+  // never actually rendered either field, so the consolidated
+  // dashboard-summary fetch only asks the backend for the 2 fields below.
   pendingApprovals: number;
-  onlineUsers: number;
   systemHealth: 'healthy' | 'degraded' | 'critical';
 }
 
@@ -152,7 +153,6 @@ const firstNameOf = (fullName?: string): string => (fullName ?? '').trim().split
 
 export const AdminDashboardScreen = () => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
-  const accessToken = useAuthStore((state) => state.accessToken);
   const user = useUserStore((state) => state.user);
   const isSuperAdmin = user?.role === 'super_admin';
   const { t } = useTranslation();
@@ -161,52 +161,25 @@ export const AdminDashboardScreen = () => {
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
   const [stats, setStats] = useState<AdminStats | null>(null);
-  const [revenue, setRevenue] = useState<RevenueOverview>({
-    today: 0,
-    yesterday: 0,
-    week: 0,
-    prevWeek: 0,
-    month: 0,
-    prevMonth: 0,
-    totalCollected: 0,
-    directUpiReceived: 0,
-    outstandingAmount: 0,
-    collectedGRCount: 0,
-    outstandingGRCount: 0,
-    collectedThisMonth: 0,
-    collectedPrevMonth: 0,
-  });
+  // `null` means "not loaded yet" — distinct from a real ₹0/0 value, so the
+  // UI never has to guess whether a zero on screen is real or a placeholder.
+  const [revenue, setRevenue] = useState<RevenueOverview | null>(null);
   const [revenueStatus, setRevenueStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [activities, setActivities] = useState<RecentActivity[]>([]);
   const [activityStatus, setActivityStatus] = useState<'loading' | 'success' | 'error'>('loading');
-  const [shipmentOverview, setShipmentOverview] = useState<ShipmentOverview>({ total: 0, pending: 0, cleared: 0, uncleared: 0, delivered: 0 });
-  const [todayCollection, setTodayCollection] = useState(0);
+  const [shipmentOverview, setShipmentOverview] = useState<ShipmentOverview | null>(null);
+  const [todayCollection, setTodayCollection] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
 
-  const fetchStats = useCallback(async () => {
-    if (!accessToken) return;
-    try {
-      const statsRes = await startupTrace.measure('dashboard:GET /admin/dashboard/stats', () =>
-        api.get('/admin/dashboard/stats', { headers: { Authorization: `Bearer ${accessToken}` } }),
-      );
-      const d = statsRes.data.data;
-      setStats({
-        totalOrders: d.totalOrders ?? 0,
-        pendingApprovals: d.pendingApprovals ?? 0,
-        onlineUsers: d.onlineUsers ?? 0,
-        systemHealth: d.systemHealth ?? 'healthy',
-      });
-    } catch (error) {
-      console.error('Failed to fetch admin dashboard stats:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [accessToken]);
-
+  // Single-purpose refetchers — kept standalone (not folded into the
+  // consolidated fetch below) because each is used independently:
+  // `fetchRevenue` backs the Revenue Overview section's own "Retry" button,
+  // and both back the realtime debounced refresh in `scheduleOverviewReload`
+  // below, which deliberately only touches the two cards a GR status/payment
+  // event can actually change — not a full dashboard reload.
   const fetchRevenue = useCallback(async () => {
     setRevenueStatus('loading');
     try {
@@ -220,25 +193,6 @@ export const AdminDashboardScreen = () => {
       setRevenueStatus('error');
     }
   }, []);
-
-  // Recent Activity is real GR/shipment history (status transitions + slip
-  // uploads) read from the backend (`/admin/orders/meta/activity`, Neon) —
-  // the same source the GR list / Customer Tracking / GR Tracker screens use
-  // — not the backend's email-notification log, which isn't meaningful
-  // operational activity.
-  const fetchActivity = useCallback(async () => {
-    setActivityStatus('loading');
-    try {
-      const events = await startupTrace.measure('dashboard:recent-activity', () =>
-        orderRepository.listRecentActivity(8),
-      );
-      setActivities(events.map(e => describeActivity(e, t)));
-      setActivityStatus('success');
-    } catch (error) {
-      console.error('Failed to load recent activity:', error);
-      setActivityStatus('error');
-    }
-  }, [t]);
 
   // Guards against an in-flight request that resolves AFTER a newer one —
   // e.g. rapid consecutive status changes each trigger a refetch; only the
@@ -267,30 +221,51 @@ export const AdminDashboardScreen = () => {
     }
   }, []);
 
-  const fetchTodayCollection = useCallback(async () => {
-    try {
-      const amount = await startupTrace.measure('dashboard:today-collection', () =>
-        orderRepository.getTodayCollection(),
-      );
-      setTodayCollection(amount);
-    } catch (error) {
-      console.error('Failed to load today collection:', error);
-    }
-  }, []);
-
-  const fetchDashboardData = useCallback(() => {
-    // All five run concurrently (no `await` between them). The trace marks
-    // bracket the batch so wall-clock "all dashboard data loaded" is
-    // measurable separately from "shell visible".
+  // ONE authenticated request (`GET /admin/orders/meta/dashboard-summary`)
+  // instead of five. Previously this fired `fetchStats` + `fetchRevenue` +
+  // `fetchActivity` + `fetchShipmentOverview` + `fetchTodayCollection`
+  // concurrently via `Promise.allSettled` — already-concurrent on the
+  // frontend, but each of the 5 independently paid its own auth lookup +
+  // DB-connection-acquisition cost on the backend. Folding them into one
+  // backend endpoint (see `gr_reports.py::admin_dashboard_summary`) pays
+  // that fixed cost once. `fetchRevenue`/`fetchShipmentOverview` remain as
+  // standalone functions (see above) purely for the Retry button and the
+  // narrow realtime refresh — this function does not replace them there,
+  // only at initial-load/pull-to-refresh time.
+  const fetchDashboardData = useCallback(async () => {
     startupTrace.mark('dashboard:data-start');
-    void Promise.allSettled([
-      fetchStats(),
-      fetchRevenue(),
-      fetchActivity(),
-      fetchShipmentOverview(),
-      fetchTodayCollection(),
-    ]).then(() => startupTrace.mark('dashboard:data-complete'));
-  }, [fetchStats, fetchRevenue, fetchActivity, fetchShipmentOverview, fetchTodayCollection]);
+    setRevenueStatus('loading');
+    setActivityStatus('loading');
+    try {
+      const summary = await startupTrace.measure('dashboard:summary', () =>
+        orderRepository.getDashboardSummary(),
+      );
+      setStats({ pendingApprovals: summary.pendingApprovals, systemHealth: summary.systemHealth });
+      setRevenue(summary.revenue);
+      setRevenueStatus('success');
+      setShipmentOverview({
+        total: summary.statusCounts.total,
+        pending: summary.statusCounts.pending,
+        cleared: summary.statusCounts.cleared,
+        uncleared: summary.statusCounts.uncleared,
+        delivered: summary.statusCounts.delivered,
+      });
+      setTodayCollection(summary.todayCollection);
+      setActivities(summary.activity.map((e) => describeActivity(e, t)));
+      setActivityStatus('success');
+    } catch (error) {
+      console.error('Failed to load dashboard summary:', error);
+      // Leave whichever pieces already had real data untouched (a refresh
+      // failure never blanks out good numbers); only sections that never
+      // loaded at all flip to their error state.
+      setRevenueStatus((prev) => (prev === 'loading' ? 'error' : prev));
+      setActivityStatus((prev) => (prev === 'loading' ? 'error' : prev));
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+      startupTrace.mark('dashboard:data-complete');
+    }
+  }, [t]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -439,7 +414,7 @@ export const AdminDashboardScreen = () => {
     color: string;
     trend?: { value: number; label: string; isPercentage?: boolean };
     subtitle?: string;
-  }[] = revenueStatus === 'error'
+  }[] = !revenue
     ? []
     : [
     {
@@ -509,10 +484,14 @@ export const AdminDashboardScreen = () => {
           <View style={styles.welcomeSection}>
             <Text style={styles.welcomeTitle}>{getGreeting(t)}, {firstNameOf(user?.fullName)} 👋</Text>
             <View style={styles.summaryRow}>
-              <View style={[styles.healthDot, { backgroundColor: healthConfig.color }]} />
-              <Text style={styles.welcomeSubtitle}>
-                {shipmentOverview.total.toLocaleString()} {t('dashboard.ordersCount')} · {shipmentOverview.pending} pending · {shipmentOverview.delivered} delivered
-              </Text>
+              {stats && <View style={[styles.healthDot, { backgroundColor: healthConfig.color }]} />}
+              {shipmentOverview ? (
+                <Text style={styles.welcomeSubtitle}>
+                  {shipmentOverview.total.toLocaleString()} {t('dashboard.ordersCount')} · {shipmentOverview.pending} pending · {shipmentOverview.delivered} delivered
+                </Text>
+              ) : (
+                <ShimmerCard style={styles.summarySkeleton} height={14} borderRadius={4} />
+              )}
             </View>
           </View>
         </Animated.View>
@@ -528,7 +507,7 @@ export const AdminDashboardScreen = () => {
         <Animated.View style={{ transform: [{ translateY: slideAnim }], opacity: fadeAnim }}>
           <View style={styles.revenueSection}>
             <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('dashboard.revenueOverview')}</Text>
-            {revenueStatus === 'error' ? (
+            {!revenue && revenueStatus === 'error' ? (
               <View style={styles.revenueError}>
                 <Ionicons name="cloud-offline-outline" size={28} color={colors.error} />
                 <Text style={[styles.revenueErrorText, { color: colors.textSecondary }]}>
@@ -538,19 +517,41 @@ export const AdminDashboardScreen = () => {
                   <Text style={{ color: colors.onPrimary, fontWeight: '700', fontSize: 13 }}>{t('common.retry')}</Text>
                 </TouchableOpacity>
               </View>
-            ) : (
-            <View style={styles.revenueGrid}>
-              {revenueRows.map((row, rowIndex) => (
-                <View key={rowIndex} style={styles.revenueRow}>
-                  {row.map((card) => (
-                    <View key={card.title} style={styles.revenueCardHalf}>
-                      <StatCard title={card.title} value={card.value} icon={card.icon} color={card.color} trend={card.trend} subtitle={card.subtitle} />
-                    </View>
-                  ))}
-                  {row.length === 1 && <View style={styles.revenueCardHalf} />}
+            ) : !revenue ? (
+              // Initial load, response not back yet — skeleton in the exact
+              // 2/2/1 grid the real cards render in, never a fake ₹0 card.
+              <View style={styles.revenueGrid}>
+                <View style={styles.revenueRow}>
+                  <StatCardSkeleton />
+                  <StatCardSkeleton />
                 </View>
-              ))}
-            </View>
+                <View style={styles.revenueRow}>
+                  <StatCardSkeleton />
+                  <StatCardSkeleton />
+                </View>
+                <View style={styles.revenueRow}>
+                  <StatCardSkeleton />
+                  <View style={styles.revenueCardHalf} />
+                </View>
+              </View>
+            ) : (
+              <View style={styles.revenueGrid}>
+                {revenueStatus === 'error' && (
+                  <Text style={[styles.revenueRefreshError, { color: colors.textMuted }]}>
+                    {t('dashboard.failedToLoadRevenue')}
+                  </Text>
+                )}
+                {revenueRows.map((row, rowIndex) => (
+                  <View key={rowIndex} style={styles.revenueRow}>
+                    {row.map((card) => (
+                      <View key={card.title} style={styles.revenueCardHalf}>
+                        <StatCard title={card.title} value={card.value} icon={card.icon} color={card.color} trend={card.trend} subtitle={card.subtitle} />
+                      </View>
+                    ))}
+                    {row.length === 1 && <View style={styles.revenueCardHalf} />}
+                  </View>
+                ))}
+              </View>
             )}
           </View>
 
@@ -664,24 +665,40 @@ export const AdminDashboardScreen = () => {
             <View style={styles.statusOverviewRow}>
               <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments', { status: 'Pending' })} activeOpacity={0.85}>
                 <StatusBadge status="pending" size="md" />
-                <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.pending}</Text>
+                {shipmentOverview ? (
+                  <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.pending}</Text>
+                ) : (
+                  <ShimmerCard style={styles.statusCountSkeleton} height={24} borderRadius={6} />
+                )}
                 <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('summary.pending')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments', { status: 'Cleared' })} activeOpacity={0.85}>
                 <StatusBadge status="cleared" size="md" />
-                <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.cleared}</Text>
+                {shipmentOverview ? (
+                  <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.cleared}</Text>
+                ) : (
+                  <ShimmerCard style={styles.statusCountSkeleton} height={24} borderRadius={6} />
+                )}
                 <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('summary.cleared')}</Text>
               </TouchableOpacity>
             </View>
             <View style={styles.statusOverviewRow}>
               <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments', { status: 'Uncleared' })} activeOpacity={0.85}>
                 <StatusBadge status="uncleared" size="md" />
-                <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.uncleared}</Text>
+                {shipmentOverview ? (
+                  <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.uncleared}</Text>
+                ) : (
+                  <ShimmerCard style={styles.statusCountSkeleton} height={24} borderRadius={6} />
+                )}
                 <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('summary.uncleared')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]} onPress={() => navigate('GRShipments', { status: 'Delivered' })} activeOpacity={0.85}>
                 <StatusBadge status="delivered" size="md" />
-                <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.delivered}</Text>
+                {shipmentOverview ? (
+                  <Text style={[styles.statusOverviewCount, { color: colors.textPrimary }]}>{shipmentOverview.delivered}</Text>
+                ) : (
+                  <ShimmerCard style={styles.statusCountSkeleton} height={24} borderRadius={6} />
+                )}
                 <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('summary.delivered')}</Text>
               </TouchableOpacity>
             </View>
@@ -689,7 +706,11 @@ export const AdminDashboardScreen = () => {
             <View style={styles.statusOverviewRow}>
               <TouchableOpacity style={[styles.statusOverviewCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm, flex: 1 }]} onPress={() => navigate('GRShipments')} activeOpacity={0.85}>
                 <Ionicons name="wallet-outline" size={22} color="#10B981" />
-                <Text style={[styles.statusOverviewCount, { color: '#10B981' }]}>{formatINR(todayCollection)}</Text>
+                {todayCollection !== null ? (
+                  <Text style={[styles.statusOverviewCount, { color: '#10B981' }]}>{formatINR(todayCollection)}</Text>
+                ) : (
+                  <ShimmerCard style={styles.statusCountSkeleton} height={24} borderRadius={6} />
+                )}
                 <Text style={[styles.statusOverviewLabel, { color: colors.textMuted }]}>{t('adminDashboard.todayCollection')}</Text>
               </TouchableOpacity>
             </View>
@@ -754,7 +775,10 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     revenueCardHalf: { flex: 1 },
     revenueError: { alignItems: 'center', justifyContent: 'center', paddingVertical: 32, gap: 8 },
     revenueErrorText: { fontSize: 14, fontWeight: '500' },
+    revenueRefreshError: { fontSize: theme.fonts.size.xs, fontWeight: '500', marginBottom: theme.spacing.xs },
     retryButton: { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 8, marginTop: 4 },
+    summarySkeleton: { width: 200 },
+    statusCountSkeleton: { width: 36, marginVertical: 2 },
     quickActions: { marginTop: theme.spacing.sm, gap: theme.spacing.sm },
     sectionTitle: { fontSize: theme.fonts.size.lg, fontWeight: '800', color: theme.colors.textPrimary, marginBottom: theme.spacing.md },
     primaryAction: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm, padding: theme.spacing.lg },

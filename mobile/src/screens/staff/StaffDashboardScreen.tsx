@@ -11,6 +11,7 @@ import { useAuthStore } from '../../store/authStore';
 import { orderRepository } from '../../database/repositories/orderRepository';
 import { grRealtime } from '../../services/grRealtime';
 import { Header } from '../../components/Header';
+import { ShimmerCard } from '../../components/ShimmerCard';
 import type { AppTheme } from '../../theme/types';
 
 interface Overview {
@@ -50,39 +51,51 @@ export const StaffDashboardScreen = () => {
   const refreshUser = useAuthStore((state) => state.refreshUser);
   const styles = createStyles({ colors, spacing, radii, fonts, shadows });
 
-  const [overview, setOverview] = useState<Overview>({ assigned: 0, pending: 0, delivered: 0, cleared: 0, uncleared: 0, outstanding: 0, todayCollection: 0, totalCollection: 0 });
+  // `null` means "not loaded yet" — kept distinct from a real 0/₹0 value so
+  // the dashboard never has to show a placeholder number as if it were real.
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [overviewStatus, setOverviewStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [refreshing, setRefreshing] = useState(false);
+  // Tracks whether we've ever had a successful load, read inside
+  // `loadOverview`'s catch without adding `overview` to its dependency array
+  // (which would otherwise recreate the callback — and re-subscribe every
+  // effect below it — on every data update).
+  const hasLoadedOnceRef = useRef(false);
 
-  // Counts come from ONE server-side aggregate (`GET
-  // /admin/orders/meta/status-counts`), scoped by the auth token to *this*
-  // Staff member's own GRs — assignment (`Order.assignedStaffId`) OR area
-  // routing, matching "My Slips" exactly (backend `resolve_gr_staff_scope`).
-  // `assigned` is the unfiltered total of the staff's GRs; `pending` /
-  // `delivered` / `cleared` / `uncleared` are the canonical reporting buckets
-  // (backend `gr_status_service`). Independent of any list search/filter/
-  // pagination and of today's date — never `slips.length`.
+  // ONE authenticated request (`GET /admin/orders/meta/staff-dashboard-
+  // summary`) instead of three. The three calls this replaced
+  // (status-counts / receiving-overview / staff-daily-collection) were
+  // already concurrent (`Promise.all`, no sequential awaits) but each
+  // independently paid its own auth-lookup + DB-connection-acquisition
+  // cost on the backend; firing 3 at once made those fixed per-request
+  // costs contend with each other. Folding them into one backend endpoint
+  // (`gr_reports.py::staff_dashboard_summary`) pays that cost once.
   const loadOverview = useCallback(async () => {
     if (!user?.id) return;
+    setOverviewStatus('loading');
     try {
-      const [counts, receiving, dailyCollection] = await Promise.all([
-        orderRepository.getStatusCounts(),
-        orderRepository.getReceivingOverview(),
-        orderRepository.getStaffDailyCollection(user.id, new Date().toISOString()),
-      ]);
+      const summary = await orderRepository.getStaffDashboardSummary(user.id);
       setOverview({
-        assigned: counts.total,
-        pending: counts.pending,
-        delivered: counts.delivered,
-        cleared: counts.cleared,
-        uncleared: counts.uncleared,
-        outstanding: receiving.outstanding,
-        todayCollection: dailyCollection.totalCollection,
-        totalCollection: dailyCollection.lifetimeCollection,
+        assigned: summary.statusCounts.total,
+        pending: summary.statusCounts.pending,
+        delivered: summary.statusCounts.delivered,
+        cleared: summary.statusCounts.cleared,
+        uncleared: summary.statusCounts.uncleared,
+        outstanding: summary.outstanding,
+        todayCollection: summary.todayCollection,
+        totalCollection: summary.totalCollection,
       });
+      hasLoadedOnceRef.current = true;
+      setOverviewStatus('success');
     } catch (error) {
       // Keep the last good counts on a transient failure — never overwrite
       // real numbers with zeros. The next focus/foreground/pull refreshes.
       console.error('Failed to load Staff dashboard overview:', error);
+      // Only surface an error state before any data has ever loaded; a
+      // background refresh failure stays silent and keeps showing the last
+      // good numbers — `overviewStatus` isn't consulted once `overview` is
+      // non-null, so leaving it as 'loading' here is harmless.
+      if (!hasLoadedOnceRef.current) setOverviewStatus('error');
     }
   }, [user?.id]);
 
@@ -180,30 +193,44 @@ export const StaffDashboardScreen = () => {
         <Text style={[styles.welcome, { color: colors.textPrimary }]}>{t('staff.welcome', { name: firstName })}</Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{t('staff.todaysOverview')}</Text>
 
-        <View style={styles.statsGrid}>
-          {STAT_CARDS.map((card) => {
-            const label = t(`staff.${card.key}`);
-            const title = card.key === 'assigned' ? t('staff.mySlips') : `${label} Slips`;
-            return (
-              <TouchableOpacity
-                key={card.key}
-                style={[styles.statCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
-                onPress={() => openMySlips(card.status, title)}
-                accessibilityRole="button"
-                accessibilityLabel={`${overview[card.key]} ${label}. Open in My Slips.`}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.statValue, { color: card.color }]}>{overview[card.key]}</Text>
-                <View style={styles.statLabelRow}>
-                  <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{label}</Text>
-                  <Ionicons name="chevron-forward" size={12} color={colors.textMuted} />
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        {!overview && overviewStatus === 'error' ? (
+          <View style={[styles.overviewError, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+            <Ionicons name="cloud-offline-outline" size={28} color={colors.error} />
+            <Text style={[styles.overviewErrorText, { color: colors.textSecondary }]}>{t('staff.failedToLoadOverview', 'Failed to load your overview.')}</Text>
+            <TouchableOpacity onPress={loadOverview} style={[styles.retryButton, { backgroundColor: colors.primary }]}>
+              <Text style={{ color: colors.onPrimary, fontWeight: '700', fontSize: 13 }}>{t('common.retry')}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.statsGrid}>
+            {STAT_CARDS.map((card) => {
+              const label = t(`staff.${card.key}`);
+              const title = card.key === 'assigned' ? t('staff.mySlips') : `${label} Slips`;
+              return (
+                <TouchableOpacity
+                  key={card.key}
+                  style={[styles.statCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}
+                  onPress={() => openMySlips(card.status, title)}
+                  accessibilityRole="button"
+                  accessibilityLabel={overview ? `${overview[card.key]} ${label}. Open in My Slips.` : `${label}. Open in My Slips.`}
+                  activeOpacity={0.7}
+                >
+                  {overview ? (
+                    <Text style={[styles.statValue, { color: card.color }]}>{overview[card.key]}</Text>
+                  ) : (
+                    <ShimmerCard style={styles.statValueSkeleton} height={28} borderRadius={6} />
+                  )}
+                  <View style={styles.statLabelRow}>
+                    <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{label}</Text>
+                    <Ionicons name="chevron-forward" size={12} color={colors.textMuted} />
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
 
-        {user?.area && (
+        {user?.area && overview && (
           <View style={[styles.outstandingCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
             <View style={styles.outstandingHeader}>
               <Ionicons name="location-outline" size={16} color={colors.primary} />
@@ -235,6 +262,43 @@ export const StaffDashboardScreen = () => {
                   <Text style={[styles.collectLabel, { color: colors.textMuted }]}>{t('staff.totalCollection')}</Text>
                 </View>
                 <Text style={[styles.collectValue, { color: '#0EA5E9' }]}>{formatCurrency(overview.totalCollection)}</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {user?.area && !overview && overviewStatus !== 'error' && (
+          // Reserves the same space as the real card above so it doesn't pop
+          // in and shift the Quick Actions section down once data arrives.
+          <View style={[styles.outstandingCard, { backgroundColor: colors.surface, borderRadius: radii.lg, ...shadows.sm }]}>
+            <View style={styles.outstandingHeader}>
+              <Ionicons name="location-outline" size={16} color={colors.primary} />
+              <Text style={[styles.outstandingArea, { color: colors.textSecondary }]}>{user.area}</Text>
+            </View>
+            <View style={[styles.collectRow, { borderColor: colors.border }]}>
+              <View style={styles.collectPrimary}>
+                <View style={styles.collectLabelRow}>
+                  <Ionicons name="cash-outline" size={13} color="#F97316" />
+                  <Text style={[styles.collectLabel, { color: colors.textMuted }]}>{t('staff.outstanding')}</Text>
+                </View>
+                <ShimmerCard style={styles.collectValueSkeleton} height={24} borderRadius={6} />
+              </View>
+            </View>
+            <View style={styles.collectSplit}>
+              <View style={styles.collectCell}>
+                <View style={styles.collectLabelRow}>
+                  <Ionicons name="wallet-outline" size={13} color="#10B981" />
+                  <Text style={[styles.collectLabel, { color: colors.textMuted }]}>{t('staff.todayCollection')}</Text>
+                </View>
+                <ShimmerCard style={styles.collectValueSkeleton} height={20} borderRadius={6} />
+              </View>
+              <View style={[styles.collectDivider, { backgroundColor: colors.border }]} />
+              <View style={styles.collectCell}>
+                <View style={styles.collectLabelRow}>
+                  <Ionicons name="checkmark-done-outline" size={13} color="#0EA5E9" />
+                  <Text style={[styles.collectLabel, { color: colors.textMuted }]}>{t('staff.totalCollection')}</Text>
+                </View>
+                <ShimmerCard style={styles.collectValueSkeleton} height={20} borderRadius={6} />
               </View>
             </View>
           </View>
@@ -294,7 +358,11 @@ export const StaffDashboardScreen = () => {
             <View style={[styles.actionIcon, { backgroundColor: '#10B98118' }]}>
               <Ionicons name="wallet-outline" size={22} color="#10B981" />
             </View>
-            <Text style={[styles.actionValue, { color: '#10B981' }]}>{formatCurrency(overview.todayCollection)}</Text>
+            {overview ? (
+              <Text style={[styles.actionValue, { color: '#10B981' }]}>{formatCurrency(overview.todayCollection)}</Text>
+            ) : (
+              <ShimmerCard style={styles.actionValueSkeleton} height={18} borderRadius={5} />
+            )}
             <Text style={[styles.actionLabel, { color: colors.textPrimary }]}>{t('staff.dailyCollection')}</Text>
           </TouchableOpacity>
         </View>
@@ -315,6 +383,7 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
       alignItems: 'center', paddingVertical: theme.spacing.lg, gap: 4,
     },
     statValue: { fontSize: theme.fonts.size.xxl, fontWeight: '900' },
+    statValueSkeleton: { width: 40, marginBottom: 4 },
     statLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
     statLabel: { fontSize: theme.fonts.size.xs, fontWeight: '600' },
     outstandingCard: { paddingHorizontal: theme.spacing.lg, paddingVertical: theme.spacing.md, gap: theme.spacing.md },
@@ -329,12 +398,17 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     collectLabel: { fontSize: theme.fonts.size.xs, fontWeight: '600' },
     collectPrimaryValue: { fontSize: theme.fonts.size.xl, fontWeight: '900', letterSpacing: -0.3 },
     collectValue: { fontSize: theme.fonts.size.lg, fontWeight: '800' },
+    collectValueSkeleton: { width: 70, marginTop: 2 },
     sectionTitle: { fontSize: theme.fonts.size.md, fontWeight: '800' },
     actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.md },
     actionCard: { flexGrow: 1, minWidth: 140, alignItems: 'center', paddingVertical: theme.spacing.lg, gap: theme.spacing.sm },
     actionIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
     actionLabel: { fontSize: theme.fonts.size.sm, fontWeight: '700', textAlign: 'center' },
     actionValue: { fontSize: theme.fonts.size.md, fontWeight: '800', marginTop: -4 },
+    actionValueSkeleton: { width: 50, marginTop: -4 },
+    overviewError: { alignItems: 'center', justifyContent: 'center', paddingVertical: 32, gap: 8 },
+    overviewErrorText: { fontSize: 14, fontWeight: '500', textAlign: 'center' },
+    retryButton: { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 8, marginTop: 4 },
   });
 
 export default StaffDashboardScreen;

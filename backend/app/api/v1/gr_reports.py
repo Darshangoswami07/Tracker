@@ -30,7 +30,9 @@ from app.models.payment import Payment
 from app.models.user import User
 from app.models.import_history import ImportHistory
 from app.repositories.order_repository import OrderRepository
+from app.repositories.registration_request_repository import RegistrationRequestRepository
 from app.schemas.order import GRCreateRequest
+from app.services import staff_work_service
 from app.services.gr_status_service import status_counts
 from app.utils.responses import success
 
@@ -112,12 +114,7 @@ async def list_consignors(admin: GRAccessUser) -> dict:
     return success(names, message="Consignors retrieved successfully.")
 
 
-@router.get("/meta/activity")
-async def recent_activity(
-    admin: GRAccessUser,
-    limit: Annotated[int, Query(ge=1, le=100)] = 10,
-    session: AsyncSession = Depends(get_db_session),
-) -> dict:
+async def _compute_recent_activity(admin, session: AsyncSession, limit: int) -> list[dict]:
     company_id = await effective_company_id(admin)
     area = _effective_area(admin)
     base = [Order.deletedAt.is_(None)]
@@ -155,13 +152,24 @@ async def recent_activity(
                 }
             )
     events.sort(key=lambda e: e["createdAt"], reverse=True)
-    return success(events[:limit], message="Activity retrieved successfully.")
+    return events[:limit]
 
 
-@router.get("/meta/revenue-overview")
-async def revenue_overview(
-    admin: GRAccessUser, session: AsyncSession = Depends(get_db_session)
+@router.get("/meta/activity")
+async def recent_activity(
+    admin: GRAccessUser,
+    limit: Annotated[int, Query(ge=1, le=100)] = 10,
+    session: AsyncSession = Depends(get_db_session),
 ) -> dict:
+    events = await _compute_recent_activity(admin, session, limit)
+    return success(events, message="Activity retrieved successfully.")
+
+
+async def _compute_revenue_overview(admin, session: AsyncSession) -> dict:
+    """Core revenue-overview computation, shared by the standalone
+    ``GET /meta/revenue-overview`` route and the consolidated
+    ``GET /meta/dashboard-summary`` route so both stay byte-for-byte
+    consistent and neither duplicates the query-building logic."""
     company_id = await effective_company_id(admin)
     area = _effective_area(admin)
     today = datetime.now(timezone.utc).date()
@@ -269,24 +277,29 @@ async def revenue_overview(
     ).one()
     ptrend = (row.collected_this_month, row.collected_prev_month)
 
-    return success(
-        {
-            "today": float(row.today),
-            "yesterday": float(row.yesterday),
-            "week": float(row.week),
-            "prevWeek": float(row.prev_week),
-            "month": float(row.month),
-            "prevMonth": float(row.prev_month),
-            "totalCollected": float(row.total_collected),
-            "directUpiReceived": float(row.direct_upi_received),
-            "outstandingAmount": float(counts.outstanding),
-            "collectedGRCount": int(counts.collected_count),
-            "outstandingGRCount": int(counts.outstanding_count),
-            "collectedThisMonth": float(ptrend[0]),
-            "collectedPrevMonth": float(ptrend[1]),
-        },
-        message="Revenue overview retrieved successfully.",
-    )
+    return {
+        "today": float(row.today),
+        "yesterday": float(row.yesterday),
+        "week": float(row.week),
+        "prevWeek": float(row.prev_week),
+        "month": float(row.month),
+        "prevMonth": float(row.prev_month),
+        "totalCollected": float(row.total_collected),
+        "directUpiReceived": float(row.direct_upi_received),
+        "outstandingAmount": float(counts.outstanding),
+        "collectedGRCount": int(counts.collected_count),
+        "outstandingGRCount": int(counts.outstanding_count),
+        "collectedThisMonth": float(ptrend[0]),
+        "collectedPrevMonth": float(ptrend[1]),
+    }
+
+
+@router.get("/meta/revenue-overview")
+async def revenue_overview(
+    admin: GRAccessUser, session: AsyncSession = Depends(get_db_session)
+) -> dict:
+    data = await _compute_revenue_overview(admin, session)
+    return success(data, message="Revenue overview retrieved successfully.")
 
 
 def _payment_status_expr(paid_col):
@@ -301,10 +314,7 @@ def _payment_status_expr(paid_col):
     )
 
 
-@router.get("/meta/today-collection")
-async def today_collection(
-    admin: GRAccessUser, session: AsyncSession = Depends(get_db_session)
-) -> dict:
+async def _compute_today_collection(admin, session: AsyncSession) -> float:
     company_id = await effective_company_id(admin)
     area = _effective_area(admin)
     start = datetime.combine(datetime.now(timezone.utc).date(), time.min, tzinfo=timezone.utc)
@@ -320,7 +330,67 @@ async def today_collection(
             .where(*conds)
         )
     ).scalar() or 0
-    return success(float(total), message="Today's collection retrieved successfully.")
+    return float(total)
+
+
+@router.get("/meta/today-collection")
+async def today_collection(
+    admin: GRAccessUser, session: AsyncSession = Depends(get_db_session)
+) -> dict:
+    total = await _compute_today_collection(admin, session)
+    return success(total, message="Today's collection retrieved successfully.")
+
+
+@router.get("/meta/dashboard-summary")
+async def admin_dashboard_summary(
+    admin: GRAccessUser, session: AsyncSession = Depends(get_db_session)
+) -> dict:
+    """Everything the Admin Dashboard screen needs in ONE authenticated
+    request instead of five.
+
+    Each of status-counts / revenue-overview / today-collection / activity /
+    pending-approvals stays available as its own standalone endpoint (other
+    screens — GR/Shipments, Receiving Details, Payment History — still call
+    those directly and are untouched). This route exists purely to cut a
+    cost that was being paid FIVE TIMES per dashboard load: the
+    ``GRAccessUser`` auth dependency re-queries the ``users`` table by id on
+    every single authenticated request, and each request separately
+    acquires its own pooled DB connection. Firing 5 concurrent requests from
+    the app meant 5 concurrent user-lookups + 5 concurrent connection
+    acquisitions all contending at once — here it happens exactly once,
+    with every query reusing the one connection already open for this
+    request.
+
+    Deliberately does NOT reuse the heavier admin-stats endpoint elsewhere
+    in the app — that route runs several extra queries (drivers/vehicles/
+    companies/users/registration-requests/revenue) to serve fields an
+    admin-management screen needs, but the Dashboard screen itself only
+    ever reads `pendingApprovals` and a hardcoded `systemHealth` string
+    from it. Pulling those extra queries in here would be exactly the
+    "blindly fetch more than the screen needs" anti-pattern — so this
+    computes only the one cheap count it actually uses.
+    """
+    reg_request_repo = RegistrationRequestRepository(session=session)
+
+    status = await status_counts(
+        session, company_id=await effective_company_id(admin), area=_effective_area(admin)
+    )
+    revenue = await _compute_revenue_overview(admin, session)
+    today = await _compute_today_collection(admin, session)
+    activity = await _compute_recent_activity(admin, session, limit=8)
+    _latest, pending_approvals = await reg_request_repo.find_pending_requests(page=1, page_size=1)
+
+    return success(
+        {
+            "statusCounts": status,
+            "revenue": revenue,
+            "todayCollection": today,
+            "activity": activity,
+            "pendingApprovals": pending_approvals,
+            "systemHealth": "healthy",
+        },
+        message="Dashboard summary retrieved successfully.",
+    )
 
 
 @router.get("/receiving")
@@ -500,6 +570,72 @@ async def receiving_overview(
             "staffReceivedCount": int(direct_row.staff_received_count),
         },
         message="Receiving overview retrieved successfully.",
+    )
+
+
+async def _compute_outstanding_total(admin, session: AsyncSession) -> float:
+    """Just the one number the Staff Dashboard's "Amount to Collect" card
+    reads out of the full `/receiving/overview` response. That route runs
+    3 queries (outstanding + transaction count + Admin/Staff receiver
+    split) to serve the Receiving Details screen, which genuinely needs all
+    of it; the Staff Dashboard never did, so the summary endpoint below
+    computes only this one aggregate instead of paying for the other two.
+    Same scope as `/receiving/overview` (company/area — deliberately NOT
+    staff-assignment-scoped, matching that endpoint exactly)."""
+    company_id = await effective_company_id(admin)
+    area = _effective_area(admin)
+    paid = _paid_subq(session)
+    conds = [Order.deletedAt.is_(None)]
+    if company_id is not None:
+        conds.append(Order.companyId == company_id)
+    if area:
+        conds.append(Order.area == area)
+    row = (
+        await session.execute(
+            select(
+                func.coalesce(func.sum(func.coalesce(Order.toPay, 0)), 0),
+                func.coalesce(func.sum(func.coalesce(paid.c.paid, 0)), 0),
+            )
+            .select_from(Order)
+            .outerjoin(paid, paid.c.orderId == Order.id)
+            .where(*conds)
+        )
+    ).one()
+    total_to_pay, total_paid = row
+    return float(total_to_pay) - float(total_paid)
+
+
+@router.get("/meta/staff-dashboard-summary")
+async def staff_dashboard_summary(
+    admin: GRAccessUser, session: AsyncSession = Depends(get_db_session)
+) -> dict:
+    """Everything the Staff Dashboard screen needs in ONE authenticated
+    request instead of three (status-counts, receiving/overview,
+    staff/daily-collection) — same rationale as
+    `GET /meta/dashboard-summary` above: one auth lookup and one pooled
+    connection instead of three concurrent ones. The three original
+    endpoints are untouched and still used elsewhere (My Slips filters,
+    Receiving Details, Admin's staff-monitoring views)."""
+    area = _effective_area(admin)
+    staff_scope = await resolve_gr_staff_scope(admin, area)
+    scoped_area = None if staff_scope is not None else area
+    status = await status_counts(
+        session,
+        company_id=await effective_company_id(admin),
+        area=scoped_area,
+        staff_scope=staff_scope,
+    )
+    outstanding = await _compute_outstanding_total(admin, session)
+    daily = await staff_work_service.daily_collection(session, admin.id, datetime.now(timezone.utc).date())
+
+    return success(
+        {
+            "statusCounts": status,
+            "outstanding": outstanding,
+            "todayCollection": float(daily.get("totalCollection", 0) or 0),
+            "totalCollection": float(daily.get("lifetimeCollection", 0) or 0),
+        },
+        message="Staff dashboard summary retrieved successfully.",
     )
 
 
