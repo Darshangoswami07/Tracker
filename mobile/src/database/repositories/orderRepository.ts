@@ -11,10 +11,18 @@
  * data") is enforced **server-side** now — the backend is the security
  * boundary, not this file.
  */
+import { isAxiosError } from 'axios';
 import { api } from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
 import { ENV } from '../../config/env';
 import { uuid } from '../../utils/uuid';
+
+/** True only for "this route doesn't exist on the server we're talking to"
+ * (backend not yet deployed with a newer endpoint the app already calls) —
+ * never for an auth failure, validation error, or transient network issue,
+ * which should surface/retry normally rather than silently fall back. */
+const isRouteNotFound = (error: unknown): boolean =>
+  isAxiosError(error) && error.response?.status === 404;
 
 /**
  * Unwraps a backend response. Most routers wrap payloads in the
@@ -1124,6 +1132,140 @@ export const orderRepository = {
   async getTodayCollection(): Promise<number> {
     const res = await api.get(ENDPOINTS.admin.orders.todayCollection, { timeout: ENV.dashboardTimeoutMs });
     return Number(body<number>(res) ?? 0);
+  },
+
+  /** Admin Dashboard's status-counts + revenue-overview + today-collection +
+   * recent-activity + pending-approvals in ONE request instead of five —
+   * same numbers as calling `getStatusCounts`/`getRevenueOverview`/
+   * `getTodayCollection`/`listRecentActivity` separately, just without
+   * paying for 5 separate authenticated round-trips. Those individual
+   * methods are unchanged and still used by other screens (GR/Shipments,
+   * Receiving Details, Payment History). */
+  async getDashboardSummary(): Promise<{
+    statusCounts: GRStatusCounts;
+    revenue: {
+      today: number; yesterday: number; week: number; prevWeek: number;
+      month: number; prevMonth: number; totalCollected: number;
+      directUpiReceived: number; outstandingAmount: number;
+      collectedGRCount: number; outstandingGRCount: number;
+      collectedThisMonth: number; collectedPrevMonth: number;
+    };
+    todayCollection: number;
+    activity: ActivityEvent[];
+    pendingApprovals: number;
+    systemHealth: 'healthy' | 'degraded' | 'critical';
+  }> {
+    try {
+      const res = await api.get(ENDPOINTS.admin.orders.dashboardSummary, { timeout: ENV.dashboardTimeoutMs });
+      const d = body<any>(res);
+      const sc = d.statusCounts ?? {};
+      const rv = d.revenue ?? {};
+      return {
+        statusCounts: {
+          total: Number(sc.total ?? 0),
+          pending: Number(sc.pending ?? 0),
+          cleared: Number(sc.cleared ?? 0),
+          uncleared: Number(sc.uncleared ?? 0),
+          delivered: Number(sc.delivered ?? 0),
+          totalToPay: Number(sc.totalToPay ?? 0),
+          totalReceived: Number(sc.totalReceived ?? 0),
+          totalOutstanding: Number(sc.totalOutstanding ?? 0),
+        },
+        revenue: {
+          today: Number(rv.today ?? 0),
+          yesterday: Number(rv.yesterday ?? 0),
+          week: Number(rv.week ?? 0),
+          prevWeek: Number(rv.prevWeek ?? 0),
+          month: Number(rv.month ?? 0),
+          prevMonth: Number(rv.prevMonth ?? 0),
+          totalCollected: Number(rv.totalCollected ?? 0),
+          directUpiReceived: Number(rv.directUpiReceived ?? 0),
+          outstandingAmount: Number(rv.outstandingAmount ?? 0),
+          collectedGRCount: Number(rv.collectedGRCount ?? 0),
+          outstandingGRCount: Number(rv.outstandingGRCount ?? 0),
+          collectedThisMonth: Number(rv.collectedThisMonth ?? 0),
+          collectedPrevMonth: Number(rv.collectedPrevMonth ?? 0),
+        },
+        todayCollection: Number(d.todayCollection ?? 0),
+        activity: (d.activity ?? []) as ActivityEvent[],
+        pendingApprovals: Number(d.pendingApprovals ?? 0),
+        systemHealth: (d.systemHealth ?? 'healthy') as 'healthy' | 'degraded' | 'critical',
+      };
+    } catch (error) {
+      // The consolidated route doesn't exist yet on whichever backend this
+      // build is pointed at (not deployed there yet) — fall back to the
+      // individual calls it replaces so the dashboard still works during
+      // the rollout gap, instead of erroring out. Any OTHER failure (auth,
+      // validation, network/timeout) is rethrown unchanged — no silent
+      // masking of a real problem.
+      if (!isRouteNotFound(error)) throw error;
+      const [statusCounts, revenue, todayCollection, activity] = await Promise.all([
+        this.getStatusCounts(),
+        this.getRevenueOverview(),
+        this.getTodayCollection(),
+        this.listRecentActivity(8),
+      ]);
+      return {
+        statusCounts,
+        revenue,
+        todayCollection,
+        activity,
+        // Not available without the heavier admin-stats endpoint, which the
+        // consolidated endpoint deliberately doesn't reuse (see its
+        // docstring) — harmless to omit temporarily: it only ever fed the
+        // Super-Admin-only "Pending Approvals" badge, which simply doesn't
+        // show a count until deployed.
+        pendingApprovals: 0,
+        systemHealth: 'healthy',
+      };
+    }
+  },
+
+  /** Staff Dashboard's status-counts + outstanding + daily-collection in ONE
+   * request instead of three — same rationale as `getDashboardSummary`.
+   * `staffUserId` is only used by the not-deployed-yet fallback below (the
+   * consolidated route resolves the caller's own id server-side, but the
+   * per-endpoint fallback calls `getStaffDailyCollection`, whose signature
+   * requires one explicitly). */
+  async getStaffDashboardSummary(staffUserId?: string): Promise<{
+    statusCounts: GRStatusCounts;
+    outstanding: number;
+    todayCollection: number;
+    totalCollection: number;
+  }> {
+    try {
+      const res = await api.get(ENDPOINTS.admin.orders.staffDashboardSummary, { timeout: ENV.dashboardTimeoutMs });
+      const d = body<any>(res);
+      const sc = d.statusCounts ?? {};
+      return {
+        statusCounts: {
+          total: Number(sc.total ?? 0),
+          pending: Number(sc.pending ?? 0),
+          cleared: Number(sc.cleared ?? 0),
+          uncleared: Number(sc.uncleared ?? 0),
+          delivered: Number(sc.delivered ?? 0),
+          totalToPay: Number(sc.totalToPay ?? 0),
+          totalReceived: Number(sc.totalReceived ?? 0),
+          totalOutstanding: Number(sc.totalOutstanding ?? 0),
+        },
+        outstanding: Number(d.outstanding ?? 0),
+        todayCollection: Number(d.todayCollection ?? 0),
+        totalCollection: Number(d.totalCollection ?? 0),
+      };
+    } catch (error) {
+      if (!isRouteNotFound(error) || !staffUserId) throw error;
+      const [statusCounts, receiving, dailyCollection] = await Promise.all([
+        this.getStatusCounts(),
+        this.getReceivingOverview(),
+        this.getStaffDailyCollection(staffUserId, new Date().toISOString()),
+      ]);
+      return {
+        statusCounts,
+        outstanding: receiving.outstanding,
+        todayCollection: dailyCollection.totalCollection,
+        totalCollection: dailyCollection.lifetimeCollection,
+      };
+    }
   },
 
   async getStaffDailyActivity(staffId: string, dateIso: string): Promise<StaffDailyActivity> {

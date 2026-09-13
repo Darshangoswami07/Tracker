@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppTheme } from '../../theme/useAppTheme';
@@ -119,6 +119,13 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const { colors, spacing, radii, fonts, shadows } = useAppTheme();
   const { goBack, navigate, navigation } = useAppNav();
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  // Bottom sheet grows with its content up to this ceiling, then scrolls
+  // internally. Derived from the live viewport (+ safe-area) so it adapts to
+  // short phones, tall phones, font scaling and gesture/nav bars — never a
+  // hardcoded screen height.
+  const sheetMaxHeight = Math.max(320, Math.min(windowHeight * 0.9, windowHeight - insets.top - 12));
   const accessToken = useAuthStore((state) => state.accessToken);
   const currentUser = useUserStore((state) => state.user);
   const isStaffUser = currentUser?.role === 'staff';
@@ -158,29 +165,77 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const [collectorOptions, setCollectorOptions] = useState<{ id: string; fullName: string; area: string | null }[]>([]);
   const [collectedByStaffId, setCollectedByStaffId] = useState<string | null>(null);
 
+  // Monotonic "which GR is currently selected" generation counter. Bumped
+  // exactly once per `orderId` change (below), and captured by every fetch
+  // below at the moment it's issued — a response only ever gets to call
+  // `setState` if the counter it captured still matches `requestIdRef.current`
+  // when it resolves. This is what actually stops a slow response for a GR
+  // the user has since navigated away from from ever overwriting the screen
+  // for the GR they're now looking at — awaiting a promise and comparing
+  // `orderId` after the fact (the naive fix) is NOT enough on its own, because
+  // this screen instance can be reused for a different GR (React Navigation's
+  // `navigate()` updates params on the same mounted screen rather than
+  // pushing a new one when the route is already on the stack) — a plain
+  // `orderId` closure comparison would still be racy against a same-named
+  // variable read fresh each render. A ref-backed counter has no such
+  // ambiguity: it identifies THIS SPECIFIC fetch attempt, not just "which GR
+  // was selected when the closure was created".
+  const requestIdRef = useRef(0);
+
+  // Fires BEFORE paint whenever the selected GR changes (useLayoutEffect,
+  // not useEffect) — so the previous GR's data, payment summary and history
+  // are cleared and the skeleton takes over in the SAME commit the new
+  // `orderId` becomes active, with no frame where the old GR's numbers are
+  // visible under the new GR's identity. A plain `useEffect` reset would
+  // still let React paint one frame of stale data first (render happens
+  // with the new `orderId` but old state, THEN the effect resets it).
+  useLayoutEffect(() => {
+    requestIdRef.current += 1;
+    /* eslint-disable react-hooks/set-state-in-effect --
+       Deliberate synchronous reset to the new GR's "not loaded yet" state,
+       timed to land in the same commit as the `orderId` change (see the
+       comment on `requestIdRef` above). */
+    setGr(null);
+    setPaymentSummary(null);
+    setPayments([]);
+    setNotFound(false);
+    setError(null);
+    setLoading(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [orderId]);
+
   const fetchDetail = useCallback(async () => {
+    const requestId = requestIdRef.current;
     try {
-      const gr = await orderRepository.getById(orderId);
-      if (!gr) {
+      const fetched = await orderRepository.getById(orderId);
+      // A newer GR has been selected since this request was issued — the
+      // user has already moved on, so this response is stale. Ignoring it
+      // (never calling setGr/setError/setNotFound/setLoading) is the entire
+      // fix for "an older request finishes after a newer GR was opened".
+      if (requestId !== requestIdRef.current) return;
+      if (!fetched) {
         setNotFound(true);
         return;
       }
-      setGr(gr);
+      setGr(fetched);
       setError(null);
       setNotFound(false);
     } catch (err: any) {
+      if (requestId !== requestIdRef.current) return;
       setError(err?.message ?? t('createGR.couldNotLoadGR'));
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [orderId]);
+  }, [orderId, t]);
 
   const fetchPayments = useCallback(async () => {
+    const requestId = requestIdRef.current;
     try {
       const [summary, paymentList] = await Promise.all([
         orderRepository.getPaymentSummary(orderId),
         orderRepository.listPayments(orderId),
       ]);
+      if (requestId !== requestIdRef.current) return; // stale — see fetchDetail
       setPaymentSummary(summary);
       setPayments(paymentList);
     } catch {
@@ -252,13 +307,17 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   const updateStatus = async (status: string) => {
     setStatusPickerOpen(false);
     if (!gr || status === gr.status) return;
+    const requestId = requestIdRef.current;
     setUpdating(true);
     try {
-      setGr(await orderRepository.updateStatus(orderId, status));
+      const updated = await orderRepository.updateStatus(orderId, status);
+      if (requestId !== requestIdRef.current) return; // user switched GRs mid-request
+      setGr(updated);
     } catch (err: any) {
+      if (requestId !== requestIdRef.current) return;
       Alert.alert(t('createGR.errorTitle'), err?.message ?? t('createGR.statusUpdateFailed'));
     } finally {
-      setUpdating(false);
+      if (requestId === requestIdRef.current) setUpdating(false);
     }
   };
 
@@ -686,16 +745,25 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
       <AttachmentViewerModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
 
       {/* Receive Payment Bottom Sheet */}
-      <Modal visible={receivePaymentOpen} transparent animationType="slide" onRequestClose={closeReceivePayment}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { backgroundColor: colors.background, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl }]}>
-            <View style={styles.modalHeader}>
+      <Modal visible={receivePaymentOpen} transparent animationType="slide" onRequestClose={closeReceivePayment} statusBarTranslucent>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={[styles.paymentSheet, { backgroundColor: colors.background, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, maxHeight: sheetMaxHeight }]}>
+            <View style={styles.paymentHeader}>
               <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>{t('payment.receivePayment')}</Text>
               <TouchableOpacity onPress={closeReceivePayment} hitSlop={8}>
                 <Ionicons name="close" size={22} color={colors.textPrimary} />
               </TouchableOpacity>
             </View>
-            <View style={styles.paymentForm}>
+            <ScrollView
+              style={styles.paymentScroll}
+              contentContainerStyle={styles.paymentForm}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+              showsVerticalScrollIndicator={false}
+            >
               {paymentError && (
                 <View style={[styles.paymentErrorBanner, { backgroundColor: colors.errorSoft, borderRadius: radii.md }]}>
                   <Ionicons name="alert-circle-outline" size={16} color={colors.error} />
@@ -800,8 +868,10 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
                 value={paymentNotes}
                 onChangeText={setPaymentNotes}
               />
+            </ScrollView>
+            <View style={[styles.paymentFooter, { borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, 12) }]}>
               <TouchableOpacity
-                style={[styles.receivePaymentBtn, { backgroundColor: colors.primary, borderRadius: radii.md, marginTop: 20, opacity: submittingPayment ? 0.6 : 1 }]}
+                style={[styles.receivePaymentBtn, { backgroundColor: colors.primary, borderRadius: radii.md, marginTop: 0, opacity: submittingPayment ? 0.6 : 1 }]}
                 onPress={handleReceivePayment}
                 disabled={submittingPayment}
                 activeOpacity={0.85}
@@ -817,7 +887,7 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Status picker */}
@@ -910,6 +980,27 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     createdAt: { fontSize: theme.fonts.size.xs, textAlign: 'center', fontWeight: '600' },
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
     modalSheet: { padding: theme.spacing.lg, maxHeight: '70%' },
+    // Receive Payment sheet: no fixed padding on the shell — the header, the
+    // scrollable body and the pinned footer pad themselves, so the ScrollView
+    // and the footer border reach the sheet edges and content never renders
+    // behind the button. maxHeight is set inline from the live viewport.
+    paymentSheet: { overflow: 'hidden' },
+    paymentHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: theme.spacing.lg,
+      paddingTop: theme.spacing.lg,
+      paddingBottom: theme.spacing.md,
+    },
+    // flexShrink lets the body shrink to fit short screens (→ it scrolls);
+    // flexGrow:0 keeps the sheet hugging its content on tall screens.
+    paymentScroll: { flexGrow: 0, flexShrink: 1 },
+    paymentFooter: {
+      paddingHorizontal: theme.spacing.lg,
+      paddingTop: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+    },
     modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: theme.spacing.md },
     modalTitle: { fontSize: theme.fonts.size.lg, fontWeight: '800' },
     emptyOptions: { textAlign: 'center', paddingVertical: 24, fontSize: theme.fonts.size.sm },
@@ -941,7 +1032,7 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     receivePaymentInlineBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, marginTop: 14 },
     receivePaymentInlineBtnText: { fontSize: theme.fonts.size.sm, fontWeight: '700' },
     paymentRowNote: { fontSize: theme.fonts.size.xs, maxWidth: 120 },
-    paymentForm: { gap: 0 },
+    paymentForm: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.lg },
     paymentFormRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
     paymentFormLabel: { fontSize: theme.fonts.size.sm, fontWeight: '600' },
     paymentFormValue: { fontSize: theme.fonts.size.md, fontWeight: '700' },

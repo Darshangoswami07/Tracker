@@ -3,6 +3,7 @@ import { type ComponentProps, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View, Platform } from 'react-native';
 import Reanimated from 'react-native-reanimated';
 import { useAppTheme } from '../theme/useAppTheme';
+import { startupTrace } from '../utils/startupTrace';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -20,6 +21,7 @@ interface FeatureCardProps {
 /** Premium feature card: white surface, soft shadow, custom ripple and a
  *  gentle press-scale for light touch/hover feedback. */
 export const FeatureCard = ({ icon, title, description, color, width, entering, onPress }: FeatureCardProps) => {
+  startupTrace.mark('FeatureCard:render-start', { title });
   const { colors, radii, fonts, shadows } = useAppTheme();
   const rippleScale = useRef(new Animated.Value(0)).current;
   const rippleOpacity = useRef(new Animated.Value(0.4)).current;
@@ -35,6 +37,7 @@ export const FeatureCard = ({ icon, title, description, color, width, entering, 
     ]).start();
   };
 
+  startupTrace.mark('FeatureCard:render-end', { title });
   return (
     <Reanimated.View style={{ width }} entering={entering as never}>
       <Pressable

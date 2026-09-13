@@ -10,17 +10,6 @@ const logger = getLogger('api');
 
 const API_BASE_URL = `${ENV.apiBaseUrl}/api/v1`;
 
-// TEMPORARY DIAGNOSTIC LOGGING — remove once the mobile network issue is confirmed fixed.
-console.log(`[API CONFIG] API BASE URL: ${API_BASE_URL}`);
-
-/** Builds the literal absolute URL Axios will request, from its resolved config. */
-const resolveFullUrl = (config: { baseURL?: string; url?: string }): string => {
-  const base = (config.baseURL ?? '').replace(/\/+$/, '');
-  const path = config.url ?? '';
-  if (/^https?:\/\//i.test(path)) return path;
-  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
-};
-
 /** Base axios instance used by every request in the app. */
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -33,44 +22,6 @@ export const apiClient = axios.create({
 
 export const api = apiClient;
 
-// TEMPORARY DIAGNOSTIC LOGGING — request/response/error tracing to capture the
-// literal method + URL emitted by the physical device. Remove after diagnosis.
-apiClient.interceptors.request.use((config) => {
-  const method = (config.method ?? 'unknown').toUpperCase();
-  const fullUrl = resolveFullUrl(config);
-  console.log(
-    `[API REQUEST]\nMETHOD: ${method}\nBASE URL: ${config.baseURL}\nPATH: ${config.url}\nURL: ${fullUrl}\nTIME: ${new Date().toISOString()}`,
-  );
-  return config;
-});
-
-apiClient.interceptors.response.use(
-  (response) => {
-    const method = (response.config.method ?? 'unknown').toUpperCase();
-    const fullUrl = resolveFullUrl(response.config);
-    console.log(
-      `[API RESPONSE]\nMETHOD: ${method}\nURL: ${fullUrl}\nSTATUS: ${response.status}\nTIME: ${new Date().toISOString()}`,
-    );
-    return response;
-  },
-  (error: AxiosError) => {
-    const method = (error.config?.method ?? 'unknown').toUpperCase();
-    const fullUrl = error.config ? resolveFullUrl(error.config) : 'unknown';
-    const status = error.response?.status;
-    if (status) {
-      console.log(
-        `[API ERROR]\nTYPE: HTTP\nMETHOD: ${method}\nURL: ${fullUrl}\nSTATUS: ${status}\nMESSAGE: ${error.message}`,
-      );
-    } else {
-      console.log(
-        `[API ERROR]\nTYPE: NETWORK\nMETHOD: ${method}\nURL: ${fullUrl}\nMESSAGE: ${error.message}\nHAS_REQUEST: ${Boolean(error.request)}`,
-      );
-    }
-    return Promise.reject(error);
-  },
-);
-// END TEMPORARY DIAGNOSTIC LOGGING
-
 /** Raw axios client used for the refresh call (no interceptors). */
 const refreshClient = axios.create({
   baseURL: `${ENV.apiBaseUrl}/api/v1`,
@@ -80,6 +31,34 @@ const refreshClient = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+/**
+ * Best-effort "wake the server" ping.
+ *
+ * The backend runs on a free hosting tier that suspends the instance after a
+ * period of inactivity; the first request after a suspend pays a 30-55s
+ * cold-start penalty (measured). Firing this cheap, unauthenticated GET as
+ * early as possible — at app launch and again when the Login screen mounts —
+ * lets that cold start happen *while the user is still reading the UI / typing
+ * credentials*, instead of on the critical login / session-validation
+ * request. It never blocks anything and silently ignores every failure.
+ */
+let warmInFlight: Promise<void> | null = null;
+export const warmBackend = (): Promise<void> => {
+  if (!warmInFlight) {
+    warmInFlight = axios
+      .get(`${ENV.apiBaseUrl}/health`, { timeout: 60_000 })
+      .then(() => undefined)
+      .catch(() => undefined)
+      .finally(() => {
+        warmInFlight = null;
+      });
+  }
+  return warmInFlight;
+};
+
+// Kick the server awake the moment the JS bundle loads.
+void warmBackend();
 
 let refreshPromise: Promise<TokenPair> | null = null;
 

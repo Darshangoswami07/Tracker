@@ -35,7 +35,15 @@ const ADMIN_SCREEN_TO_TAB: Record<string, keyof AdminTabParamList> = {
   SystemHealth: 'Dashboard',
 
   GRShipments: 'Shipments',
-  GRDetails: 'Shipments',
+  // `GRDetails` is deliberately NOT listed here — it's registered directly
+  // in every stack that can open it (Dashboard, Shipments, GRTracker; see
+  // AdminTabs.tsx), same reasoning as `CreateGR` above. Hardcoding it to
+  // 'Shipments' used to force every open-a-GR action into a cross-tab jump
+  // — including from GR Tracker, which doesn't even have a Shipments-tab
+  // screen to land on correctly, so it surfaced there as "opening a GR
+  // redirects to the GR Shipment list instead". Falling through to the
+  // generic branch below pushes GRDetails onto whichever stack the caller
+  // is actually in, so goBack() always returns to the real previous screen.
   EditGR: 'Shipments',
 
   CustomerTracking: 'More',
@@ -64,7 +72,11 @@ const STAFF_SCREEN_TO_TAB: Record<string, keyof StaffTabParamList> = {
   StaffDashboard: 'StaffDashboardTab',
   StaffDailyCollection: 'StaffDashboardTab',
   StaffDeliveries: 'StaffDeliveriesTab',
-  GRDetails: 'StaffDeliveriesTab',
+  // Same reasoning as the Admin map above: `GRDetails` is registered in both
+  // `StaffDashboardStackParamList` and `StaffDeliveriesStackParamList` (see
+  // StaffShell.tsx), so it must NOT be hardcoded to one tab here — that
+  // would cross-tab-jump a GR opened from a Dashboard-stack screen (Payment
+  // History, Shop History) into Deliveries instead of staying put.
   EditGR: 'StaffDeliveriesTab',
   StaffMore: 'StaffMoreTab',
   Notifications: 'StaffMoreTab',

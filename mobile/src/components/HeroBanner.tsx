@@ -1,6 +1,7 @@
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import { TruckIllustration } from './illustrations/TruckIllustration';
 import { useAppTheme } from '../theme/useAppTheme';
+import { startupTrace } from '../utils/startupTrace';
 
 interface HeroBannerProps {
   /** Fraction of the viewport height the banner should occupy. */
@@ -13,10 +14,12 @@ interface HeroBannerProps {
  * horizontal padding, and holds the static semi-3D delivery-truck SVG scene.
  */
 export const HeroBanner = ({ heightFactor = 0.22 }: HeroBannerProps) => {
+  startupTrace.mark('HeroBanner:render-start');
   const { colors } = useAppTheme();
   const { height } = useWindowDimensions();
   const heroHeight = Math.round(height * heightFactor);
 
+  startupTrace.mark('HeroBanner:render-end');
   return (
     <View
       style={[

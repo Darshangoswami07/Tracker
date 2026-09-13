@@ -74,6 +74,14 @@ export const ENDPOINTS = {
       activity: '/admin/orders/meta/activity',
       revenueOverview: '/admin/orders/meta/revenue-overview',
       todayCollection: '/admin/orders/meta/today-collection',
+      /** Admin Dashboard's status-counts + revenue-overview + today-collection
+       * + activity + pending-approvals in ONE authenticated request — cuts 5
+       * concurrent auth/connection round-trips down to 1. The individual
+       * endpoints above stay in place for every other screen. */
+      dashboardSummary: '/admin/orders/meta/dashboard-summary',
+      /** Staff Dashboard's status-counts + outstanding + daily-collection in
+       * ONE authenticated request, same rationale as `dashboardSummary`. */
+      staffDashboardSummary: '/admin/orders/meta/staff-dashboard-summary',
       receiving: '/admin/orders/receiving',
       receivingOverview: '/admin/orders/receiving/overview',
       /** Split by WHO RECEIVED the money (?receivedBy=ADMIN|STAFF) — backs the

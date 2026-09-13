@@ -503,7 +503,8 @@
     "noGrsMatchFilters": "{{area}} mein {{shop}} ke liye koi GR aapke filters se match nahi karta.",
     "noGrsForShop": "{{area}} mein {{shop}} ke liye abhi koi GR nahi hai.",
     "cleared": "Cleared",
-    "uncleared": "Uncleared"
+    "uncleared": "Uncleared",
+    "failedToLoadOverview": "Aapka overview load nahi ho saka."
   },
   "errors": {
     "networkError": "Network error hai. Kripya apna connection check karein.",

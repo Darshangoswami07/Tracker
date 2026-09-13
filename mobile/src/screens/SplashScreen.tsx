@@ -13,6 +13,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Logo } from '../components/Logo';
 import { useAuthStore } from '../store/authStore';
+import { useUserStore } from '../store/userStore';
 import { useRegistrationStore } from '../store/registrationStore';
 import { useSessionStore } from '../store/sessionStore';
 import { useThemeStore } from '../store/themeStore';
@@ -20,11 +21,21 @@ import { useSettingsStore } from '../store/settingsStore';
 import { useProfileLocalStore } from '../store/profileLocalStore';
 import { useAppTheme } from '../theme/useAppTheme';
 import { getLogger } from '../utils/logger';
+import { startupTrace } from '../utils/startupTrace';
 import { withTimeout } from '../utils/withTimeout';
 
 const logger = getLogger('splash');
 
-const MIN_DISPLAY_MS = 1400;
+startupTrace.mark('Splash:module-loaded');
+
+/**
+ * Tiny floor before hiding the *native* splash, only to avoid a one-frame
+ * white flash between the native splash bitmap and the first RN frame. This is
+ * NOT a branded-minimum-display timer — the animated JS splash below covers
+ * any remaining bootstrap. Was 1400ms (an arbitrary hold that alone put the
+ * first visible frame over the <1s budget).
+ */
+const NATIVE_SPLASH_FLOOR_MS = 150;
 /** Cap per hydration step; startup must never hang on storage. */
 const HYDRATE_TIMEOUT_MS = 5000;
 /** Cap on server validation; the splash must always leave on failure. */
@@ -35,9 +46,11 @@ const SESSION_VALIDATION_TIMEOUT_MS = 15000;
  * the backend and then lets the root navigator decide the destination.
  */
 export const SplashScreen = () => {
+  startupTrace.mark('Splash:render');
   const { colors, fonts } = useAppTheme();
   const hydrate = useAuthStore((state) => state.hydrate);
   const validateSession = useAuthStore((state) => state.validateSession);
+  const hydrateUser = useUserStore((state) => state.hydrate);
   const hydrateSession = useSessionStore((state) => state.hydrate);
   const hydrateTheme = useThemeStore((state) => state.hydrate);
   const hydrateSettings = useSettingsStore((state) => state.hydrate);
@@ -61,38 +74,61 @@ export const SplashScreen = () => {
   useEffect(() => {
     const startedAt = Date.now();
 
+    let nativeSplashHidden = false;
+    const hideNativeSplash = async () => {
+      if (nativeSplashHidden) return;
+      nativeSplashHidden = true;
+      const elapsed = Date.now() - startedAt;
+      const remaining = Math.max(0, NATIVE_SPLASH_FLOOR_MS - elapsed);
+      if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+      try {
+        await ExpoSplashScreen.hideAsync();
+        startupTrace.mark('nativeSplash:hidden');
+      } catch (error) {
+        logger.warn('[Splash] Failed to hide native splash', error);
+      }
+    };
+
     const run = async () => {
       try {
+        startupTrace.mark('splash:hydrations-start');
+        // The cached user profile must be loaded BEFORE the auth store
+        // hydrates, so `hydrate()` can decide whether an optimistic
+        // authenticated restore is possible (token + cached profile ->
+        // straight to the app shell, revalidate in the background).
+        await withTimeout(startupTrace.measure('hydrate:user', () => hydrateUser()), HYDRATE_TIMEOUT_MS).catch(() => undefined);
         await Promise.all([
-          withTimeout(hydrateTheme(), HYDRATE_TIMEOUT_MS).catch(() => undefined),
-          withTimeout(hydrateSettings(), HYDRATE_TIMEOUT_MS).catch(() => undefined),
-          withTimeout(hydrateSession(), HYDRATE_TIMEOUT_MS).catch(() => undefined),
-          withTimeout(hydrate(), HYDRATE_TIMEOUT_MS).catch(() => undefined),
-          withTimeout(hydrateRegistration(), HYDRATE_TIMEOUT_MS).catch(() => undefined),
-          withTimeout(hydrateProfileLocal(), HYDRATE_TIMEOUT_MS).catch(() => undefined),
+          withTimeout(startupTrace.measure('hydrate:theme', () => hydrateTheme()), HYDRATE_TIMEOUT_MS).catch(() => undefined),
+          withTimeout(startupTrace.measure('hydrate:settings', () => hydrateSettings()), HYDRATE_TIMEOUT_MS).catch(() => undefined),
+          withTimeout(startupTrace.measure('hydrate:session', () => hydrateSession()), HYDRATE_TIMEOUT_MS).catch(() => undefined),
+          withTimeout(startupTrace.measure('hydrate:auth', () => hydrate()), HYDRATE_TIMEOUT_MS).catch(() => undefined),
+          withTimeout(startupTrace.measure('hydrate:registration', () => hydrateRegistration()), HYDRATE_TIMEOUT_MS).catch(() => undefined),
+          withTimeout(startupTrace.measure('hydrate:profileLocal', () => hydrateProfileLocal()), HYDRATE_TIMEOUT_MS).catch(() => undefined),
         ]);
-        await withTimeout(validateSession(), SESSION_VALIDATION_TIMEOUT_MS).catch(
-          () => undefined,
-        );
+        startupTrace.mark('splash:hydrations-done', {
+          status: useAuthStore.getState().status,
+        });
+
+        // Local restoration is complete — the root navigator has already
+        // switched to the app shell / auth stack. Hide the native splash NOW;
+        // never hold it for the network. The remaining (rare) token-only
+        // blocking validation runs under the animated JS splash.
+        void hideNativeSplash();
+
+        if (useAuthStore.getState().status === 'validating') {
+          await withTimeout(validateSession(), SESSION_VALIDATION_TIMEOUT_MS).catch(
+            () => undefined,
+          );
+        }
       } catch (error) {
         logger.warn('[Splash] Bootstrap error', error);
       } finally {
-        // Always hide the native splash once the minimum display time has
-        // elapsed, even if the store already navigated away (mount is gone) or
-        // a non-critical initialisation step failed.
-        const elapsed = Date.now() - startedAt;
-        const remaining = Math.max(0, MIN_DISPLAY_MS - elapsed);
-        await new Promise((resolve) => setTimeout(resolve, remaining));
-        try {
-          await ExpoSplashScreen.hideAsync();
-        } catch (error) {
-          logger.warn('[Splash] Failed to hide native splash', error);
-        }
+        void hideNativeSplash();
       }
     };
 
     void run();
-  }, [hydrate, hydrateSession, hydrateTheme, hydrateSettings, validateSession, hydrateRegistration]);
+  }, [hydrate, hydrateUser, hydrateSession, hydrateTheme, hydrateSettings, validateSession, hydrateRegistration, hydrateProfileLocal]);
 
   return (
     <LinearGradient

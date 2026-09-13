@@ -503,7 +503,8 @@
     "noGrsMatchFilters": "No GRs match your filters for {{shop}} in {{area}}.",
     "noGrsForShop": "No GRs for {{shop}} in {{area}} yet.",
     "cleared": "Cleared",
-    "uncleared": "Uncleared"
+    "uncleared": "Uncleared",
+    "failedToLoadOverview": "Failed to load your overview."
   },
   "errors": {
     "networkError": "Network error. Please check your connection.",

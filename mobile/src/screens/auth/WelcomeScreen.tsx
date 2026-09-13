@@ -18,8 +18,11 @@ import { FeatureCard } from '../../components/FeatureCard';
 import { TextLink } from '../../components/TextLink';
 import { TruckGlyph } from '../../components/AnimatedTruck';
 import { useAppTheme } from '../../theme/useAppTheme';
+import { startupTrace } from '../../utils/startupTrace';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../../navigation/types';
+
+startupTrace.mark('WelcomeScreen:module-loaded');
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -83,6 +86,7 @@ const CtaButton = ({ label, onPress }: CtaButtonProps) => {
 type Props = NativeStackScreenProps<AuthStackParamList, 'Welcome'>;
 
 export const WelcomeScreen = ({ navigation }: Props) => {
+  startupTrace.mark('WelcomeScreen:render-start');
   const { t } = useTranslation();
   const { colors } = useAppTheme();
   const { width } = useWindowDimensions();
@@ -100,6 +104,7 @@ export const WelcomeScreen = ({ navigation }: Props) => {
 
   const cardEntering = (index: number) => FadeInDown.duration(420).delay(500 + index * 90).springify().damping(18);
 
+  startupTrace.mark('WelcomeScreen:render-end');
   return (
     <View style={styles.flex}>
       <LinearGradient

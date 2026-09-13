@@ -85,7 +85,14 @@ async def get_db_session() -> AsyncIterator[AsyncSession]:
 
 
 async def init_database() -> None:
-    """Connects to PostgreSQL and creates any missing tables."""
+    """Connects to PostgreSQL and creates any missing tables.
+
+    Skipped when ``RUN_DB_BOOTSTRAP`` is false (production, where Alembic owns
+    the schema): the ``create_all`` reflection + partial-index check add
+    several seconds of round-trips to every cold start for no benefit there.
+    """
+    if not settings.RUN_DB_BOOTSTRAP:
+        return
     engine = _get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

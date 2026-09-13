@@ -111,7 +111,7 @@ export const AdminExcelImportScreen = ({ route }: any) => {
       setStage('parsing');
       try {
         const base64 = await readWebAssetAsBase64(asset);
-        const rawRows = parseWorkbook(base64);
+        const rawRows = await parseWorkbook(base64);
         const result2 = validateRows(rawRows);
         setParsed(result2);
         setStage('preview');
@@ -171,7 +171,7 @@ export const AdminExcelImportScreen = ({ route }: any) => {
       for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
       const base64 = btoa(binary);
 
-      const rawRows = parseWorkbook(base64);
+      const rawRows = await parseWorkbook(base64);
       const result2 = validateRows(rawRows);
       setParsed(result2);
       setStage('preview');

@@ -89,8 +89,12 @@ export const verifyOTP = async (payload: OTPVerificationPayload): Promise<OTPVer
   return unwrap<OTPVerificationResult>(response);
 };
 
-/** Returns the profile of the authenticated user. */
-export const getCurrentUser = async (): Promise<MeResult> => {
-  const response = await apiClient.get<unknown>(ENDPOINTS.users.me);
+/** Returns the profile of the authenticated user.
+ *
+ * Accepts an optional `AbortSignal` so a caller that times the request out
+ * (session validation on startup) can actually cancel the in-flight HTTP
+ * call instead of leaving it running in the background. */
+export const getCurrentUser = async (signal?: AbortSignal): Promise<MeResult> => {
+  const response = await apiClient.get<unknown>(ENDPOINTS.users.me, { signal });
   return unwrap<MeResult>(response);
 };

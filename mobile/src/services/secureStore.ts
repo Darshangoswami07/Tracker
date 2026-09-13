@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import { startupTrace } from '../utils/startupTrace';
 
 /**
  * Thin wrapper around Expo SecureStore. Used to protect JWT tokens and any
@@ -13,7 +14,11 @@ const isSupported = () => Platform.OS !== 'web';
 export const secureStoreService = {
   async get(key: string): Promise<string | null> {
     if (!isSupported()) return memory.get(key) ?? null;
-    return SecureStore.getItemAsync(key);
+    // TEMP INSTRUMENTATION — measures the native Keystore round-trip per key.
+    startupTrace.mark('SecureStore.getItemAsync:start', { key });
+    const value = await SecureStore.getItemAsync(key);
+    startupTrace.mark('SecureStore.getItemAsync:end', { key });
+    return value;
   },
 
   async set(key: string, value: string): Promise<void> {

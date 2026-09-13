@@ -1,5 +1,27 @@
-import * as XLSX from 'xlsx';
 import { matchArea, type Area } from '../constants/areas';
+import { startupTrace } from '../utils/startupTrace';
+
+/**
+ * `xlsx` (SheetJS) is ~1.3 MB of source and the single largest third-party
+ * module in the bundle. It is only ever needed on the Admin "Excel import"
+ * screen. A top-level `import` pulled it into the eager startup module graph
+ * (`RootNavigator → AppDrawer → AdminTabs → AdminExcelImportScreen`), so it
+ * executed on every cold launch — including for a logged-out user who only
+ * wants the Login screen. Loading it lazily on first `parseWorkbook` call
+ * keeps its module factory from running until the user actually picks a file.
+ */
+type XlsxModule = typeof import('xlsx');
+let xlsxPromise: Promise<XlsxModule> | null = null;
+const loadXlsx = (): Promise<XlsxModule> => {
+  if (!xlsxPromise) {
+    startupTrace.mark('lazy:xlsx:load-start');
+    xlsxPromise = import('xlsx').then((m) => {
+      startupTrace.mark('lazy:xlsx:loaded');
+      return m;
+    });
+  }
+  return xlsxPromise;
+};
 
 /**
  * Pure parsing/validation logic for the Excel GR bulk-import feature. No
@@ -279,7 +301,8 @@ const parseOptionalNumber = (value: unknown): number | null | undefined => {
  * internal field names via the dynamic header lookup above. Throws if the
  * workbook can't be parsed or has no recognizable `GR_No` column — callers
  * should show that as a file-level error before any row-level validation. */
-export const parseWorkbook = (base64: string): RawExcelRow[] => {
+export const parseWorkbook = async (base64: string): Promise<RawExcelRow[]> => {
+  const XLSX = await loadXlsx();
   const workbook = XLSX.read(base64, { type: 'base64', cellDates: true });
   const sheetName = workbook.SheetNames[0];
   if (!sheetName) throw new Error('The Excel file has no sheets.');
