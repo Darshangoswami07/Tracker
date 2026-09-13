@@ -283,7 +283,10 @@ export const AdminGRShipmentsScreen = ({ route }: any) => {
           ...item,
           toPay: item.toPay ?? 0,
           totalPaid: item.totalPaid ?? 0,
-          outstanding: (item.toPay ?? 0) - (item.totalPaid ?? 0),
+          // Net of any Admin Discount — `effectiveRemaining` comes straight
+          // from the backend (see `list_grs` in `gr.py`); `toPay - totalPaid`
+          // is only a fallback for a response that predates that field.
+          outstanding: item.effectiveRemaining ?? (item.toPay ?? 0) - (item.totalPaid ?? 0),
           paymentCount: 0,
           paymentStatus: 'unpaid',
         }));

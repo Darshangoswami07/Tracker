@@ -30,10 +30,14 @@ interface GREntry {
   status: string;
   hasSlip: boolean;
   /** Canonical bill / paid figures from the GR list response — the same
-   *  values GR Details and the Staff Dashboard use. `toCollect = toPay -
-   *  totalPaid`; never recomputed from anything else. */
+   *  values GR Details and the Staff Dashboard use. `toCollect` prefers the
+   *  backend's `effectiveRemaining` (already net of any Admin Discount —
+   *  Staff never sees the discount amount itself, only this net figure);
+   *  `toPay - totalPaid` is only a fallback for a response that predates
+   *  that field. Never recomputed from anything else. */
   toPay: number;
   totalPaid: number;
+  effectiveRemaining?: number;
 }
 
 /** "₹1,250" — no decimals, Indian grouping. Matches the other GR screens. */
@@ -190,6 +194,7 @@ export const StaffGRPanelScreen = () => {
           hasSlip: o.hasSlip,
           toPay: o.toPay ?? 0,
           totalPaid: o.totalPaid ?? 0,
+          effectiveRemaining: o.effectiveRemaining,
         }));
         slipsCache.set(key, { entries: mapped, ts: Date.now() });
         setEntries(mapped);
@@ -558,14 +563,20 @@ export const StaffGRPanelScreen = () => {
                 {/* Amount the staff still has to collect on this GR. Only shown
                     when something is genuinely outstanding — a settled GR
                     (incl. delivered→cleared with ₹0 remaining) shows nothing. */}
-                {entry.toPay - entry.totalPaid > 0.005 && (
-                  <View style={[styles.toCollect, { backgroundColor: colors.errorSoft }]}>
-                    <Ionicons name="wallet-outline" size={13} color={colors.error} />
-                    <Text style={[styles.toCollectText, { color: colors.error }]}>
-                      {rupees(entry.toPay - entry.totalPaid)} To Collect
-                    </Text>
-                  </View>
-                )}
+                {(() => {
+                  // Prefer the backend's effective remaining (already net of
+                  // any Admin Discount); fall back to raw toPay - totalPaid
+                  // only for a response that predates that field.
+                  const toCollect = entry.effectiveRemaining ?? (entry.toPay - entry.totalPaid);
+                  return toCollect > 0.005 ? (
+                    <View style={[styles.toCollect, { backgroundColor: colors.errorSoft }]}>
+                      <Ionicons name="wallet-outline" size={13} color={colors.error} />
+                      <Text style={[styles.toCollectText, { color: colors.error }]}>
+                        {rupees(toCollect)} To Collect
+                      </Text>
+                    </View>
+                  ) : null;
+                })()}
 
                 <View style={[styles.rowFooter, { borderTopColor: colors.border }]}>
                   <TouchableOpacity style={styles.photoAction} onPress={() => handleUploadPhoto(entry)} disabled={uploadingId === entry.id}>

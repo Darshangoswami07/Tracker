@@ -321,8 +321,19 @@ class OrderRepository(BaseRepository[Order]):
             outstanding_filter = [Order.isActive == True, Order.deletedAt.is_(None)]
             if company_id is not None:
                 outstanding_filter.append(Order.companyId == company_id)
+            # Net of any Admin Discount — this dashboard card is "what's
+            # actually left to collect", never the raw pre-discount bill.
             outstanding = (await session.execute(
-                select(func.coalesce(func.sum(Order.toPay).filter(and_(*outstanding_filter)), 0))
+                select(
+                    func.coalesce(
+                        func.sum(
+                            func.greatest(
+                                func.coalesce(Order.toPay, 0) - func.coalesce(Order.discountAmount, 0), 0
+                            )
+                        ).filter(and_(*outstanding_filter)),
+                        0,
+                    )
+                )
             )).scalar() or 0
 
             return {

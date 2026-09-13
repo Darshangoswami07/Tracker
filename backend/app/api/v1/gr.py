@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from app.api.deps import AdminUser, GRAccessUser
 from app.core.config import settings
 from app.core.exceptions import ForbiddenError, NotFoundError, ValidationBusinessError
+from app.core.rbac import is_admin
 from app.core.tenancy import assert_same_company, effective_company_id, resolve_gr_staff_scope
 from app.models.enums import FileKind, OrderStatus
 from app.repositories.order_attachment_repository import OrderAttachmentRepository
@@ -110,10 +111,10 @@ async def _ledger_paid(order_id) -> float:
         )
 
 
-async def _gr_out(order) -> GROut:
+async def _gr_out(order, *, is_admin: bool = False) -> GROut:
     import asyncio
 
-    from app.services.gr_status_service import classify
+    from app.services.gr_status_service import classify, effective_to_pay
 
     # Attachments and the payment ledger sum are independent reads (neither
     # depends on the other, and each opens its own connection) — running them
@@ -126,11 +127,16 @@ async def _gr_out(order) -> GROut:
     # Canonical 4-bucket status for this single GR, from the ONE definition in
     # gr_status_service — so the detail screen's badge always agrees with the
     # GR list. A delivered GR with nothing left to pay reads as `cleared`.
+    # `toPay` is net of any Admin Discount here — the classifier (and every
+    # remaining/outstanding figure) must reflect the *effective* bill, never
+    # the raw one, for both Staff and Admin.
     _legacy = float(order.paymentAmount) if order.paymentAmount is not None else 0.0
     _raw = order.status.value if hasattr(order.status, "value") else order.status
-    reporting_status = classify(_raw != "pending", max(_ledger, _legacy), float(order.toPay or 0))
+    _discount = getattr(order, "discountAmount", None)
+    _eff_to_pay = effective_to_pay(order.toPay, _discount)
+    reporting_status = classify(_raw != "pending", max(_ledger, _legacy), _eff_to_pay)
 
-    return GROut(
+    out = GROut(
         id=order.id,
         orderNumber=order.orderNumber,
         reportingStatus=reporting_status,
@@ -159,8 +165,21 @@ async def _gr_out(order) -> GROut:
         createdAt=order.createdAt,
         updatedAt=order.updatedAt,
         attachments=attachments,
+        totalPaid=max(_ledger, _legacy),
+        effectiveRemaining=max(0.0, _eff_to_pay - max(_ledger, _legacy)),
         **extended,
     )
+    # Discount fields are ADMIN-ONLY. A Staff (or any non-admin GR-access)
+    # caller must never see discountAmount/discountReason/discountedBy/
+    # discountedAt — stripped here at serialization time, never left to the
+    # frontend to hide. `effectiveRemaining` above (already net of discount)
+    # goes to everyone.
+    if is_admin:
+        out.discountAmount = float(_discount) if _discount is not None else None
+        out.discountReason = getattr(order, "discountReason", None)
+        out.discountedBy = getattr(order, "discountedBy", None)
+        out.discountedAt = getattr(order, "discountedAt", None)
+    return out
 
 
 async def _publish_gr_change(
@@ -312,8 +331,9 @@ async def list_grs(
             attachment_repo.find_by_orders(order_ids),
         )
 
-    from app.services.gr_status_service import classify
+    from app.services.gr_status_service import classify, effective_to_pay
 
+    _caller_is_admin = is_admin(admin.role)
     items = []
     for order in orders:
         attachments = attachments_by_order.get(order.id, [])
@@ -322,31 +342,37 @@ async def list_grs(
         legacy_paid = float(order.paymentAmount) if order.paymentAmount is not None else 0.0
         total_paid = max(ledger_paid, legacy_paid)
         to_pay = float(order.toPay) if order.toPay is not None else 0.0
-        reporting_status = classify(raw_status != "pending", total_paid, to_pay)
-        items.append(
-            {
-                "id": str(order.id),
-                "orderNumber": order.orderNumber,
-                "consignorName": order.consignorName,
-                "consigneeName": order.consigneeName,
-                "pickupAddress": order.pickupAddress,
-                "deliveryAddress": order.deliveryAddress,
-                "driverId": str(order.driverId) if order.driverId else None,
-                "assignedStaffId": str(order.assignedStaffId) if order.assignedStaffId else None,
-                "area": order.area,
-                # `status` stays the raw lifecycle value (unchanged for existing
-                # API consumers); `reportingStatus` is the canonical bucket the
-                # mobile GR list badges + filters use (see gr_status_service).
-                "status": raw_status,
-                "reportingStatus": reporting_status,
-                "createdAt": order.createdAt.isoformat(),
-                "hasSlip": bool(attachments) or bool(getattr(order, "hasSlip", False)),
-                "source": getattr(order, "source", None) or "manual",
-                "toPay": to_pay,
-                "totalPaid": total_paid,
-                "paymentAmount": legacy_paid,
-            }
-        )
+        discount_amount = getattr(order, "discountAmount", None)
+        eff_to_pay = effective_to_pay(to_pay, discount_amount)
+        reporting_status = classify(raw_status != "pending", total_paid, eff_to_pay)
+        item = {
+            "id": str(order.id),
+            "orderNumber": order.orderNumber,
+            "consignorName": order.consignorName,
+            "consigneeName": order.consigneeName,
+            "pickupAddress": order.pickupAddress,
+            "deliveryAddress": order.deliveryAddress,
+            "driverId": str(order.driverId) if order.driverId else None,
+            "assignedStaffId": str(order.assignedStaffId) if order.assignedStaffId else None,
+            "area": order.area,
+            # `status` stays the raw lifecycle value (unchanged for existing
+            # API consumers); `reportingStatus` is the canonical bucket the
+            # mobile GR list badges + filters use (see gr_status_service).
+            "status": raw_status,
+            "reportingStatus": reporting_status,
+            "createdAt": order.createdAt.isoformat(),
+            "hasSlip": bool(attachments) or bool(getattr(order, "hasSlip", False)),
+            "source": getattr(order, "source", None) or "manual",
+            "toPay": to_pay,
+            "totalPaid": total_paid,
+            "paymentAmount": legacy_paid,
+            # Net of any Admin Discount — safe for every GR-access role.
+            "effectiveRemaining": max(0.0, eff_to_pay - total_paid),
+        }
+        # Discount amount itself is ADMIN-ONLY — never surfaced to Staff.
+        if _caller_is_admin and discount_amount:
+            item["discountAmount"] = float(discount_amount)
+        items.append(item)
     return success(
         {
             "items": items,
@@ -427,7 +453,7 @@ async def create_gr(payload: GRCreateRequest, admin: GRAccessUser) -> dict:
     # A new GR is ALWAYS 'pending' — even if it's created already fully paid.
     # Delivery status only ever changes via the explicit "Update Status" flow.
     fresh = await order_repo.get_order_with_details(order.id)
-    return success((await _gr_out(fresh or order)).model_dump(mode="json"), message="GR created successfully.")
+    return success((await _gr_out(fresh or order, is_admin=is_admin(admin.role))).model_dump(mode="json"), message="GR created successfully.")
 
 
 @router.delete("")
@@ -479,7 +505,7 @@ async def get_gr(order_id: UUID, admin: GRAccessUser) -> dict:
     if order is None or order.deletedAt is not None:
         raise NotFoundError("GR not found.")
     await assert_same_company(admin, order.companyId)
-    return success((await _gr_out(order)).model_dump(mode="json"), message="GR retrieved successfully.")
+    return success((await _gr_out(order, is_admin=is_admin(admin.role))).model_dump(mode="json"), message="GR retrieved successfully.")
 
 
 @router.patch("/{order_id}")
@@ -515,7 +541,7 @@ async def update_gr(order_id: UUID, payload: GRUpdateRequest, admin: GRAccessUse
     # Push the edit to any open GR-details / list screen (fields, financials,
     # consignee/shop, …). `gr.updated` — the client just re-pulls the record.
     await _publish_gr_change(fresh or order, previous_status=None, event="gr.updated", actor=admin)
-    return success((await _gr_out(fresh or order)).model_dump(mode="json"), message="GR updated successfully.")
+    return success((await _gr_out(fresh or order, is_admin=is_admin(admin.role))).model_dump(mode="json"), message="GR updated successfully.")
 
 
 @router.patch("/{order_id}/status")
@@ -612,7 +638,7 @@ async def update_gr_status(order_id: UUID, payload: GRStatusUpdateRequest, admin
     # grepping the whole backend, not assumed.
     await _publish_gr_change(updated, previous_status=previous_status, actor=admin)
     _mark("realtime publish (in-memory pub/sub, no I/O)")
-    out = (await _gr_out(updated)).model_dump(mode="json")
+    out = (await _gr_out(updated, is_admin=is_admin(admin.role))).model_dump(mode="json")
     _mark("response serialization (attachments + payment-sum queries, gathered concurrently)")
     return success(out, message="GR status updated.")
 
@@ -690,7 +716,7 @@ async def assign_driver(order_id: UUID, payload: GRAssignDriverRequest, admin: G
     if order is None:
         raise NotFoundError("GR not found.")
     await _publish_gr_change(order, previous_status=None, event="gr.updated", actor=admin)
-    return success((await _gr_out(order)).model_dump(mode="json"), message="Driver assigned successfully.")
+    return success((await _gr_out(order, is_admin=is_admin(admin.role))).model_dump(mode="json"), message="Driver assigned successfully.")
 
 
 async def _resolve_employee_id(user_id: UUID, company_id) -> UUID:
@@ -729,7 +755,7 @@ async def assign_staff(order_id: UUID, payload: GRAssignStaffRequest, admin: GRA
     if order is None:
         raise NotFoundError("GR not found.")
     await _publish_gr_change(order, previous_status=None, event="gr.updated", actor=admin)
-    return success((await _gr_out(order)).model_dump(mode="json"), message="Staff assigned successfully.")
+    return success((await _gr_out(order, is_admin=is_admin(admin.role))).model_dump(mode="json"), message="Staff assigned successfully.")
 
 
 @router.post("/{order_id}/attachments", status_code=201)

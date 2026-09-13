@@ -183,6 +183,16 @@ class GROut(GRExtendedFields):
     createdAt: datetime
     updatedAt: datetime
     attachments: list[OrderAttachmentOut] = []
+    # Money figures net of any Admin Discount — safe for every role.
+    totalPaid: float = 0.0
+    effectiveRemaining: float = 0.0
+    # Discount (Admin-only). Populated only when the serializing caller is an
+    # Admin (see `_gr_out` in `app/api/v1/gr.py`) — a Staff/non-admin response
+    # always carries these as None, never the real discount details.
+    discountAmount: Optional[float] = None
+    discountReason: Optional[str] = None
+    discountedBy: Optional[UUID] = None
+    discountedAt: Optional[datetime] = None
 
     class Config:
         from_attributes = True

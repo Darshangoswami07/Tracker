@@ -107,6 +107,11 @@ export interface LocalGRListItem {
   toPay: number;
   totalPaid: number;
   paymentAmount: number;
+  /** Net of any Admin Discount — safe for every role, incl. Staff. */
+  effectiveRemaining?: number;
+  /** Discount (Admin-only) — present only when the backend serialized this
+   * list for an Admin caller. Never surfaced to Staff. */
+  discountAmount?: number;
 }
 
 /** Canonical GR reporting counts (+ money totals) for a filtered dataset.
@@ -210,6 +215,16 @@ export interface LocalGRDetail extends GRExtendedFields {
   timeline: LocalTimelineEvent[];
   source: string;
   area: string | null;
+  /** Net of any Admin Discount — safe for every role (Staff included). */
+  totalPaid?: number;
+  effectiveRemaining?: number;
+  /** Discount (Admin-only). Present only when the backend serialized this
+   * response for an Admin caller — a Staff response never carries the real
+   * values (backend strips them; see `app/api/v1/gr.py::_gr_out`). */
+  discountAmount?: number | null;
+  discountReason?: string | null;
+  discountedBy?: string | null;
+  discountedAt?: string | null;
 }
 
 export interface GRCreateInput extends GRExtendedFields {
@@ -466,10 +481,41 @@ export interface PaymentSummary {
   orderNumber: string;
   toPay: number;
   totalPaid: number;
+  /** Effective remaining — already net of any Admin Discount. Safe for
+   * every role. */
   balance: number;
   paymentStatus: string;
   paymentCount: number;
   payments: LocalPayment[];
+  /** Discount (Admin-only) — a Staff response always has these as
+   * null/undefined (the backend strips them; see
+   * `app/api/v1/payment.py::get_payment_summary`). */
+  discountAmount?: number | null;
+  discountReason?: string | null;
+  discountedBy?: string | null;
+  discountedAt?: string | null;
+}
+
+/** One row of the GR Discount audit trail (Admin-only). */
+export interface DiscountHistoryItem {
+  id: string;
+  orderId: string;
+  action: 'applied' | 'modified' | 'cancelled';
+  discountAmount: number;
+  previousDiscountAmount: number | null;
+  reason: string | null;
+  appliedBy: string | null;
+  appliedByName: string | null;
+  createdAt: string;
+}
+
+/** Result of an apply/modify/cancel Discount action — Admin-only. */
+export interface DiscountActionResult {
+  orderId: string;
+  toPay: number;
+  totalPaid: number;
+  discountAmount: number;
+  effectiveRemaining: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -515,6 +561,8 @@ const mapListItem = (r: any): LocalGRListItem => ({
   toPay: Number(r.toPay ?? 0),
   totalPaid: Number(r.totalPaid ?? r.paymentAmount ?? 0),
   paymentAmount: Number(r.paymentAmount ?? 0),
+  effectiveRemaining: r.effectiveRemaining != null ? Number(r.effectiveRemaining) : undefined,
+  discountAmount: r.discountAmount != null ? Number(r.discountAmount) : undefined,
 });
 
 const mapAttachment = (a: any): LocalAttachment => ({
@@ -565,6 +613,12 @@ const mapDetail = (g: any): LocalGRDetail => ({
   timeline: (g.timeline ?? []).map(mapTimeline),
   source: g.source ?? 'manual',
   area: g.area ?? null,
+  totalPaid: g.totalPaid != null ? Number(g.totalPaid) : undefined,
+  effectiveRemaining: g.effectiveRemaining != null ? Number(g.effectiveRemaining) : undefined,
+  discountAmount: g.discountAmount != null ? Number(g.discountAmount) : null,
+  discountReason: g.discountReason ?? null,
+  discountedBy: g.discountedBy ?? null,
+  discountedAt: g.discountedAt ?? null,
   ...pickExtended(g),
 });
 
@@ -959,11 +1013,83 @@ export const orderRepository = {
           receivedBy: (p.receivedBy as ReceivedBy) ?? 'STAFF',
           createdAt: p.createdAt,
         })),
+        discountAmount: s.discountAmount != null ? Number(s.discountAmount) : null,
+        discountReason: s.discountReason ?? null,
+        discountedBy: s.discountedBy ?? null,
+        discountedAt: s.discountedAt ?? null,
       };
     } catch (err: any) {
       if (err?.response?.status === 404) return null;
       throw err;
     }
+  },
+
+  /** Admin-only: apply a NEW discount (fails if one is already active — use
+   * `modifyDiscount`). The backend independently validates amount > 0 and
+   * <= the current remaining, and independently enforces ADMIN role (403
+   * for Staff) — this call is never reachable from a Staff session in the
+   * UI, but the server never trusts that either. */
+  async applyDiscount(orderId: string, amount: number, reason?: string): Promise<DiscountActionResult> {
+    return withApiError(async () => {
+      const res = await api.post(ENDPOINTS.admin.orders.discount(orderId), { amount, reason });
+      const d = body<any>(res);
+      return {
+        orderId: d.orderId,
+        toPay: Number(d.toPay ?? 0),
+        totalPaid: Number(d.totalPaid ?? 0),
+        discountAmount: Number(d.discountAmount ?? 0),
+        effectiveRemaining: Number(d.effectiveRemaining ?? 0),
+      };
+    });
+  },
+
+  /** Admin-only: replace the currently active discount with a new amount/reason. */
+  async modifyDiscount(orderId: string, amount: number, reason?: string): Promise<DiscountActionResult> {
+    return withApiError(async () => {
+      const res = await api.patch(ENDPOINTS.admin.orders.discount(orderId), { amount, reason });
+      const d = body<any>(res);
+      return {
+        orderId: d.orderId,
+        toPay: Number(d.toPay ?? 0),
+        totalPaid: Number(d.totalPaid ?? 0),
+        discountAmount: Number(d.discountAmount ?? 0),
+        effectiveRemaining: Number(d.effectiveRemaining ?? 0),
+      };
+    });
+  },
+
+  /** Admin-only: cancels the currently active discount (back to ₹0). The
+   * audit history row is kept forever — only the current total resets. */
+  async cancelDiscount(orderId: string, reason?: string): Promise<DiscountActionResult> {
+    return withApiError(async () => {
+      const res = await api.delete(ENDPOINTS.admin.orders.discount(orderId), { data: { reason } });
+      const d = body<any>(res);
+      return {
+        orderId: d.orderId,
+        toPay: Number(d.toPay ?? 0),
+        totalPaid: Number(d.totalPaid ?? 0),
+        discountAmount: Number(d.discountAmount ?? 0),
+        effectiveRemaining: Number(d.effectiveRemaining ?? 0),
+      };
+    });
+  },
+
+  /** Admin-only: full discount audit trail for a GR (who/when/reason/amount
+   * for every apply/modify/cancel action, newest first). */
+  async getDiscountHistory(orderId: string): Promise<DiscountHistoryItem[]> {
+    const res = await api.get(ENDPOINTS.admin.orders.discountHistory(orderId));
+    const rows = body<any[]>(res) ?? [];
+    return rows.map((r) => ({
+      id: r.id,
+      orderId: r.orderId,
+      action: r.action,
+      discountAmount: Number(r.discountAmount ?? 0),
+      previousDiscountAmount: r.previousDiscountAmount != null ? Number(r.previousDiscountAmount) : null,
+      reason: r.reason ?? null,
+      appliedBy: r.appliedBy ?? null,
+      appliedByName: r.appliedByName ?? null,
+      createdAt: r.createdAt,
+    }));
   },
 
   async getRevenueOverview() {

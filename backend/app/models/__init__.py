@@ -15,6 +15,7 @@ from app.models.vehicle_image import VehicleImage
 from app.models.shop import Shop
 from app.models.order import Order
 from app.models.order_status_history import OrderStatusHistory
+from app.models.order_discount_history import OrderDiscountHistory
 from app.models.order_attachment import OrderAttachment
 from app.models.payment import Payment
 from app.models.staff_settlement import StaffSettlement
@@ -52,6 +53,7 @@ __all__ = [
     "Shop",
     "Order",
     "OrderStatusHistory",
+    "OrderDiscountHistory",
     "OrderAttachment",
     "Payment",
     "StaffSettlement",

@@ -9,7 +9,7 @@ import { useUserStore } from '../../store/userStore';
 import { api } from '../../api/client';
 import { ENDPOINTS } from '../../api/endpoints';
 import { orderRepository } from '../../database/repositories/orderRepository';
-import type { LocalPayment, PaymentSummary, ReceivedBy } from '../../database/repositories/orderRepository';
+import type { LocalPayment, PaymentSummary, ReceivedBy, DiscountHistoryItem } from '../../database/repositories/orderRepository';
 import { Header } from '../../components/Header';
 import { ShimmerCard } from '../../components/ShimmerCard';
 import { EmptyState } from '../../components/EmptyState';
@@ -84,6 +84,11 @@ interface GRDetail extends GRExtendedDetail {
   attachments: GRAttachment[];
   paymentAmount?: number | null;
   source: string;
+  // Discount (Admin-only) — absent/null on a Staff-serialized response.
+  discountAmount?: number | null;
+  discountReason?: string | null;
+  discountedBy?: string | null;
+  discountedAt?: string | null;
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -164,6 +169,17 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   // auto-attributed to themselves.
   const [collectorOptions, setCollectorOptions] = useState<{ id: string; fullName: string; area: string | null }[]>([]);
   const [collectedByStaffId, setCollectedByStaffId] = useState<string | null>(null);
+
+  // Discount state (Admin-only). Mirrors the Receive Payment sheet's own
+  // state shape.
+  const [discountModalOpen, setDiscountModalOpen] = useState(false);
+  const [discountAmountInput, setDiscountAmountInput] = useState('');
+  const [discountReasonInput, setDiscountReasonInput] = useState('');
+  const [submittingDiscount, setSubmittingDiscount] = useState(false);
+  const [discountError, setDiscountError] = useState<string | null>(null);
+  const [discountHistoryOpen, setDiscountHistoryOpen] = useState(false);
+  const [discountHistory, setDiscountHistory] = useState<DiscountHistoryItem[]>([]);
+  const [loadingDiscountHistory, setLoadingDiscountHistory] = useState(false);
 
   // Monotonic "which GR is currently selected" generation counter. Bumped
   // exactly once per `orderId` change (below), and captured by every fetch
@@ -249,14 +265,27 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
     fetchPayments();
   }, [fetchDetail, fetchPayments]);
 
+  // React Navigation emits 'focus' on a screen's initial mount as well as on
+  // every subsequent return to it — not just the latter. Without this guard,
+  // the effect above (mount/orderId-triggered) and this listener BOTH fire on
+  // first open, doubling every GR Details + payment request. `isInitialFocus`
+  // swallows exactly that first, redundant focus event (already covered by
+  // the effect above) while still refetching on every real "returned to this
+  // screen" focus — e.g. coming back from Edit GR with updated fields.
+  const isInitialFocus = useRef(true);
   useEffect(() => {
+    isInitialFocus.current = true;
     const unsubscribe = navigation.addListener('focus', () => {
+      if (isInitialFocus.current) {
+        isInitialFocus.current = false;
+        return;
+      }
       fetchDetail();
       fetchPayments();
     });
     return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigation]);
+  }, [navigation, orderId]);
 
   // Live updates for THIS GR: staff marking it delivered, a payment settling
   // the balance (→ cleared), an edit to its fields — all arrive over the
@@ -416,6 +445,68 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
     }
   };
 
+  const openDiscountModal = () => {
+    setDiscountError(null);
+    setDiscountAmountInput('');
+    setDiscountReasonInput('');
+    setDiscountModalOpen(true);
+  };
+
+  const closeDiscountModal = () => {
+    if (submittingDiscount) return;
+    setDiscountModalOpen(false);
+  };
+
+  const handleApplyDiscount = async () => {
+    if (!discountAmountInput || submittingDiscount) return;
+    setDiscountError(null);
+    const amount = parseFloat(discountAmountInput);
+    if (isNaN(amount) || amount <= 0) {
+      setDiscountError(t('discount.enterValidAmount', 'Enter a valid discount amount.'));
+      return;
+    }
+    const currentRemaining = paymentSummary?.balance ?? 0;
+    // Client-side check for immediate feedback only — the backend is the
+    // real source of truth and independently re-validates (amount > 0,
+    // amount <= current remaining, no negative result, no already-active
+    // discount) against the freshly-locked order row.
+    if (amount > currentRemaining + 0.005) {
+      setDiscountError(
+        t('discount.exceedsRemaining', `Discount cannot exceed the remaining amount of ${formatCurrency(currentRemaining)}.`)
+      );
+      return;
+    }
+
+    setSubmittingDiscount(true);
+    try {
+      await orderRepository.applyDiscount(orderId, amount, discountReasonInput || undefined);
+      setDiscountModalOpen(false);
+      setDiscountAmountInput('');
+      setDiscountReasonInput('');
+      // Backend is the source of truth for money figures — never compute
+      // discount/paid/remaining locally. Re-fetch picks up the fresh values
+      // the server just committed.
+      await Promise.all([fetchDetail(), fetchPayments()]);
+    } catch (err: any) {
+      setDiscountError(err?.message ?? t('discount.failed', 'Could not apply the discount.'));
+    } finally {
+      setSubmittingDiscount(false);
+    }
+  };
+
+  const openDiscountHistory = async () => {
+    setDiscountHistoryOpen(true);
+    setLoadingDiscountHistory(true);
+    try {
+      const rows = await orderRepository.getDiscountHistory(orderId);
+      setDiscountHistory(rows);
+    } catch {
+      setDiscountHistory([]);
+    } finally {
+      setLoadingDiscountHistory(false);
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
@@ -472,9 +563,14 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
   };
 
   const totalPaid = paymentSummary?.totalPaid ?? 0;
+  // Already net of any Admin Discount — safe for every role (Staff included).
   const balance = paymentSummary?.balance ?? (gr.toPay ?? 0);
   const paymentCount = payments.length;
   const paymentStatus = paymentCount === 0 ? 'unpaid' : balance <= 0 ? 'paid' : 'partial';
+  // Discount (Admin-only) — the backend strips this for a Staff caller, so
+  // it's simply absent/null there regardless of `isStaffUser`.
+  const discountAmount = paymentSummary?.discountAmount ?? gr.discountAmount ?? 0;
+  const canDiscount = !isStaffUser && balance > 0.005;
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
@@ -527,16 +623,53 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
                 <Text style={[styles.paymentSummaryLabel, { color: colors.textMuted }]}>{t('payment.balance')}</Text>
               </View>
             </View>
-            {balance > 0 && (
+            {/* Discount row — Admin-only, shown only when a discount is
+                actually active. Staff never sees this (the backend never
+                even sends the field for a Staff response). */}
+            {!isStaffUser && discountAmount > 0 && (
               <TouchableOpacity
-                style={[styles.receivePaymentBtn, { backgroundColor: colors.primary, borderRadius: radii.md }]}
-                onPress={openReceivePayment}
-                activeOpacity={0.85}
+                style={[styles.discountRow, { borderTopColor: colors.border }]}
+                onPress={openDiscountHistory}
+                activeOpacity={0.7}
               >
-                <Ionicons name="wallet-outline" size={16} color="#fff" />
-                <Text style={[styles.receivePaymentBtnText, { color: '#fff' }]}>{t('payment.receivePayment')}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="pricetag-outline" size={14} color={colors.primary} />
+                  <Text style={[styles.paymentSummaryLabel, { color: colors.textMuted }]}>
+                    {t('discount.label', 'Discount')}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Text style={[styles.paymentSummaryValue, { color: colors.primary, fontSize: fonts.size.sm }]}>
+                    {formatCurrency(discountAmount)}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+                </View>
               </TouchableOpacity>
             )}
+            <View style={styles.financialActionsRow}>
+              {balance > 0 && (
+                <TouchableOpacity
+                  style={[styles.receivePaymentBtn, { backgroundColor: colors.primary, borderRadius: radii.md, flex: 1 }]}
+                  onPress={openReceivePayment}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="wallet-outline" size={16} color="#fff" />
+                  <Text style={[styles.receivePaymentBtnText, { color: '#fff' }]}>{t('payment.receivePayment')}</Text>
+                </TouchableOpacity>
+              )}
+              {canDiscount && (
+                <TouchableOpacity
+                  style={[styles.discountBtn, { borderColor: colors.primary, borderRadius: radii.md, flex: 1 }]}
+                  onPress={openDiscountModal}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="pricetag-outline" size={16} color={colors.primary} />
+                  <Text style={[styles.discountBtnText, { color: colors.primary }]}>
+                    {t('discount.addDiscount', 'Add Discount')}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         )}
 
@@ -615,6 +748,15 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
             </TouchableOpacity>
           </View>
 
+          {!isStaffUser && discountAmount > 0 && (
+            <View style={styles.billSummaryRow}>
+              <TouchableOpacity style={styles.billSummaryBlock} onPress={openDiscountHistory} activeOpacity={0.7}>
+                <Text style={[styles.billSummaryLabel, { color: colors.textMuted }]}>{t('discount.label', 'DISCOUNT').toUpperCase()}</Text>
+                <Text style={[styles.billSummaryValue, { color: colors.primary }]}>{formatCurrency(discountAmount)}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           <View style={[styles.remainingRow, { borderTopColor: colors.border }]}>
             {balance > 0 ? (
               <>
@@ -637,6 +779,16 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
             >
               <Ionicons name="add" size={16} color={colors.onPrimary} />
               <Text style={[styles.receivePaymentInlineBtnText, { color: colors.onPrimary }]}>{t('payment.receivePayment')}</Text>
+            </TouchableOpacity>
+          )}
+          {canDiscount && (
+            <TouchableOpacity
+              style={[styles.receivePaymentInlineBtn, { backgroundColor: 'transparent', borderRadius: radii.md, borderWidth: 1.5, borderColor: colors.primary, marginTop: 8 }]}
+              onPress={openDiscountModal}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="pricetag-outline" size={16} color={colors.primary} />
+              <Text style={[styles.receivePaymentInlineBtnText, { color: colors.primary }]}>{t('discount.addDiscount', 'Add Discount')}</Text>
             </TouchableOpacity>
           )}
 
@@ -890,6 +1042,123 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* Add Discount Bottom Sheet — Admin-only. Backend is the source of
+          truth: this modal never computes/displays paid/remaining figures
+          locally beyond the already-fetched `balance`, and always refetches
+          after a successful apply. */}
+      <Modal visible={discountModalOpen} transparent animationType="slide" onRequestClose={closeDiscountModal} statusBarTranslucent>
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View style={[styles.paymentSheet, { backgroundColor: colors.background, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, maxHeight: sheetMaxHeight }]}>
+            <View style={styles.paymentHeader}>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>{t('discount.addDiscount', 'Add Discount')}</Text>
+              <TouchableOpacity onPress={closeDiscountModal} hitSlop={8}>
+                <Ionicons name="close" size={22} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              style={styles.paymentScroll}
+              contentContainerStyle={styles.paymentForm}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+              showsVerticalScrollIndicator={false}
+            >
+              {discountError && (
+                <View style={[styles.paymentErrorBanner, { backgroundColor: colors.errorSoft, borderRadius: radii.md }]}>
+                  <Ionicons name="alert-circle-outline" size={16} color={colors.error} />
+                  <Text style={[styles.paymentErrorText, { color: colors.error }]}>{discountError}</Text>
+                </View>
+              )}
+              <View style={[styles.paymentFormRow, { borderBottomWidth: 0 }]}>
+                <Text style={[styles.paymentFormLabel, { color: colors.textMuted }]}>{t('discount.currentRemaining', 'Current Remaining')}</Text>
+                <Text style={[styles.paymentFormValue, { color: '#F97316', fontWeight: '800' }]}>{formatCurrency(balance)}</Text>
+              </View>
+              <Text style={[styles.paymentFormSectionTitle, { color: colors.textMuted }]}>{t('discount.enterAmount', 'Discount Amount')}</Text>
+              <TextInput
+                style={[styles.paymentInput, { color: colors.textPrimary, backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border }]}
+                placeholder={`${t('discount.enterAmount', 'Discount Amount')} (₹)`}
+                placeholderTextColor={colors.textMuted}
+                value={discountAmountInput}
+                onChangeText={setDiscountAmountInput}
+                keyboardType="numeric"
+                autoFocus
+              />
+              <Text style={[styles.paymentFormSectionTitle, { color: colors.textMuted }]}>{t('discount.reasonOptional', 'Reason (optional)')}</Text>
+              <TextInput
+                style={[styles.paymentInput, { color: colors.textPrimary, backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border }]}
+                placeholder={t('discount.reasonPlaceholder', 'e.g. Damaged goods, loyal customer…')}
+                placeholderTextColor={colors.textMuted}
+                value={discountReasonInput}
+                onChangeText={setDiscountReasonInput}
+              />
+            </ScrollView>
+            <View style={[styles.paymentFooter, { borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, 12) }]}>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <TouchableOpacity
+                  style={[styles.discountBtn, { borderColor: colors.border, marginTop: 0, flex: 1 }]}
+                  onPress={closeDiscountModal}
+                  disabled={submittingDiscount}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.discountBtnText, { color: colors.textPrimary }]}>{t('common.cancel', 'Cancel')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.receivePaymentBtn, { backgroundColor: colors.primary, borderRadius: radii.md, marginTop: 0, flex: 1, opacity: submittingDiscount ? 0.6 : 1 }]}
+                  onPress={handleApplyDiscount}
+                  disabled={submittingDiscount}
+                  activeOpacity={0.85}
+                >
+                  {submittingDiscount ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark-circle-outline" size={16} color="#fff" />
+                      <Text style={[styles.receivePaymentBtnText, { color: '#fff' }]}>{t('discount.applyDiscount', 'Apply Discount')}</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Discount History — Admin-only audit trail (who/when/reason/amount
+          for every apply/modify/cancel action). */}
+      <Modal visible={discountHistoryOpen} transparent animationType="slide" onRequestClose={() => setDiscountHistoryOpen(false)} statusBarTranslucent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalSheet, { backgroundColor: colors.background, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, maxHeight: '75%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>{t('discount.history', 'Discount History')}</Text>
+              <TouchableOpacity onPress={() => setDiscountHistoryOpen(false)} hitSlop={8}>
+                <Ionicons name="close" size={22} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 420 }}>
+              {loadingDiscountHistory ? (
+                <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 20 }} />
+              ) : discountHistory.length === 0 ? (
+                <Text style={[styles.optionName, { color: colors.textMuted, padding: 16 }]}>
+                  {t('discount.noHistory', 'No discount history for this GR.')}
+                </Text>
+              ) : (
+                discountHistory.map((h) => (
+                  <View key={h.id} style={[styles.optionRow, { borderBottomColor: colors.border, flexDirection: 'column', alignItems: 'flex-start', gap: 4 }]}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+                      <Text style={[styles.optionName, { color: colors.textPrimary, textTransform: 'capitalize' }]}>{h.action}</Text>
+                      <Text style={[styles.optionName, { color: colors.primary }]}>{formatCurrency(h.discountAmount)}</Text>
+                    </View>
+                    {h.reason && <Text style={{ color: colors.textMuted, fontSize: fonts.size.xs }}>{h.reason}</Text>}
+                    <Text style={{ color: colors.textMuted, fontSize: fonts.size.xs }}>
+                      {h.appliedByName || t('discount.unknownAdmin', 'Admin')} · {formatDate(h.createdAt)}
+                    </Text>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* Status picker */}
       <Modal visible={statusPickerOpen} animationType="slide" transparent onRequestClose={() => setStatusPickerOpen(false)}>
         <View style={styles.modalOverlay}>
@@ -1015,6 +1284,10 @@ const createStyles = (theme: Pick<AppTheme, 'colors' | 'spacing' | 'radii' | 'fo
     paymentSummaryDivider: { width: 1, height: 40 },
     receivePaymentBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, marginTop: 12 },
     receivePaymentBtnText: { fontWeight: '800', fontSize: theme.fonts.size.md },
+    discountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth },
+    financialActionsRow: { flexDirection: 'row', gap: 10 },
+    discountBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, marginTop: 12, borderWidth: 1.5 },
+    discountBtnText: { fontWeight: '800', fontSize: theme.fonts.size.md },
     paymentList: { gap: 0 },
     paymentRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
     paymentRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
