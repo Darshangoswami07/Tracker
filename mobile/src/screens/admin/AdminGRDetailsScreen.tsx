@@ -249,14 +249,27 @@ export const AdminGRDetailsScreen = ({ route }: any) => {
     fetchPayments();
   }, [fetchDetail, fetchPayments]);
 
+  // React Navigation emits 'focus' on a screen's initial mount as well as on
+  // every subsequent return to it — not just the latter. Without this guard,
+  // the effect above (mount/orderId-triggered) and this listener BOTH fire on
+  // first open, doubling every GR Details + payment request. `isInitialFocus`
+  // swallows exactly that first, redundant focus event (already covered by
+  // the effect above) while still refetching on every real "returned to this
+  // screen" focus — e.g. coming back from Edit GR with updated fields.
+  const isInitialFocus = useRef(true);
   useEffect(() => {
+    isInitialFocus.current = true;
     const unsubscribe = navigation.addListener('focus', () => {
+      if (isInitialFocus.current) {
+        isInitialFocus.current = false;
+        return;
+      }
       fetchDetail();
       fetchPayments();
     });
     return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigation]);
+  }, [navigation, orderId]);
 
   // Live updates for THIS GR: staff marking it delivered, a payment settling
   // the balance (→ cleared), an edit to its fields — all arrive over the
