@@ -63,9 +63,13 @@ async def track_gr(gr_number: str, admin: GRAccessUser) -> dict:
     if area and order.area != area:
         raise NotFoundError("GR not found.")
     from app.api.v1.gr import _gr_out  # reuse the full serializer
+    from app.core.rbac import is_admin
 
     detail = await order_repo.get_order_with_details(order.id)
-    return success((await _gr_out(detail or order)).model_dump(mode="json"), message="GR retrieved successfully.")
+    return success(
+        (await _gr_out(detail or order, is_admin=is_admin(admin.role))).model_dump(mode="json"),
+        message="GR retrieved successfully.",
+    )
 
 
 @router.get("/meta/status-counts")
@@ -194,6 +198,11 @@ async def _compute_revenue_overview(admin, session: AsyncSession) -> dict:
         base.append(Order.area == area)
 
     total_paid_expr = func.greatest(func.coalesce(paid.c.paid, 0), func.coalesce(Order.paymentAmount, 0))
+    # Net of any Admin Discount — outstanding/collected counts must reflect
+    # what's actually still owed, never the raw pre-discount bill.
+    eff_to_pay_expr = func.greatest(
+        func.coalesce(Order.toPay, 0) - func.coalesce(Order.discountAmount, 0), 0
+    )
 
     # "Collected" money = the sum of PAYMENT TRANSACTIONS, bucketed by when
     # each payment was recorded. Scoped to the caller's company/area via the
@@ -262,13 +271,13 @@ async def _compute_revenue_overview(admin, session: AsyncSession) -> dict:
             select(
                 func.coalesce(
                     func.sum(
-                        func.greatest(func.coalesce(Order.toPay, 0) - total_paid_expr, 0)
+                        func.greatest(eff_to_pay_expr - total_paid_expr, 0)
                     ).filter(and_(*base)),
                     0,
                 ).label("outstanding"),
                 func.count(Order.id).filter(and_(*base, total_paid_expr > 0)).label("collected_count"),
                 func.count(Order.id)
-                .filter(and_(*base, func.coalesce(Order.toPay, 0) - total_paid_expr > 0.005))
+                .filter(and_(*base, eff_to_pay_expr - total_paid_expr > 0.005))
                 .label("outstanding_count"),
             )
             .select_from(Order)
@@ -303,7 +312,9 @@ async def revenue_overview(
 
 
 def _payment_status_expr(paid_col):
-    to_pay = func.coalesce(Order.toPay, 0)
+    # Net of any Admin Discount — a fully-discounted GR reads as "paid", not
+    # "unpaid"/"partial", exactly like one that was actually paid in full.
+    to_pay = func.greatest(func.coalesce(Order.toPay, 0) - func.coalesce(Order.discountAmount, 0), 0)
     p = func.coalesce(paid_col, 0)
     return case(
         (to_pay <= 0, "paid"),
@@ -449,6 +460,10 @@ async def list_receiving(
     for o, total_paid, pstatus in rows:
         to_pay = float(o.toPay or 0)
         tp = float(total_paid or 0)
+        # `balance` is net of any Admin Discount (effective remaining) — this
+        # endpoint is reachable by Staff too (`GRAccessUser`) and never
+        # exposes the discount amount itself, only the already-net figure.
+        eff_to_pay = max(0.0, to_pay - float(getattr(o, "discountAmount", None) or 0))
         items.append(
             {
                 "id": str(o.id),
@@ -460,7 +475,7 @@ async def list_receiving(
                 "grStatus": o.status.value if hasattr(o.status, "value") else o.status,
                 "toPay": to_pay,
                 "totalPaid": tp,
-                "balance": to_pay - tp,
+                "balance": max(0.0, eff_to_pay - tp),
                 "paymentStatus": pstatus,
                 "paymentCount": 0,
                 "createdAt": o.createdAt.isoformat(),
@@ -493,13 +508,14 @@ async def receiving_overview(
                 func.count(Order.id).filter(status_expr == "partial"),
                 func.count(Order.id).filter(status_expr == "paid"),
                 func.count(Order.id).filter(status_expr == "overpaid"),
+                func.coalesce(func.sum(func.coalesce(Order.discountAmount, 0)), 0),
             )
             .select_from(Order)
             .outerjoin(paid, paid.c.orderId == Order.id)
             .where(*conds)
         )
     ).one()
-    total_to_pay, total_paid, gr_count, unpaid, partial, paid_c, overpaid = rows
+    total_to_pay, total_paid, gr_count, unpaid, partial, paid_c, overpaid, total_discount = rows
     txn = (
         await session.execute(
             select(func.count(Payment.id))
@@ -552,7 +568,11 @@ async def receiving_overview(
         {
             "totalToPay": float(total_to_pay),
             "totalPaid": float(total_paid),
-            "outstanding": float(total_to_pay) - float(total_paid),
+            # Net of any Admin Discount — what's actually still collectible.
+            # `totalDiscount` is intentionally NOT included in this response:
+            # this endpoint is reachable by Staff (`GRAccessUser`) and the
+            # discount amount itself is Admin-only.
+            "outstanding": max(0.0, float(total_to_pay) - float(total_discount) - float(total_paid)),
             "totalTransactions": int(txn),
             "unpaidCount": int(unpaid),
             "partialCount": int(partial),
@@ -595,14 +615,15 @@ async def _compute_outstanding_total(admin, session: AsyncSession) -> float:
             select(
                 func.coalesce(func.sum(func.coalesce(Order.toPay, 0)), 0),
                 func.coalesce(func.sum(func.coalesce(paid.c.paid, 0)), 0),
+                func.coalesce(func.sum(func.coalesce(Order.discountAmount, 0)), 0),
             )
             .select_from(Order)
             .outerjoin(paid, paid.c.orderId == Order.id)
             .where(*conds)
         )
     ).one()
-    total_to_pay, total_paid = row
-    return float(total_to_pay) - float(total_paid)
+    total_to_pay, total_paid, total_discount = row
+    return max(0.0, float(total_to_pay) - float(total_discount) - float(total_paid))
 
 
 @router.get("/meta/staff-dashboard-summary")
@@ -754,6 +775,7 @@ async def shops_overview(
                 func.count(Order.id).filter(Order.status == "delivered"),
                 func.coalesce(func.sum(func.coalesce(Order.toPay, 0)), 0),
                 func.coalesce(func.sum(tp), 0),
+                func.coalesce(func.sum(func.coalesce(Order.discountAmount, 0)), 0),
             )
             .select_from(Order)
             .outerjoin(paid, paid.c.orderId == Order.id)
@@ -762,8 +784,8 @@ async def shops_overview(
         )
     ).all()
     out = []
-    for a, total, pending, cleared, uncleared, delivered, ttp, tc in rows:
-        ttp_f, tc_f = float(ttp), float(tc)
+    for a, total, pending, cleared, uncleared, delivered, ttp, tc, disc in rows:
+        ttp_f, tc_f, disc_f = float(ttp), float(tc), float(disc)
         out.append(
             {
                 "area": a,
@@ -774,7 +796,8 @@ async def shops_overview(
                 "delivered": int(delivered),
                 "totalToPay": ttp_f,
                 "totalCollected": tc_f,
-                "outstanding": max(0.0, ttp_f - tc_f),
+                # Net of any Admin Discount.
+                "outstanding": max(0.0, ttp_f - disc_f - tc_f),
             }
         )
     return success(out, message="Shops overview retrieved successfully.")

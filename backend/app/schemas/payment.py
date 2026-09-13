@@ -62,7 +62,11 @@ class PaymentOut(BaseModel):
 
 
 class PaymentSummaryOut(BaseModel):
-    """Aggregated payment summary for a single order."""
+    """Aggregated payment summary for a single order. `balance` is always the
+    EFFECTIVE remaining (net of any Admin Discount) — safe for every role.
+    The discount fields below are Admin-only: `get_payment_summary` in
+    `app/api/v1/payment.py` strips them to None for a non-admin caller before
+    this model is returned, never left to the frontend to hide."""
     orderId: UUID
     orderNumber: str
     toPay: float
@@ -71,3 +75,7 @@ class PaymentSummaryOut(BaseModel):
     paymentStatus: str  # "unpaid" | "partial" | "paid" | "overpaid"
     paymentCount: int
     payments: list[PaymentOut] = []
+    discountAmount: Optional[float] = None
+    discountReason: Optional[str] = None
+    discountedBy: Optional[UUID] = None
+    discountedAt: Optional[datetime] = None

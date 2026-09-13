@@ -28,9 +28,17 @@ status the payment flow can trigger.
 
     totalPaid = GREATEST(SUM(payments.amount), COALESCE(orders.paymentAmount, 0))
     totalBill = COALESCE(orders.toPay, 0)
+    effectiveToPay = totalBill - COALESCE(orders.discountAmount, 0)
 
 ``orders.paymentAmount`` is folded in because the Excel bulk import records a
 paid figure straight onto the order without a ``payments`` ledger row.
+
+Discount (Admin-only — always this exact term, everywhere) is a separate, independently
+stored reduction of the bill — see ``Order.discountAmount``. It is never
+folded into ``toPay`` or ``payments``; every "remaining/outstanding/balance"
+figure anywhere in the app must be computed from ``effectiveToPay`` (this
+module's ``effective_to_pay`` / ``effective_to_pay_expr``) instead of the raw
+``toPay``, so a discount is reflected everywhere consistently.
 
 This module only *classifies* — it never writes ``order.status``. Delivery
 status changes exclusively through ``update_gr_status`` (manual "Update
@@ -81,11 +89,37 @@ def assert_status_transition_allowed(user, current_status, new_status) -> None:
         raise ForbiddenError("Staff users can only change Pending GRs to Delivered.")
 
 
-def classify(delivered: bool, total_paid: float | None, total_bill: float | None) -> str:
+def effective_to_pay(to_pay: float | None, discount_amount: float | None) -> float:
+    """``toPay - discountAmount`` — the CANONICAL bill total net of any
+    Admin-applied Discount. Never negative (a discount can never exceed the
+    remaining, so this is a defensive floor, not a normal code path). Every
+    remaining/outstanding/balance computation in the app must derive from
+    this (or ``effective_to_pay_expr`` for SQL), not raw ``toPay``."""
+    return max(0.0, float(to_pay or 0) - float(discount_amount or 0))
+
+
+def effective_to_pay_expr(discount_col=None):
+    """SQL mirror of :func:`effective_to_pay`. ``discount_col`` defaults to
+    ``Order.discountAmount`` — pass it explicitly only when the query already
+    aliases/joins ``Order`` under another name."""
+    col = Order.discountAmount if discount_col is None else discount_col
+    return func.greatest(func.coalesce(Order.toPay, 0) - func.coalesce(col, 0), 0)
+
+
+def classify(
+    delivered: bool,
+    total_paid: float | None,
+    total_bill: float | None,
+    discount_amount: float | None = None,
+) -> str:
     """Pure-Python classifier - the single source of truth, mirrored exactly by
-    the SQL ``reporting_status_expr`` below. Use for per-record checks / tests."""
+    the SQL ``reporting_status_expr`` below. Use for per-record checks / tests.
+
+    ``total_bill`` is expected to already be the EFFECTIVE bill (net of any
+    discount) when the caller has one on hand; ``discount_amount`` is an
+    optional convenience so a raw ``toPay`` can be passed directly."""
     tp = float(total_paid or 0)
-    tb = float(total_bill or 0)
+    tb = effective_to_pay(total_bill, discount_amount) if discount_amount else float(total_bill or 0)
     if not delivered:
         return "pending"
     if tb > 0:
@@ -122,7 +156,7 @@ def reporting_status_expr(paid_col):
     """SQL CASE mirroring :func:`classify` - resolves to one of
     :data:`REPORTING_STATUSES`."""
     tp = total_paid_expr(paid_col)
-    tb = func.coalesce(Order.toPay, 0)
+    tb = effective_to_pay_expr()
     return case(
         (Order.status == "pending", "pending"),
         (and_(tb > 0, tp >= tb - _EPS), "cleared"),
@@ -203,7 +237,12 @@ async def status_counts(
     paid = paid_subquery()
     rs = reporting_status_expr(paid.c.paid)
     tp = total_paid_expr(paid.c.paid)
-    tb = func.coalesce(Order.toPay, 0)
+    # `totalToPay` stays the raw billed total (what was actually invoiced);
+    # `total_outstanding` — what's actually left to collect — is net of any
+    # Admin discount via `effective_to_pay_expr`. A discount reduces what's
+    # owed, never the historical bill total.
+    tb_raw = func.coalesce(Order.toPay, 0)
+    tb_eff = effective_to_pay_expr()
     conds = _list_filters(company_id, area, search, consignor, date_from, staff_scope)
 
     row = (
@@ -214,10 +253,10 @@ async def status_counts(
                 func.count(Order.id).filter(rs == "cleared").label("cleared"),
                 func.count(Order.id).filter(rs == "uncleared").label("uncleared"),
                 func.count(Order.id).filter(rs == "delivered").label("delivered"),
-                func.coalesce(func.sum(tb), 0).label("total_to_pay"),
+                func.coalesce(func.sum(tb_raw), 0).label("total_to_pay"),
                 func.coalesce(func.sum(tp), 0).label("total_received"),
                 func.coalesce(
-                    func.sum(func.greatest(tb - tp, 0)), 0
+                    func.sum(func.greatest(tb_eff - tp, 0)), 0
                 ).label("total_outstanding"),
             )
             .select_from(Order)

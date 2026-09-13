@@ -143,6 +143,17 @@ class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     paymentMode: Mapped[str | None] = mapped_column(String(40), nullable=True)
     grSourceLabel: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
+    # --- Discount (Admin-only) -----------------------------------------
+    # The CURRENT active discount total on this GR — not a running log (the
+    # append-only audit trail is `order_discount_history`). Effective
+    # remaining is always computed as `toPay - totalPaid - discountAmount`
+    # (see `gr_status_service.effective_to_pay`); never folded into `toPay`
+    # or `Payment`. NULL means "no discount" and is treated as 0 everywhere.
+    discountAmount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    discountReason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    discountedBy: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    discountedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     # Relationships
     company: Mapped["Company"] = relationship(back_populates="orders", lazy="selectin")
     customer: Mapped["Customer | None"] = relationship(back_populates="orders", lazy="selectin")

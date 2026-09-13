@@ -84,13 +84,23 @@ async def create_payment(
     await assert_same_company(admin, order.companyId, session)
 
     to_pay = float(order.toPay or 0)
+    # Net of any Admin Discount — a payment can never push `totalPaid` past
+    # the DISCOUNTED total. Discount is never folded into `toPay` itself, so
+    # this subtraction happens fresh on every payment, here.
+    discount_amount = float(getattr(order, "discountAmount", None) or 0)
+    effective_to_pay = max(0.0, to_pay - discount_amount)
     already_paid_stmt = select(func.coalesce(func.sum(Payment.amount), 0.0)).where(
         Payment.orderId == body.orderId
     )
     already_paid = float((await session.execute(already_paid_stmt)).scalar() or 0.0)
 
-    if to_pay > 0 and already_paid + body.amount > to_pay + 0.005:
-        remaining = max(0.0, to_pay - already_paid)
+    # `to_pay > 0` (not `effective_to_pay > 0`) is the gate: `to_pay <= 0`
+    # means no bill was ever set on this GR (nullable field) — payments stay
+    # uncapped, exactly as before. Once a bill IS set, a full discount makes
+    # `effective_to_pay == 0` and must reject every further payment, not skip
+    # the check.
+    if to_pay > 0 and already_paid + body.amount > effective_to_pay + 0.005:
+        remaining = max(0.0, effective_to_pay - already_paid)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Payment cannot exceed the remaining amount of {remaining:.2f}.",
@@ -257,4 +267,12 @@ async def get_payment_summary(
         )
     payments = await repo.list_by_order(order_id)
     summary["payments"] = [PaymentOut.model_validate(p) for p in payments]
+    # Discount is ADMIN-ONLY. `balance` above is already the effective
+    # (discount-net) remaining — that stays for everyone; only the discount
+    # amount/reason/who/when are stripped here for a non-admin caller.
+    if not is_admin(admin.role):
+        summary["discountAmount"] = None
+        summary["discountReason"] = None
+        summary["discountedBy"] = None
+        summary["discountedAt"] = None
     return summary

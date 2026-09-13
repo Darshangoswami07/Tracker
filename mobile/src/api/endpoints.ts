@@ -95,6 +95,12 @@ export const ENDPOINTS = {
        * travels to the server; extracted fields are returned to the device
        * and saved locally. */
       ocrExtract: '/admin/orders/ocr-extract',
+      /** Admin-only Discount — this exact term is used everywhere in this
+       * app (see `AdminGRDetailsScreen`). Backend independently enforces
+       * ADMIN role (403 for Staff) — these paths are never called for a
+       * Staff user. */
+      discount: (id: string) => `/admin/orders/${id}/discount`,
+      discountHistory: (id: string) => `/admin/orders/${id}/discount/history`,
     },
   },
   otp: {

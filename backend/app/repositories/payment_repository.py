@@ -49,6 +49,9 @@ class PaymentRepository(BaseRepository[Payment]):
                 return None
 
             to_pay = float(order.toPay or 0)
+            discount_amount = float(getattr(order, "discountAmount", None) or 0)
+            # Net of any Admin Discount — never folded into `toPay` itself.
+            effective_to_pay = max(0.0, to_pay - discount_amount)
 
             total_paid_stmt = select(
                 func.coalesce(func.sum(Payment.amount), 0.0)
@@ -58,14 +61,14 @@ class PaymentRepository(BaseRepository[Payment]):
             count_stmt = select(func.count(Payment.id)).where(Payment.orderId == order.id)
             payment_count = (await session.execute(count_stmt)).scalar() or 0
 
-            balance = to_pay - total_paid
+            balance = max(0.0, effective_to_pay - total_paid)
 
-            if to_pay <= 0:
+            if effective_to_pay <= 0:
                 status = "paid"
             elif total_paid <= 0:
                 status = "unpaid"
-            elif total_paid >= to_pay:
-                status = "paid" if total_paid == to_pay else "overpaid"
+            elif total_paid >= effective_to_pay:
+                status = "paid" if total_paid == effective_to_pay else "overpaid"
             else:
                 status = "partial"
 
@@ -77,6 +80,13 @@ class PaymentRepository(BaseRepository[Payment]):
                 "balance": balance,
                 "paymentStatus": status,
                 "paymentCount": payment_count,
+                # Discount fields — the caller (`GET /payments/summary/{id}`)
+                # strips these for a non-admin requester before responding.
+                # Never surfaced to Staff.
+                "discountAmount": discount_amount if discount_amount else None,
+                "discountReason": getattr(order, "discountReason", None),
+                "discountedBy": getattr(order, "discountedBy", None),
+                "discountedAt": getattr(order, "discountedAt", None),
             }
 
 

@@ -276,6 +276,7 @@ _ORDER_COLS = (
     Order.createdAt,
     Order.toPay,
     Order.deletedAt,
+    Order.discountAmount,
 )
 
 
@@ -383,6 +384,11 @@ async def daily_activity(
     collected, delivered = await _asyncio.gather(_collected(), _delivered())
 
     # Order metadata we already have in hand (no extra fetch for these).
+    # `toPay` stays the raw invoiced bill (display value); `discountAmount`
+    # is carried alongside it ONLY to net out "remaining"/"balance"/
+    # "amountPending" below — it is never surfaced in this module's output,
+    # which is Staff-visible (Admin Staff Work monitoring reuses the same
+    # payload), matching the rule that Staff never sees the discount itself.
     order_meta: dict[uuid.UUID, dict] = {}
     for r in collected:
         order_meta[r.id] = {
@@ -392,6 +398,7 @@ async def daily_activity(
             "status": r.status.value if hasattr(r.status, "value") else r.status,
             "createdAt": r.createdAt,
             "toPay": float(r.toPay or 0),
+            "discountAmount": float(getattr(r, "discountAmount", None) or 0),
             "deleted": r.deletedAt is not None,
         }
     delivered_at_map: dict[uuid.UUID, datetime] = {}
@@ -406,6 +413,7 @@ async def daily_activity(
                 "status": r.status.value if hasattr(r.status, "value") else r.status,
                 "createdAt": r.createdAt,
                 "toPay": float(r.toPay or 0),
+                "discountAmount": float(getattr(r, "discountAmount", None) or 0),
                 "deleted": r.deletedAt is not None,
             },
         )
@@ -419,6 +427,7 @@ async def daily_activity(
                 "status": None,
                 "createdAt": None,
                 "toPay": 0.0,
+                "discountAmount": 0.0,
                 "deleted": False,
             },
         )
@@ -443,7 +452,8 @@ async def daily_activity(
             return (
                 await s.execute(
                     select(
-                        Order.id, Order.status, Order.toPay, Order.createdAt, Order.deletedAt
+                        Order.id, Order.status, Order.toPay, Order.createdAt, Order.deletedAt,
+                        Order.discountAmount,
                     ).where(Order.id.in_(payment_only_ids))
                 )
             ).all()
@@ -454,6 +464,7 @@ async def daily_activity(
         if m is not None:
             m["status"] = r.status.value if hasattr(r.status, "value") else r.status
             m["toPay"] = float(r.toPay or 0)
+            m["discountAmount"] = float(r.discountAmount or 0)
             m["createdAt"] = r.createdAt
             m["deleted"] = r.deletedAt is not None
 
@@ -497,7 +508,11 @@ async def daily_activity(
     payment_events = []
     for p in payment_rows:
         led = ledger.get(p.orderId)
-        remaining = max(0.0, led["toPay"] - led["totalPaid"]) if led else None
+        remaining = (
+            max(0.0, led["toPay"] - led.get("discountAmount", 0.0) - led["totalPaid"])
+            if led
+            else None
+        )
         payment_events.append(
             {
                 "id": f"payment:{p.id}",
@@ -527,7 +542,9 @@ async def daily_activity(
                 "deliveredAt": led["deliveredAt"],
                 "toPay": led["toPay"],
                 "totalPaid": led["totalPaid"],
-                "balance": max(0.0, led["toPay"] - led["totalPaid"]),
+                # Net of any Admin Discount — never the discount amount
+                # itself, only the already-net figure (Staff-safe).
+                "balance": max(0.0, led["toPay"] - led.get("discountAmount", 0.0) - led["totalPaid"]),
                 "deleted": bool(led.get("deleted")),
             }
             for oid, led in ledger.items()
@@ -539,7 +556,7 @@ async def daily_activity(
     amount_collected = sum(float(p.amount) for p in payment_rows)
     total_bill_value = sum(float(r.toPay or 0) for r in collected)
     amount_pending = sum(
-        max(0.0, ledger[oid]["toPay"] - ledger[oid]["totalPaid"])
+        max(0.0, ledger[oid]["toPay"] - ledger[oid].get("discountAmount", 0.0) - ledger[oid]["totalPaid"])
         for oid in collected_ids
         if oid in ledger
     )
